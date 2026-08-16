@@ -8,6 +8,8 @@ This repository is a native Apple game project. Before doing nontrivial work, re
 - `docs/TECHNICAL_ARCHITECTURE.md`
 - `docs/ART_DIRECTION.md`
 - `docs/ORIGINAL_GAMES_RESEARCH.md`
+- `docs/IP_AND_LEGAL_BOUNDARIES.md`
+- `docs/CAMPAIGN_PLAN.md`
 - `docs/ROADMAP.md`
 
 ## Project summary
@@ -66,6 +68,8 @@ Examples:
 - Keep core gameplay rules in maintainable Swift/data structures even when Reality Composer Pro visual graphs are used for authoring.
 - Surface blockers immediately.
 - Preserve IP separation from the original games.
+- `docs/IP_AND_LEGAL_BOUNDARIES.md` is mandatory project policy for levels, characters, story, UI, assets, naming and any use of original-game research.
+- Extract abstract mechanics from the originals, then independently redesign geometry, timings, security graphs, story context and visual expression. Do not reconstruct specific original missions.
 
 ## Immediate product goal
 
