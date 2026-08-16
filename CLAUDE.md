@@ -11,7 +11,9 @@ Before changing architecture or gameplay, read:
 3. `docs/TECHNICAL_ARCHITECTURE.md`
 4. `docs/ART_DIRECTION.md`
 5. `docs/ORIGINAL_GAMES_RESEARCH.md`
-6. `docs/ROADMAP.md`
+6. `docs/IP_AND_LEGAL_BOUNDARIES.md`
+7. `docs/CAMPAIGN_PLAN.md`
+8. `docs/ROADMAP.md`
 
 Do not ask the owner to re-explain facts already written there.
 
@@ -217,6 +219,8 @@ Visual target: dark, polished, tactical, readable, semi-realistic/stylized PBR. 
 
 The original games are research references only.
 
+`docs/IP_AND_LEGAL_BOUNDARIES.md` is mandatory project policy. If any level, character, story element, UI, asset, title, marketing idea or code use conflicts with that document, the legal-boundary document wins until the owner explicitly changes the policy after review.
+
 Do not copy:
 
 - maps;
@@ -236,6 +240,8 @@ Do study:
 - guard inspection behavior;
 - multi-character synchronization;
 - plan-record/execute feedback loop.
+
+When inspired by a specific original mission, extract the abstract mechanic first, then independently redesign geometry, patrol topology, timing values, security graph, objective context, names and visual expression. Do not reconstruct a recognizable original mission with replacement art.
 
 `docs/ORIGINAL_GAMES_RESEARCH.md` contains verified links and all 18 sequel mission names.
 
