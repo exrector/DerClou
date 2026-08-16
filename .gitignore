@@ -1,0 +1,39 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Xcode user-specific data
+xcuserdata/
+*.xcuserstate
+*.xcscmblueprint
+
+# Xcode build output
+build/
+DerivedData/
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Swift Package Manager local/build state
+.build/
+.swiftpm/xcode/package.xcworkspace/contents.xcworkspacedata
+.swiftpm/xcode/xcuserdata/
+Package.resolved
+
+# Xcode local workspace state
+*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+
+# Temporary/editor files
+*.swp
+*.tmp
+*~
+
+# Agent/local environment files
+.env
+.env.*
+!.env.example
+
+# Do NOT ignore Reality Composer Pro / RealityKit project content.
+# RCP scene/content assets required to build the game belong in source control.
