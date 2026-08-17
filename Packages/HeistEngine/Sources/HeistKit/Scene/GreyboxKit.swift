@@ -73,6 +73,42 @@ public enum GreyboxKit {
         return entity
     }
 
+    /// A dark apron extending well past the building.
+    ///
+    /// Stops the edges of the display from ever showing empty background, and
+    /// gives the hardware cutout something deliberate to sit on.
+    @MainActor
+    public static func ground(around geometry: LevelGeometry) -> ModelEntity {
+        var minX = 0.0, maxX = 0.0, minZ = 0.0, maxZ = 0.0
+        for floor in geometry.floors {
+            minX = min(minX, floor.center.x - floor.width / 2)
+            maxX = max(maxX, floor.center.x + floor.width / 2)
+            minZ = min(minZ, floor.center.z - floor.depth / 2)
+            maxZ = max(maxZ, floor.center.z + floor.depth / 2)
+        }
+
+        // Generous: the camera can zoom out to frame the level plus margin, and
+        // this has to cover the corners of that view at any pan.
+        let padding = max(maxX - minX, maxZ - minZ)
+        let width = (maxX - minX) + padding * 2
+        let depth = (maxZ - minZ) + padding * 2
+
+        var material = PhysicallyBasedMaterial()
+        material.baseColor = .init(tint: PlatformColor(red: 0.07, green: 0.08, blue: 0.10, alpha: 1))
+        material.roughness = .init(floatLiteral: 0.95)
+
+        let entity = ModelEntity(
+            mesh: .generateBox(width: Float(width), height: 0.2, depth: Float(depth)),
+            materials: [material]
+        )
+        entity.name = "environment.ground"
+        entity.setPosition(
+            SIMD3<Float>(Float((minX + maxX) / 2), -0.16, Float((minZ + maxZ) / 2)),
+            relativeTo: nil
+        )
+        return entity
+    }
+
     /// Outline of a world-space rectangle, drawn flat on the floor.
     ///
     /// Used to show the real system-derived safe gameplay area during greybox

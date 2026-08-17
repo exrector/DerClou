@@ -43,6 +43,7 @@ struct GameScreen: View {
 
     private var debugControls: some View {
         VStack(alignment: .trailing, spacing: 8) {
+            focusButton
             toggleButton
             if isDebugPanelShown {
                 debugPanel
@@ -50,6 +51,20 @@ struct GameScreen: View {
             }
         }
         .padding(12)
+    }
+
+    /// Returns the camera to framing the whole level.
+    private var focusButton: some View {
+        Button {
+            session.requestCameraReset()
+        } label: {
+            Image(systemName: "scope")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.9))
+                .frame(width: 32, height: 32)
+                .background(.ultraThinMaterial, in: Circle())
+        }
+        .buttonStyle(.plain)
     }
 
     private var toggleButton: some View {

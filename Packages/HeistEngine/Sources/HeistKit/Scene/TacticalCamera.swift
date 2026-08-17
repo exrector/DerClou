@@ -45,15 +45,27 @@ public final class TacticalCamera {
         entity.components.set(camera)
     }
 
+    /// Player pan and zoom. Rotation is deliberately not offered.
+    public var control: CameraControl = .neutral
+
     /// Frames the given level for a viewport of `aspectRatio`.
-    public func frame(bounds: CellRect, metrics: LevelMetrics, aspectRatio: Double) {
+    public func frame(
+        bounds: CellRect,
+        metrics: LevelMetrics,
+        aspectRatio: Double,
+        screenInsets: ScreenInsets = .zero,
+        viewportSize: (width: Double, height: Double)? = nil
+    ) {
         let framing = CameraFramingSolver.solve(
             bounds: bounds,
             metrics: metrics,
             aspectRatio: aspectRatio,
             tiltDegrees: tiltDegrees,
             mode: mode,
-            margin: margin
+            margin: margin,
+            screenInsets: screenInsets,
+            viewportSize: viewportSize,
+            control: control
         )
         if !framing.showsWholeLevel {
             log.warning("""

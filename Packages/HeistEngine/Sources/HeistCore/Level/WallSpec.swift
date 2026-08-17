@@ -53,19 +53,27 @@ public struct WallSpec: Codable, Sendable, Equatable, Identifiable {
     public var openings: [WallOpening]
     /// Material key resolved against the environment kit.
     public var material: String
+    /// Overrides `LevelMetrics.wallThickness`, in meters.
+    ///
+    /// Exterior walls are deliberately thick. They extend past the floor, so
+    /// they are what falls under a hardware cutout at the edge of the display —
+    /// architecture rather than empty space. See docs/DEVELOPMENT_FINDINGS.md.
+    public var thickness: Double?
 
     public init(
         id: String,
         start: CellPoint,
         end: CellPoint,
         openings: [WallOpening] = [],
-        material: String = "wall.plaster"
+        material: String = "wall.plaster",
+        thickness: Double? = nil
     ) {
         self.id = id
         self.start = start
         self.end = end
         self.openings = openings
         self.material = material
+        self.thickness = thickness
     }
 
     /// Length of the wall run, in cells.

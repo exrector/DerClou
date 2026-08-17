@@ -15,6 +15,17 @@ public enum LevelLibrary {
 }
 
 extension LevelBlueprint {
+    /// Thickness of the building's outer shell, in meters.
+    ///
+    /// Thicker than an interior wall, like a real load-bearing exterior, so the
+    /// building has a solid edge that reads as architecture where the display
+    /// curves away. Not thicker than that: an over-wide shell dominates the
+    /// frame and washes out the interior, which is the actual subject.
+    ///
+    /// Everything beyond the shell is ground, and the camera separately
+    /// guarantees the floor stays inside the system safe area.
+    static let exteriorWallThickness = 0.6
+
     /// Engineering test location: three rooms off a single corridor.
     ///
     /// Deliberately proportioned for a landscape phone (24 × 10 m ≈ 2.4:1) so the
@@ -46,10 +57,10 @@ extension LevelBlueprint {
                 FloorSpec(id: "office01.floor.main", rect: CellRect(x: 0, y: 0, width: 24, depth: 10))
             ],
             walls: [
-                WallSpec(id: "office01.wall.north", start: CellPoint(0, 0), end: CellPoint(24, 0)),
-                WallSpec(id: "office01.wall.south", start: CellPoint(0, 10), end: CellPoint(24, 10)),
-                WallSpec(id: "office01.wall.west", start: CellPoint(0, 0), end: CellPoint(0, 10)),
-                WallSpec(id: "office01.wall.east", start: CellPoint(24, 0), end: CellPoint(24, 10)),
+                WallSpec(id: "office01.wall.north", start: CellPoint(0, 0), end: CellPoint(24, 0), thickness: exteriorWallThickness),
+                WallSpec(id: "office01.wall.south", start: CellPoint(0, 10), end: CellPoint(24, 10), thickness: exteriorWallThickness),
+                WallSpec(id: "office01.wall.west", start: CellPoint(0, 0), end: CellPoint(0, 10), thickness: exteriorWallThickness),
+                WallSpec(id: "office01.wall.east", start: CellPoint(24, 0), end: CellPoint(24, 10), thickness: exteriorWallThickness),
                 WallSpec(
                     id: "office01.wall.corridor",
                     start: CellPoint(0, 6),

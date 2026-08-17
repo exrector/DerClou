@@ -109,7 +109,7 @@ public enum LevelGeometryBuilder {
                     ),
                     width: metrics.meters(fromCells: segment.length),
                     height: segment.height,
-                    depth: metrics.wallThickness,
+                    depth: wall.thickness ?? metrics.wallThickness,
                     yaw: yaw,
                     surface: surface,
                     sourceID: "\(wall.id).\(index)"

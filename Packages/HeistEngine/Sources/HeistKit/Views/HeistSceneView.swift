@@ -13,6 +13,8 @@ public struct HeistSceneView: View {
     @Bindable private var session: GameSession
     @State private var camera = TacticalCamera()
     @State private var viewportSize: CGSize = .zero
+    @State private var lastDragTranslation: CGSize = .zero
+    @State private var lastMagnification: CGFloat = 1
 
     /// System safe-area insets, read by the caller *outside* `ignoresSafeArea`.
     private let safeAreaInsets: EdgeInsets
@@ -50,10 +52,18 @@ public struct HeistSceneView: View {
             .onTapGesture { location in
                 handleTap(at: location)
             }
+            // Pan and pinch, but never rotation: the map is a puzzle, and it
+            // only stays learnable if screen directions never move.
+            .gesture(panGesture)
+            .simultaneousGesture(zoomGesture)
             .onAppear { updateViewport(proxy.size) }
             .onChange(of: proxy.size) { _, size in updateViewport(size) }
             .onChange(of: session.level?.blueprint.id) { _, _ in updateViewport(proxy.size) }
             .onChange(of: safeAreaInsets) { _, _ in updateViewport(proxy.size) }
+            .onChange(of: session.cameraResetToken) { _, _ in
+                camera.control = .neutral
+                frameCamera(size: viewportSize)
+            }
             // Mission time advances here, and only here: this is the single
             // point where render time is allowed to touch gameplay.
             .task {
@@ -99,8 +109,59 @@ public struct HeistSceneView: View {
         camera.frame(
             bounds: blueprint.bounds,
             metrics: blueprint.metrics,
-            aspectRatio: Double(size.width / size.height)
+            aspectRatio: Double(size.width / size.height),
+            screenInsets: ScreenInsets(
+                top: Double(safeAreaInsets.top),
+                leading: Double(safeAreaInsets.leading),
+                bottom: Double(safeAreaInsets.bottom),
+                trailing: Double(safeAreaInsets.trailing)
+            ),
+            viewportSize: (width: Double(size.width), height: Double(size.height))
         )
+    }
+
+    // MARK: - Camera gestures
+
+    private var panGesture: some Gesture {
+        DragGesture(minimumDistance: 12)
+            .onChanged { value in
+                guard let blueprint = session.level?.blueprint,
+                      let framing = camera.framing,
+                      viewportSize.height > 0 else { return }
+
+                // Convert the drag into world meters at the current zoom, so a
+                // finger stays on the same spot on the floor.
+                let metersPerPoint = framing.verticalExtent / Double(viewportSize.height)
+                let delta = WorldPoint(
+                    x: -Double(value.translation.width - lastDragTranslation.width) * metersPerPoint,
+                    y: 0,
+                    z: -Double(value.translation.height - lastDragTranslation.height) * metersPerPoint
+                )
+                lastDragTranslation = value.translation
+
+                camera.control = camera.control.panned(
+                    by: delta,
+                    within: blueprint.bounds,
+                    metrics: blueprint.metrics
+                )
+                frameCamera(size: viewportSize)
+            }
+            .onEnded { _ in
+                lastDragTranslation = .zero
+            }
+    }
+
+    private var zoomGesture: some Gesture {
+        MagnifyGesture()
+            .onChanged { value in
+                let factor = value.magnification / max(lastMagnification, 0.01)
+                lastMagnification = value.magnification
+                camera.control = camera.control.zoomed(by: factor)
+                frameCamera(size: viewportSize)
+            }
+            .onEnded { _ in
+                lastMagnification = 1
+            }
     }
 
     /// Turns a screen tap into a world point on the floor plane, plus whatever
