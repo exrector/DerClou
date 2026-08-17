@@ -9,19 +9,28 @@ struct GameScreen: View {
     @State private var isDebugPanelShown = false
 
     var body: some View {
+        // The insets have to be read *outside* `ignoresSafeArea`, or they are
+        // already consumed by the time the scene view sees them.
+        GeometryReader { proxy in
+            content(safeAreaInsets: proxy.safeAreaInsets)
+        }
+    }
+
+    private func content(safeAreaInsets: EdgeInsets) -> some View {
         ZStack {
             Color.black
 
-            HeistSceneView(session: session)
+            HeistSceneView(session: session, safeAreaInsets: safeAreaInsets)
         }
-        // An overlay sized to its own content, not a full-screen layer: anything
-        // stretched edge to edge here would sit between the player and the scene.
+        // The scene owns the whole display, including under the notch and the
+        // home indicator...
+        .ignoresSafeArea()
+        // ...but the HUD sits inside the safe area, which is why this overlay is
+        // attached after `ignoresSafeArea` rather than before it. Sized to its
+        // own content, so it never covers the scene.
         .overlay(alignment: .topTrailing) {
             debugControls
         }
-        // The scene owns the whole display, including under the notch and the
-        // home indicator. Only the HUD respects the safe area.
-        .ignoresSafeArea()
         .statusBarHidden()
         .persistentSystemOverlays(.hidden)
         .task {
@@ -77,6 +86,20 @@ struct GameScreen: View {
                     .font(.caption2)
                     .foregroundStyle(.orange)
             }
+
+            if !session.placementIssues.isEmpty {
+                Label("\(session.placementIssues.count) outside safe area", systemImage: "rectangle.dashed")
+                    .font(.caption2)
+                    .foregroundStyle(.orange)
+            }
+
+            Toggle("Safe area", isOn: Binding(
+                get: { session.isSafeBoundsShown },
+                set: { session.setSafeBoundsVisible($0) }
+            ))
+            .toggleStyle(.switch)
+            .font(.caption2)
+            .tint(.orange)
         }
         .multilineTextAlignment(.leading)
         .frame(maxWidth: 260, alignment: .leading)

@@ -20,7 +20,14 @@ public final class GameSession {
     public private(set) var destination: SIMD3<Float>?
     /// Short human-readable result of the last action, shown in the debug HUD.
     public private(set) var status: String = "No level loaded"
+    /// World region clear of system-reserved screen areas, for the current
+    /// device and orientation.
+    public private(set) var safeBounds: SafeGameplayBounds?
+    /// Mission-critical objects currently sitting outside that region.
+    public private(set) var placementIssues: [LevelIssue] = []
+
     @ObservationIgnored private var destinationMarker: Entity?
+    @ObservationIgnored private var safeBoundsMarker: Entity?
 
     public init() {}
 
@@ -59,6 +66,65 @@ public final class GameSession {
             ? "Loaded \(blueprint.id) with \(built.issues.errors.count) blueprint errors"
             : "Loaded \(blueprint.id), \(walkableCells) walkable cells"
         log.info("\(self.status, privacy: .public)")
+    }
+
+    // MARK: - Safe gameplay area
+
+    /// Recomputes the safe region from the live safe-area insets.
+    ///
+    /// The world renders edge to edge, but anything the player must see, tap or
+    /// reason about has to stay inside the system safe area. That region depends
+    /// on the device and orientation, so it is checked here rather than in the
+    /// blueprint. See docs/DEVELOPMENT_FINDINGS.md.
+    public func updateSafeArea(
+        viewportSize: (width: Double, height: Double),
+        insets: ScreenInsets,
+        framing: CameraFraming
+    ) {
+        guard let level else { return }
+
+        guard let bounds = SafeAreaSolver.gameplayBounds(
+            viewportSize: viewportSize,
+            insets: insets,
+            framing: framing
+        ) else { return }
+
+        guard bounds != safeBounds else { return }
+        safeBounds = bounds
+
+        placementIssues = SafeAreaSolver.placementIssues(
+            for: level.blueprint,
+            catalog: level.build.catalog,
+            bounds: bounds
+        )
+        for issue in placementIssues {
+            log.warning("\(issue.description, privacy: .public)")
+        }
+
+        updateSafeBoundsMarker(bounds)
+    }
+
+    /// Shows or hides the debug outline of the safe gameplay area.
+    public func setSafeBoundsVisible(_ isVisible: Bool) {
+        isSafeBoundsShown = isVisible
+        safeBoundsMarker?.isEnabled = isVisible
+    }
+
+    public private(set) var isSafeBoundsShown = false
+
+    private func updateSafeBoundsMarker(_ bounds: SafeGameplayBounds) {
+        guard let root = level?.root else { return }
+
+        safeBoundsMarker?.removeFromParent()
+        let marker = GreyboxKit.boundsOutline(
+            minX: Float(bounds.minX),
+            maxX: Float(bounds.maxX),
+            minZ: Float(bounds.minZ),
+            maxZ: Float(bounds.maxZ)
+        )
+        marker.isEnabled = isSafeBoundsShown
+        root.addChild(marker)
+        safeBoundsMarker = marker
     }
 
     // MARK: - Input

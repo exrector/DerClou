@@ -73,6 +73,53 @@ public enum GreyboxKit {
         return entity
     }
 
+    /// Outline of a world-space rectangle, drawn flat on the floor.
+    ///
+    /// Used to show the real system-derived safe gameplay area during greybox
+    /// development, so placement can be checked on device rather than guessed.
+    @MainActor
+    public static func boundsOutline(
+        minX: Float,
+        maxX: Float,
+        minZ: Float,
+        maxZ: Float,
+        thickness: Float = 0.06
+    ) -> Entity {
+        let container = Entity()
+        container.name = "debug.safeBounds"
+
+        var material = PhysicallyBasedMaterial()
+        let color = PlatformColor(red: 0.95, green: 0.75, blue: 0.25, alpha: 1)
+        material.baseColor = .init(tint: color)
+        material.emissiveColor = .init(color: color)
+        material.emissiveIntensity = 2.5
+        material.roughness = .init(floatLiteral: 0.6)
+
+        let width = maxX - minX
+        let depth = maxZ - minZ
+        let centerX = (minX + maxX) / 2
+        let centerZ = (minZ + maxZ) / 2
+
+        let edges: [(w: Float, d: Float, x: Float, z: Float)] = [
+            (width, thickness, centerX, minZ),
+            (width, thickness, centerX, maxZ),
+            (thickness, depth, minX, centerZ),
+            (thickness, depth, maxX, centerZ)
+        ]
+
+        for (index, edge) in edges.enumerated() {
+            let bar = ModelEntity(
+                mesh: .generateBox(width: edge.w, height: 0.01, depth: edge.d),
+                materials: [material]
+            )
+            bar.name = "debug.safeBounds.\(index)"
+            bar.setPosition(SIMD3<Float>(edge.x, 0.015, edge.z), relativeTo: nil)
+            container.addChild(bar)
+        }
+
+        return container
+    }
+
     /// A flat marker disc, used for the debug destination indicator.
     @MainActor
     public static func destinationMarker() -> ModelEntity {
