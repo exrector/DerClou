@@ -21,13 +21,11 @@ public struct GuardPatrolSystem: System {
 
             let state = guardComponent.route.state(at: guardComponent.missionTime)
 
-            entity.setPosition(
-                SIMD3<Float>(Float(state.position.x), 0, Float(state.position.z)),
-                relativeTo: nil
-            )
-            entity.setOrientation(
-                simd_quatf(angle: Float(state.facing * .pi / 180), axis: SIMD3<Float>(0, 1, 0)),
-                relativeTo: nil
+            // Level space: a patrol is a function of mission time, not of how
+            // the scene happens to be leaning.
+            entity.position = SIMD3<Float>(Float(state.position.x), 0, Float(state.position.z))
+            entity.orientation = simd_quatf(
+                angle: Float(state.facing * .pi / 180), axis: SIMD3<Float>(0, 1, 0)
             )
         }
     }

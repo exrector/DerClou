@@ -38,23 +38,16 @@ public enum LevelSceneBuilder {
         let root = Entity()
         root.name = "level.\(blueprint.id)"
 
-        // Everything that may slide under the fixed walls lives in one group:
-        // the floor and the things standing on it. The walls stay in the root,
-        // pinned to the screen.
-        let floorGroup = Entity()
-        floorGroup.name = "level.floorGroup"
-        root.addChild(floorGroup)
-
         // Ground first: a dark apron well beyond the building, so the display
-        // never shows empty background at the edges however the camera is
-        // panned or zoomed. What sits under a hardware cutout is scenery.
+        // never shows empty background at the edges however the camera leans or
+        // zooms. What sits under a hardware cutout is scenery.
         root.addChild(GreyboxKit.ground(around: geometry))
 
         for box in geometry.floors {
             let entity = GreyboxKit.entity(for: box)
             entity.components.set(LevelEntityComponent(id: box.sourceID, kind: .architecture))
             entity.collision = CollisionComponent(shapes: [collisionShape(for: box)])
-            floorGroup.addChild(entity)
+            root.addChild(entity)
         }
 
         for box in geometry.walls {
@@ -75,7 +68,7 @@ public enum LevelSceneBuilder {
                     InteractableComponent(id: prop.id, interactions: prop.prototype.interactions)
                 )
             }
-            floorGroup.addChild(entity)
+            root.addChild(entity)
         }
 
         var actorEntities: [String: Entity] = [:]
@@ -113,13 +106,9 @@ public enum LevelSceneBuilder {
     private static func actorEntity(for actor: PlacedProp, route: PatrolRoute?) -> Entity {
         let container = Entity()
         container.name = actor.id
-        container.setPosition(
-            SIMD3<Float>(Float(actor.box.center.x), 0, Float(actor.box.center.z)),
-            relativeTo: nil
-        )
-        container.setOrientation(
-            simd_quatf(angle: Float(actor.box.yaw * .pi / 180), axis: SIMD3<Float>(0, 1, 0)),
-            relativeTo: nil
+        container.position = SIMD3<Float>(Float(actor.box.center.x), 0, Float(actor.box.center.z))
+        container.orientation = simd_quatf(
+            angle: Float(actor.box.yaw * .pi / 180), axis: SIMD3<Float>(0, 1, 0)
         )
 
         let height = Float(actor.prototype.height)

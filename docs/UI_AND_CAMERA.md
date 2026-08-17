@@ -88,42 +88,64 @@ TRACES      0
 
 | Gesture | Effect | Status |
 |---|---|---|
-| One finger drag | Pan the map | implemented |
+| One finger drag | Lean into the box — "peek" | implemented |
 | Pinch | Zoom | implemented |
-| Two-finger vertical drag | Limited tilt — "peek" | implemented |
 | Double tap an actor | Focus that actor | planned |
 | Button | Fit the whole mission | implemented |
 | — | **Rotation is not offered** | decided |
+| — | **Panning is not offered** | decided |
 
-### Peek tilt
+### The anchored view shift
 
-The tactical angle is near-overhead. A two-finger vertical drag lowers it within
-a fixed range — roughly 82° down to 65–70° — which reveals what a plan view
-cannot show: the inner face of a wall, a doorway, a wall-mounted camera, the
-height of furniture, an actor standing behind an object.
+Settled by the owner on 2026-08-18, after five rejected attempts that each moved
+the level on screen in one way or another. The rule, in his words:
 
-Strictly one dimension. **The map's orientation never changes** — north does not
-become west. The player peeks under an angle; they do not fly around the scene.
-That is what protects spatial memory, keeps vision cones comparable, and stops
-tap-to-move fighting the view.
+> Представь уровень как открытую сверху прямоугольную коробку. В исходном
+> состоянии камера смотрит почти строго сверху вниз, так что верхние торцы
+> внешних стен образуют фиксированную рамку уровня на экране. **Эту рамку нельзя
+> двигать по экрану при жесте.**
 
-**Peeking does not re-frame.** The tactical angle is the only view with a
-guaranteed framing; a peek is local inspection, so part of the level running off
-screen is expected. Automatically zooming out to keep everything visible would
-defeat the point of leaning in.
+So:
 
-Implemented starting range: 0–14° beyond the tactical 24°, at 0.06° per point of
-drag. Numbers to be settled by eye on device.
+* The camera looks **straight down**, never rotates, and never moves for a
+  gesture — only zoom changes where it stands.
+* The **tops of the exterior walls frame the level**, and that frame is fixed to
+  the display: same pixels at every lean, in all four directions.
+* What moves, against that fixed frame, is everything *below* it: the floor, the
+  furniture, the people, the inside faces of the walls. The further below the
+  frame something is, the further it travels.
 
-**The point under the fingers stays put.** The gesture records the world point
-beneath the touch midpoint, then re-pans after each tilt so that point returns to
-the same pixel. Without it the map slides out from under the hand and the gesture
-reads as the camera lurching. This is what `ScreenProjection.screenPoint(of:)`
-exists for, and there is a round-trip test covering it.
+That is neither a pan nor an orbit — both move the frame. It is an anchored shift
+of viewpoint, and it is what makes the level read as a box being looked into.
+
+**How it is done.** A shear of the scene about the plane of the wall tops. A
+shear leaves its own plane exactly where it was, so the frame cannot drift: there
+is no correction term to get slightly wrong. `ViewShear` in `HeistCore` is the
+transform, and `CameraControlTests` asserts every corner of the frame holds to
+better than a hundredth of a pixel across the whole range of lean.
+
+The equivalent expression on the camera — an off-axis frustum, camera sliding
+sideways with the projection sheared to match — is mathematically identical and
+was implemented first. It renders black:
+`ProjectiveTransformCameraComponent` is ignored by `RealityView` on iOS 18.6,
+while a control `PerspectiveCameraComponent` on the same entity renders. Do not
+spend another evening on it.
+
+**Range.** ±20°, at 0.09° per point of drag, so a drag across half the screen
+reaches the limit. A lean of θ slides the floor by the wall height × tan θ, so
+20° exposes a little over a third of a wall's inside face.
+
+**The floor follows the finger.** Drag right, the floor goes right, and the
+inside of the wall it moves away from comes into view.
+
+**Nothing outside the building can ever come into frame.** Not by a compensating
+zoom, but structurally: the wall tops are the outermost geometry and they are
+pinned to the display edges, so anything beyond them is either behind a wall or
+off screen. There is a test for that too.
 
 ### Walls between the camera and the action
 
-Tilting still looks from the same side, so it cannot show the far face of a wall.
+Leaning looks from a shallow angle, so it cannot show the far face of a wall.
 The answer is not free rotation but the standard architectural one: a wall that
 comes between the camera and the selected actor goes
 

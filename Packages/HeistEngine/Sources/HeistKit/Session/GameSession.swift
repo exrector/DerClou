@@ -80,15 +80,26 @@ public final class GameSession {
         cameraResetToken += 1
     }
 
-    /// Slides the floor and its contents under the fixed walls.
+    /// Leans the scene into the building.
     ///
-    /// The camera does not move at all. The walls stay exactly where they are on
-    /// screen and only what stands on the floor shifts, which is what makes it
-    /// read as looking further into the building from above rather than as the
-    /// whole level being dragged around.
-    public func setFloorOffset(x: Double, z: Double) {
-        guard let group = level?.root.findEntity(named: "level.floorGroup") else { return }
-        group.setPosition(SIMD3<Float>(Float(x), 0, Float(z)), relativeTo: level?.root)
+    /// Presentation only. The shear is applied to the level's root entity, so
+    /// the tops of the walls stay pinned to the display while everything below
+    /// them slides; nothing the rules care about moves, because navigation,
+    /// patrols and every stored position live in the level's own space and this
+    /// only changes how that space is drawn.
+    public func setViewShear(_ shear: ViewShear) {
+        guard let root = level?.root else { return }
+
+        let columns = shear.columns
+        root.setTransformMatrix(
+            simd_float4x4(
+                SIMD4<Float>(columns[0].map(Float.init)),
+                SIMD4<Float>(columns[1].map(Float.init)),
+                SIMD4<Float>(columns[2].map(Float.init)),
+                SIMD4<Float>(columns[3].map(Float.init))
+            ),
+            relativeTo: nil
+        )
     }
 
     // MARK: - Mission time
@@ -250,7 +261,7 @@ public final class GameSession {
         }
         guard let level else { return }
 
-        let from = actor.position(relativeTo: nil)
+        let from = actor.position
         let start = WorldPoint(x: Double(from.x), y: 0, z: Double(from.z))
         let goal = WorldPoint(x: Double(worldPoint.x), y: 0, z: Double(worldPoint.z))
 
@@ -320,7 +331,7 @@ public final class GameSession {
     private func showDestinationMarker(at point: SIMD3<Float>) {
         guard let destinationMarker else { return }
         destinationMarker.isEnabled = true
-        destinationMarker.setPosition(SIMD3<Float>(point.x, 0.02, point.z), relativeTo: nil)
+        destinationMarker.position = SIMD3<Float>(point.x, 0.02, point.z)
     }
 
 }

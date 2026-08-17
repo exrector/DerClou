@@ -107,7 +107,7 @@ extension LevelBlueprint {
                 PropSpec(id: "office01.crate.02", prototype: "crate.storage", position: CellPoint(16.0, 2.6)),
                 PropSpec(id: "office01.crate.03", prototype: "crate.storage", position: CellPoint(21.5, 1.2), rotation: 90),
                 PropSpec(id: "office01.shelf.01", prototype: "cabinet.filing", position: CellPoint(19.0, 0.5)),
-                PropSpec(id: "office01.shelf.02", prototype: "cabinet.filing", position: CellPoint(22.6, 3.5), rotation: 90),
+                PropSpec(id: "office01.shelf.02", prototype: "cabinet.filing", position: CellPoint(22.1, 3.5), rotation: 90),
                 // Against the far wall, not beside the door: a safe parked in
                 // front of a doorway seals the room once the character radius is
                 // taken into account.
@@ -125,7 +125,7 @@ extension LevelBlueprint {
                 // screen edges and the strip the Plan Deck will cover.
                 PropSpec(id: "office01.panel.corridor", prototype: "panel.security", position: CellPoint(4.0, 6.3)),
 
-                PropSpec(id: "office01.extraction", prototype: "marker.extraction", position: CellPoint(1.2, 9.0))
+                PropSpec(id: "office01.extraction", prototype: "marker.extraction", position: CellPoint(2.2, 9.3))
             ],
             actors: [
                 ActorSpec(id: "office01.thief.01", prototype: "actor.thief", position: CellPoint(2.0, 8.6)),
@@ -144,7 +144,7 @@ extension LevelBlueprint {
             ],
             markers: [
                 MarkerSpec(id: "office01.marker.spawn", kind: .spawn, position: CellPoint(2.0, 8.6)),
-                MarkerSpec(id: "office01.marker.extraction", kind: .extraction, position: CellPoint(1.2, 9.0))
+                MarkerSpec(id: "office01.marker.extraction", kind: .extraction, position: CellPoint(2.2, 9.3))
             ],
             security: [
                 SecurityLinkSpec(

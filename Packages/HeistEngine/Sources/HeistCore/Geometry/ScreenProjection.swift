@@ -12,21 +12,24 @@ public struct WorldRay: Sendable, Equatable {
     }
 }
 
-/// Turns a screen tap into a world ray under the tactical camera.
+/// Turns a screen tap into a world ray under the tactical camera, and back.
 ///
 /// Done by hand rather than through RealityKit's entity-targeting gestures: the
 /// projection is exactly defined by the camera framing we already compute, so
 /// tap resolution becomes deterministic, testable, and independent of how the
 /// input stack decides to hit-test entities.
 ///
-/// The tactical camera never rotates around the vertical axis, which keeps this
-/// simple: screen-right is always world +x, and the camera basis follows from
-/// the framing alone.
+/// Two spaces meet here. *Level space* is where the game lives: floors, walls,
+/// the navigation grid and every position the rules care about. *World space* is
+/// what the renderer draws, which is level space with the lean applied. Rays
+/// come out in world space, because that is what the scene is; the caller undoes
+/// the lean when it wants an answer the game can use.
 public enum ScreenProjection {
     /// - Parameters:
     ///   - screenPoint: tap location in points, origin top-left, y down.
     ///   - viewportSize: view size in points.
     ///   - framing: the framing currently applied to the camera.
+    /// - Returns: a ray in world space.
     public static func ray(
         screenPoint: (x: Double, y: Double),
         viewportSize: (width: Double, height: Double),
@@ -34,69 +37,40 @@ public enum ScreenProjection {
     ) -> WorldRay? {
         guard viewportSize.width > 0, viewportSize.height > 0 else { return nil }
 
-        let (right, up, forward) = framing.basis
-
         // Normalised device coordinates: x right, y up, both in -1...1.
         let ndcX = (screenPoint.x / viewportSize.width) * 2 - 1
         let ndcY = 1 - (screenPoint.y / viewportSize.height) * 2
 
-        let aspect = viewportSize.width / viewportSize.height
+        // The camera looks straight down, so a ray drops one meter for every
+        // meter of depth and these are its sideways travel over that meter.
+        let across = ndcX * framing.halfWidth
+        let up = ndcY * framing.halfHeight
 
-        switch framing.projection {
-        case .orthographic:
-            // Rays run parallel to the view direction and start offset from the
-            // camera, rather than fanning out from a focal point.
-            let halfHeight = framing.verticalExtent / 2
-            let halfWidth = halfHeight * aspect
-            let origin = framing.position + right * (ndcX * halfWidth) + up * (ndcY * halfHeight)
-            return WorldRay(origin: origin, direction: forward)
-
-        case .perspective(let fieldOfViewDegrees):
-            // All rays share the camera's position and diverge by the field of
-            // view.
-            let tangent = tan(fieldOfViewDegrees * .pi / 360)
-            let direction = (forward
-                + right * (ndcX * aspect * tangent)
-                + up * (ndcY * tangent)).normalized
-            return WorldRay(origin: framing.position, direction: direction)
-        }
+        let direction = WorldPoint(x: across, y: -1, z: -up).normalized
+        return WorldRay(origin: framing.position, direction: direction)
     }
 
-    /// Where a world point lands on screen, in points.
+    /// Where a point of the level lands on screen, in points.
     ///
-    /// The inverse of `ray`, and it exists for one reason: keeping the spot under
-    /// the player's fingers still while the camera tilts. Without it a peek
-    /// gesture slides the whole map out from under the hand.
+    /// Takes a level-space point and applies the lean itself, so callers reason
+    /// in the space the game is authored in.
     public static func screenPoint(
-        of world: WorldPoint,
+        of level: WorldPoint,
         viewportSize: (width: Double, height: Double),
         framing: CameraFraming
     ) -> (x: Double, y: Double)? {
         guard viewportSize.width > 0, viewportSize.height > 0 else { return nil }
+        guard framing.halfWidth > 0, framing.halfHeight > 0 else { return nil }
 
-        let (right, up, forward) = framing.basis
-        let offset = world - framing.position
-        let aspect = viewportSize.width / viewportSize.height
+        let world = framing.shear.apply(to: level)
 
-        let ndcX: Double
-        let ndcY: Double
+        // How far below the camera it sits. Everything the camera can see is
+        // below it, because the camera looks straight down.
+        let depth = framing.position.y - world.y
+        guard depth > 0.0001 else { return nil }
 
-        switch framing.projection {
-        case .orthographic:
-            let halfHeight = framing.verticalExtent / 2
-            let halfWidth = halfHeight * aspect
-            guard halfWidth > 0, halfHeight > 0 else { return nil }
-            ndcX = (offset.x * right.x + offset.y * right.y + offset.z * right.z) / halfWidth
-            ndcY = (offset.x * up.x + offset.y * up.y + offset.z * up.z) / halfHeight
-
-        case .perspective(let fieldOfViewDegrees):
-            let depth = offset.x * forward.x + offset.y * forward.y + offset.z * forward.z
-            guard depth > 0.0001 else { return nil }
-            let tangent = tan(fieldOfViewDegrees * .pi / 360)
-            ndcX = (offset.x * right.x + offset.y * right.y + offset.z * right.z)
-                / (depth * tangent * aspect)
-            ndcY = (offset.x * up.x + offset.y * up.y + offset.z * up.z) / (depth * tangent)
-        }
+        let ndcX = (world.x - framing.position.x) / (depth * framing.halfWidth)
+        let ndcY = -(world.z - framing.position.z) / (depth * framing.halfHeight)
 
         return (
             x: (ndcX + 1) / 2 * viewportSize.width,
