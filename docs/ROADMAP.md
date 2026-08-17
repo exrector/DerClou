@@ -397,3 +397,28 @@ Do not recreate slow city walking just because the original had it. Mobile pacin
 Claude should begin with **Phase 0**, then perform the smallest viable experiments for Phases 1–2 before building broader game architecture.
 
 Do not generate dozens of placeholder systems or missions before the RealityKit camera/navigation path is proven on-device.
+---
+
+## Revision, 2026-08-17: risk order vs system order
+
+The phase list above orders work by *system dependency*, and that ordering is
+still correct — vision needs a guard, a guard needs navigation, and so on.
+
+What it does not order is **risk**. Followed literally it reaches the planning
+recorder at Phase 10 and deterministic playback at Phase 11, which means nine
+systems get designed before the game's central question is ever tested:
+
+> Is it enjoyable to study a building, commit to a plan, watch it fail by 1.2
+> seconds, and fix it?
+
+That is the design risk of this project, and it is currently unproven.
+
+`docs/PRODUCTION_PLAN.md` therefore pulls a thin version of Phases 5, 6, 10 and 11
+forward — one guard, simple vision, plan recording, commit and replay — and defers
+doors, switches, lasers, cameras, safes and loot until the loop has been played
+and judged fun.
+
+Nothing in this file is wrong; it is the build order for systems. The production
+plan is the build order for answers. Where they disagree, the production plan
+wins, because a system built against an unvalidated loop is the expensive kind of
+rework.
