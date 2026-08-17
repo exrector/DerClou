@@ -15,17 +15,6 @@ public enum LevelLibrary {
 }
 
 extension LevelBlueprint {
-    /// Thickness of the building's outer shell, in meters.
-    ///
-    /// Thicker than an interior wall, like a real load-bearing exterior, so the
-    /// building has a solid edge that reads as architecture where the display
-    /// curves away. Not thicker than that: an over-wide shell dominates the
-    /// frame and washes out the interior, which is the actual subject.
-    ///
-    /// Everything beyond the shell is ground, and the camera separately
-    /// guarantees the floor stays inside the system safe area.
-    static let exteriorWallThickness = 0.6
-
     /// Engineering test location: three rooms off a single corridor.
     ///
     /// Deliberately proportioned for a landscape phone (24 × 10 m ≈ 2.4:1) so the
@@ -57,10 +46,10 @@ extension LevelBlueprint {
                 FloorSpec(id: "office01.floor.main", rect: CellRect(x: 0, y: 0, width: 24, depth: 10))
             ],
             walls: [
-                WallSpec(id: "office01.wall.north", start: CellPoint(0, 0), end: CellPoint(24, 0), thickness: exteriorWallThickness),
-                WallSpec(id: "office01.wall.south", start: CellPoint(0, 10), end: CellPoint(24, 10), thickness: exteriorWallThickness),
-                WallSpec(id: "office01.wall.west", start: CellPoint(0, 0), end: CellPoint(0, 10), thickness: exteriorWallThickness),
-                WallSpec(id: "office01.wall.east", start: CellPoint(24, 0), end: CellPoint(24, 10), thickness: exteriorWallThickness),
+                WallSpec(id: "office01.wall.north", start: CellPoint(0, 0), end: CellPoint(24, 0)),
+                WallSpec(id: "office01.wall.south", start: CellPoint(0, 10), end: CellPoint(24, 10)),
+                WallSpec(id: "office01.wall.west", start: CellPoint(0, 0), end: CellPoint(0, 10)),
+                WallSpec(id: "office01.wall.east", start: CellPoint(24, 0), end: CellPoint(24, 10)),
                 WallSpec(
                     id: "office01.wall.corridor",
                     start: CellPoint(0, 6),
@@ -133,7 +122,31 @@ extension LevelBlueprint {
                 // housing may cover it. See docs/DEVELOPMENT_FINDINGS.md.
                 PropSpec(id: "office01.panel.corridor", prototype: "panel.security", position: CellPoint(11.5, 9.75), rotation: 180),
 
-                PropSpec(id: "office01.extraction", prototype: "marker.extraction", position: CellPoint(1.2, 9.0))
+                PropSpec(id: "office01.extraction", prototype: "marker.extraction", position: CellPoint(1.2, 9.0)),
+
+                // Outside the building. None of this is playable: it exists so
+                // the edges of the display — including whatever a Dynamic Island
+                // covers — show a street rather than empty ground. Right-angled
+                // runs of neighbouring walls read as adjacent buildings.
+                PropSpec(id: "office01.ext.west.building.01", prototype: "building.neighbour", position: CellPoint(-4.0, 1.5), rotation: 90),
+                PropSpec(id: "office01.ext.west.building.02", prototype: "building.neighbour", position: CellPoint(-6.0, 4.5), rotation: 0),
+                PropSpec(id: "office01.ext.west.tree.01", prototype: "tree.large", position: CellPoint(-2.4, 7.5)),
+                PropSpec(id: "office01.ext.west.tree.02", prototype: "tree.small", position: CellPoint(-2.0, 3.0)),
+                PropSpec(id: "office01.ext.west.hedge", prototype: "hedge.block", position: CellPoint(-2.2, 9.6), rotation: 90),
+
+                PropSpec(id: "office01.ext.east.building.01", prototype: "building.neighbour", position: CellPoint(28.0, 2.0), rotation: 90),
+                PropSpec(id: "office01.ext.east.building.02", prototype: "building.neighbour", position: CellPoint(30.0, 6.0), rotation: 0),
+                PropSpec(id: "office01.ext.east.tree.01", prototype: "tree.large", position: CellPoint(26.4, 8.0)),
+                PropSpec(id: "office01.ext.east.tree.02", prototype: "tree.small", position: CellPoint(26.2, 4.2)),
+                PropSpec(id: "office01.ext.east.hedge", prototype: "hedge.block", position: CellPoint(26.4, 0.6), rotation: 90),
+
+                PropSpec(id: "office01.ext.north.tree.01", prototype: "tree.small", position: CellPoint(6.0, -2.2)),
+                PropSpec(id: "office01.ext.north.hedge.01", prototype: "hedge.block", position: CellPoint(12.0, -2.0)),
+                PropSpec(id: "office01.ext.north.tree.02", prototype: "tree.large", position: CellPoint(19.0, -2.6)),
+
+                PropSpec(id: "office01.ext.south.hedge.01", prototype: "hedge.block", position: CellPoint(7.0, 12.2)),
+                PropSpec(id: "office01.ext.south.tree.01", prototype: "tree.small", position: CellPoint(16.0, 12.4)),
+                PropSpec(id: "office01.ext.south.hedge.02", prototype: "hedge.block", position: CellPoint(21.0, 12.2))
             ],
             actors: [
                 ActorSpec(id: "office01.thief.01", prototype: "actor.thief", position: CellPoint(2.0, 8.6)),

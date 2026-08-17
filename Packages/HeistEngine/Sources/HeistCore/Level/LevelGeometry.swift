@@ -66,7 +66,9 @@ public struct LevelGeometry: Sendable, Equatable {
 
     /// Boxes that block movement, for the walkability grid.
     public var obstacleBoxes: [WorldBox] {
-        walls + props.filter { $0.prototype.blocksMovement }.map(\.box)
+        walls + props
+            .filter { $0.prototype.blocksMovement && $0.prototype.kind != .scenery }
+            .map(\.box)
     }
 }
 

@@ -28,6 +28,10 @@ public enum InteractionKind: String, Codable, Sendable, CaseIterable {
 
 /// Broad category, used for selection rules, sorting and debug colouring.
 public enum PropKind: String, Codable, Sendable, CaseIterable {
+    /// Exterior dressing: trees, hedges, neighbouring walls. Lives outside the
+    /// building, never on the playable floor, and is exempt from the floor and
+    /// safe-area checks precisely because it is what fills the screen edges.
+    case scenery
     case architecture
     case furniture
     case security
@@ -120,6 +124,38 @@ extension PropCatalog {
             blocksMovement: false,
             interactions: [.open, .lockpick],
             defaults: ["locked": .bool(false), "lockDifficulty": .int(1), "openDuration": .double(1.0)]
+        ),
+
+        // Exterior scenery — what the display edges are filled with
+        PropPrototype(
+            id: "tree.large",
+            kind: .scenery,
+            footprint: CellSize(width: 2.4, depth: 2.4),
+            height: 5.5,
+            surface: .fabric
+        ),
+        PropPrototype(
+            id: "tree.small",
+            kind: .scenery,
+            footprint: CellSize(width: 1.6, depth: 1.6),
+            height: 3.4,
+            surface: .fabric
+        ),
+        PropPrototype(
+            id: "hedge.block",
+            kind: .scenery,
+            footprint: CellSize(width: 3.0, depth: 1.0),
+            height: 1.1,
+            surface: .fabric
+        ),
+        /// A slab of a neighbouring building. Placed in right-angled runs, these
+        /// read as the street the target sits on.
+        PropPrototype(
+            id: "building.neighbour",
+            kind: .scenery,
+            footprint: CellSize(width: 4.0, depth: 3.0),
+            height: 4.5,
+            surface: .concrete
         ),
 
         // Furniture

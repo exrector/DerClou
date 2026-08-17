@@ -138,10 +138,11 @@ public enum SafeAreaSolver {
             guard let prototype = catalog[prop.prototype] else { continue }
             // Scenery may run off the edge; anything the player must act on
             // may not.
-            let isCritical = !prototype.interactions.isEmpty
-                || prototype.kind == .security
-                || prototype.kind == .loot
-                || prototype.kind == .marker
+            let isCritical = prototype.kind != .scenery
+                && (!prototype.interactions.isEmpty
+                    || prototype.kind == .security
+                    || prototype.kind == .loot
+                    || prototype.kind == .marker)
             guard isCritical else { continue }
             check(id: prop.id, position: prop.position, noun: "Interactable '\(prop.prototype)'")
         }

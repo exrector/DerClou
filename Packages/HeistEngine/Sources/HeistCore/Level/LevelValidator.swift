@@ -99,6 +99,8 @@ public enum LevelValidator {
         }
 
         for prop in level.props {
+            // Scenery is meant to sit outside the building.
+            if catalog[prop.prototype]?.kind == .scenery { continue }
             guard catalog[prop.prototype] != nil else {
                 issues.append(LevelIssue(
                     severity: .error,
