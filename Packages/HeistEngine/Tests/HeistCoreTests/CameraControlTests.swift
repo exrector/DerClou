@@ -78,16 +78,36 @@ struct CameraControlTests {
         #expect(tilt.aroundX == 0)
     }
 
-    @Test("The camera itself never moves off centre while leaning")
-    func cameraStaysPut() {
-        // The whole point of tipping the world instead of orbiting the camera:
-        // orbiting swung screen-right away from world +x, so the map appeared to
-        // rotate, and slid the building off its own frame.
+    @Test("Leaning slides the camera without turning it")
+    func cameraSlidesNeverTurns() {
         let flat = framing(.neutral)
-        let leaned = framing(CameraControl(leanVertical: 14, leanHorizontal: 8))
+        let leaned = framing(CameraControl(leanVertical: 9, leanHorizontal: 9))
 
-        #expect(abs(leaned.position.x - flat.position.x) < 0.001)
-        #expect(abs(leaned.focus.x - flat.focus.x) < 0.001)
+        // The camera moves...
+        #expect(abs(leaned.position.x - flat.position.x) > 0.5)
+        // ...but keeps looking in exactly the same direction. This is what makes
+        // the building's walls stay parallel to the display edges; orbiting the
+        // camera instead turned the view and read as the map rotating.
+        #expect(abs(leaned.viewDirection.x - flat.viewDirection.x) < 1e-9)
+        #expect(abs(leaned.viewDirection.y - flat.viewDirection.y) < 1e-9)
+        #expect(abs(leaned.viewDirection.z - flat.viewDirection.z) < 1e-9)
+    }
+
+    @Test("All four directions give the same amount of parallax")
+    func leanIsSymmetric() {
+        let flat = framing(.neutral)
+        let right = framing(CameraControl(leanHorizontal: 9))
+        let left = framing(CameraControl(leanHorizontal: -9))
+        let up = framing(CameraControl(leanVertical: 9))
+        let down = framing(CameraControl(leanVertical: -9))
+
+        // Equal and opposite sideways, equal and opposite vertically. Earlier
+        // versions added the lean to one axis only, so looking behind a wall
+        // worked in one direction and not the others.
+        #expect(abs((right.position.x - flat.position.x) + (left.position.x - flat.position.x)) < 1e-9)
+        #expect(abs((up.position.z - flat.position.z) + (down.position.z - flat.position.z)) < 1e-9)
+        #expect(abs(right.position.x - flat.position.x) > 0.5)
+        #expect(abs(up.position.z - flat.position.z) > 0.5)
     }
 
     @Test("The map never turns: screen right stays world +x at any lean")
