@@ -4,15 +4,16 @@ import HeistCore
 
 /// A blueprint turned into a live RealityKit scene.
 public struct BuiltLevel {
-    public let blueprint: LevelBlueprint
-    public let geometry: LevelGeometry
+    /// Everything computed from the blueprint: geometry, navigation, issues.
+    public let build: LevelBuild
     public let root: Entity
     /// Actor entities by stable blueprint ID.
     public let actors: [String: Entity]
-    /// Walkability grid used for path finding.
-    public let navGrid: NavGrid
-    /// Problems the validator found. Errors mean the level is not trustworthy.
-    public let issues: [LevelIssue]
+
+    public var blueprint: LevelBlueprint { build.blueprint }
+    public var geometry: LevelGeometry { build.geometry }
+    public var navGrid: NavGrid { build.grid }
+    public var issues: [LevelIssue] { build.issues }
 }
 
 /// Builds a RealityKit scene from level data.
@@ -26,8 +27,13 @@ public enum LevelSceneBuilder {
         catalog: PropCatalog = .standard,
         quality: RenderQuality = .recommended()
     ) -> BuiltLevel {
-        let issues = LevelValidator.validate(blueprint, catalog: catalog)
-        let geometry = LevelGeometryBuilder.build(blueprint, catalog: catalog)
+        build(LevelBuild.make(blueprint, catalog: catalog), quality: quality)
+    }
+
+    /// Renders an already-prepared level.
+    public static func build(_ prepared: LevelBuild, quality: RenderQuality = .recommended()) -> BuiltLevel {
+        let blueprint = prepared.blueprint
+        let geometry = prepared.geometry
 
         let root = Entity()
         root.name = "level.\(blueprint.id)"
@@ -35,7 +41,6 @@ public enum LevelSceneBuilder {
         for box in geometry.floors {
             let entity = GreyboxKit.entity(for: box)
             entity.components.set(LevelEntityComponent(id: box.sourceID, kind: .architecture))
-            entity.components.set(NavigableSurfaceComponent())
             entity.collision = CollisionComponent(shapes: [collisionShape(for: box)])
             root.addChild(entity)
         }
@@ -70,16 +75,7 @@ public enum LevelSceneBuilder {
 
         addLighting(to: root, geometry: geometry, metrics: blueprint.metrics, quality: quality)
 
-        let navGrid = NavGridBuilder.build(geometry: geometry)
-
-        return BuiltLevel(
-            blueprint: blueprint,
-            geometry: geometry,
-            root: root,
-            actors: actorEntities,
-            navGrid: navGrid,
-            issues: issues
-        )
+        return BuiltLevel(build: prepared, root: root, actors: actorEntities)
     }
 
     // MARK: - Pieces
@@ -153,7 +149,7 @@ public enum LevelSceneBuilder {
 
         if actor.prototype.id == "actor.thief" {
             container.components.set(
-                PlayableActorComponent(id: actor.id, walkSpeed: Float(actor.walkSpeed))
+                PlayableActorComponent(id: actor.id, walkSpeed: Float(actor.character.walkSpeed))
             )
         }
 
@@ -180,9 +176,7 @@ public enum LevelSceneBuilder {
             color: PlatformColor(red: 1.0, green: 0.96, blue: 0.90, alpha: 1),
             intensity: 3200
         ))
-        if quality.castsShadows {
-            key.components.set(DirectionalLightComponent.Shadow(depthBias: quality.shadowDepthBias))
-        }
+        key.components.set(DirectionalLightComponent.Shadow(depthBias: quality.shadowDepthBias))
 
         let bounds = boundsOfFloors(geometry)
         key.look(

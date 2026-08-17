@@ -115,16 +115,14 @@ public struct NavGrid: Sendable, Equatable {
 public enum NavGridBuilder {
     /// - Parameters:
     ///   - geometry: world-space boxes for the level.
-    ///   - budget: character radius and grid resolution.
-    ///   - characterHeight: how tall the actor is, in meters. Anything that does
-    ///     not intrude into `0 ..< characterHeight` cannot block them.
+    ///   - budget: who the grid is for, and at what resolution.
     public static func build(
         geometry: LevelGeometry,
-        budget: NavigationBudget = .standard,
-        characterHeight: Double = 1.75
+        budget: NavigationBudget = .standard
     ) -> NavGrid {
         let cellSize = budget.cellSize
         let radius = budget.characterRadius
+        let characterHeight = budget.characterHeight
 
         guard !geometry.floors.isEmpty else {
             return NavGrid(minX: 0, minZ: 0, cellSize: cellSize, columns: 0, rows: 0, walkable: [])

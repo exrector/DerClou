@@ -15,13 +15,7 @@ let package = Package(
     ],
     targets: [
         .target(name: "HeistCore"),
-        .target(
-            name: "HeistKit",
-            dependencies: ["HeistCore"],
-            // RealityKit's main-actor model still fights Swift 6 strict
-            // concurrency in places; revisit once the SDK settles.
-            swiftSettings: [.swiftLanguageMode(.v5)]
-        ),
+        .target(name: "HeistKit", dependencies: ["HeistCore"]),
         .testTarget(
             name: "HeistCoreTests",
             dependencies: ["HeistCore"]

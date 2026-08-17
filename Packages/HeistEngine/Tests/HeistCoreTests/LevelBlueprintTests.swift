@@ -17,7 +17,7 @@ struct LevelBlueprintTests {
 
     @Test("office01 passes validation")
     func officeValidates() {
-        let issues = LevelValidator.validate(.office01, catalog: .standard)
+        let issues = LevelBuild.make(.office01).issues
         #expect(!issues.hasErrors, "\(issues)")
     }
 
@@ -33,7 +33,7 @@ struct LevelBlueprintTests {
             )
         )
 
-        let issues = LevelValidator.validate(level, catalog: .standard)
+        let issues = LevelBuild.make(level).issues
         #expect(issues.errors.contains { $0.subject == "office01.wall.bad" })
     }
 
@@ -52,7 +52,7 @@ struct LevelBlueprintTests {
             )
         )
 
-        let issues = LevelValidator.validate(level, catalog: .standard)
+        let issues = LevelBuild.make(level).issues
         #expect(issues.errors.contains { $0.subject == "office01.wall.overlap" })
     }
 
@@ -71,7 +71,7 @@ struct LevelBlueprintTests {
             )
         )
 
-        let issues = LevelValidator.validate(level, catalog: .standard)
+        let issues = LevelBuild.make(level).issues
         #expect(issues.contains { $0.subject == "office01.wall.tight" })
     }
 
@@ -87,7 +87,7 @@ struct LevelBlueprintTests {
             )
         )
 
-        let issues = LevelValidator.validate(level, catalog: .standard)
+        let issues = LevelBuild.make(level).issues
         #expect(issues.errors.contains { $0.subject == "office01.wall.sealed" })
     }
 
@@ -103,7 +103,7 @@ struct LevelBlueprintTests {
             )
         )
 
-        let issues = LevelValidator.validate(level, catalog: .standard)
+        let issues = LevelBuild.make(level).issues
         #expect(!issues.contains { $0.subject == "office01.wall.window" })
     }
 
@@ -114,7 +114,7 @@ struct LevelBlueprintTests {
             PropSpec(id: "office01.mystery", prototype: "prop.does.not.exist", position: CellPoint(2, 2))
         )
 
-        let issues = LevelValidator.validate(level, catalog: .standard)
+        let issues = LevelBuild.make(level).issues
         #expect(issues.errors.contains { $0.subject == "office01.mystery" })
     }
 
@@ -125,7 +125,7 @@ struct LevelBlueprintTests {
             PropSpec(id: "office01.desk.a", prototype: "desk.office", position: CellPoint(3, 3))
         )
 
-        let issues = LevelValidator.validate(level, catalog: .standard)
+        let issues = LevelBuild.make(level).issues
         #expect(issues.errors.contains { $0.subject == "office01.desk.a" })
     }
 

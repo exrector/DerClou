@@ -71,9 +71,14 @@ struct LevelGeometryTests {
         }
     }
 
-    @Test("The thief walks at the configured constant speed")
-    func walkSpeed() {
+    @Test("The thief's profile comes from its prototype, not a hard-coded constant")
+    func characterProfile() {
         let thief = try! #require(geometry.actors.first { $0.id == "office01.thief.01" })
-        #expect(thief.walkSpeed == 1.4)
+
+        #expect(thief.character.walkSpeed == 1.4)
+        #expect(thief.character.height == 1.75)
+        #expect(thief.character.radius == 0.3)
+        // Timing is derived, never written down twice.
+        #expect(thief.character.duration(forDistance: 14) == 10)
     }
 }

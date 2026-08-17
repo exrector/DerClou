@@ -52,7 +52,7 @@ public enum PathFinder {
 
         if startCell == goalCell {
             let point = grid.worldPoint(goalCell)
-            return .success(PathResult(waypoints: [point], length: distance(start, point)))
+            return .success(PathResult(waypoints: [point], length: start.planarDistance(to: point)))
         }
 
         guard let cells = search(from: startCell, to: goalCell, in: grid) else {
@@ -74,7 +74,7 @@ public enum PathFinder {
         var length = 0.0
         var previous = start
         for point in waypoints {
-            length += distance(previous, point)
+            length += previous.planarDistance(to: point)
             previous = point
         }
 
@@ -194,27 +194,18 @@ public enum PathFinder {
         to end: WorldPoint,
         in grid: NavGrid
     ) -> Bool {
-        let distance = self.distance(start, end)
+        let distance = start.planarDistance(to: end)
         guard distance > 0 else { return grid.isWalkable(grid.cell(at: start)) }
 
         let steps = max(1, Int((distance / (grid.cellSize * 0.5)).rounded(.up)))
         for step in 0...steps {
             let t = Double(step) / Double(steps)
-            let point = WorldPoint(
-                x: start.x + (end.x - start.x) * t,
-                y: 0,
-                z: start.z + (end.z - start.z) * t
-            )
+            let point = (start + (end - start) * t).onFloorPlane
             guard grid.isWalkable(grid.cell(at: point)) else { return false }
         }
         return true
     }
 
-    private static func distance(_ lhs: WorldPoint, _ rhs: WorldPoint) -> Double {
-        let dx = lhs.x - rhs.x
-        let dz = lhs.z - rhs.z
-        return (dx * dx + dz * dz).squareRoot()
-    }
 }
 
 /// Minimal binary heap keyed on priority. Avoids pulling in a dependency for

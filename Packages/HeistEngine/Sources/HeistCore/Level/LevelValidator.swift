@@ -22,53 +22,20 @@ public struct LevelIssue: Sendable, Equatable, CustomStringConvertible {
     }
 }
 
-/// What the navigation bake needs in order to produce a usable corridor.
-///
-/// Navigation meshes are built by voxelising the world and then eroding the
-/// walkable area by the character radius. A gap only survives that if it is
-/// comfortably wider than twice the radius — and the survivor has to be several
-/// voxels across, or the resulting polygon is ragged and paths through it snake
-/// or dead-end.
-///
-/// Getting this wrong is invisible in the editor and shows up in play as an
-/// actor jamming in a doorway, so it is a validation rule rather than a comment.
-public struct NavigationBudget: Sendable, Equatable {
-    /// Radius the mesh is eroded by, in meters.
-    public var characterRadius: Double
-    /// Voxel size used by the bake, in meters.
-    public var cellSize: Double
-    /// How many voxels of clear width a gap must keep after erosion.
-    public var minimumClearCells: Double
-
-    public init(characterRadius: Double = 0.3, cellSize: Double = 0.05, minimumClearCells: Double = 12) {
-        self.characterRadius = characterRadius
-        self.cellSize = cellSize
-        self.minimumClearCells = minimumClearCells
-    }
-
-    public static let standard = NavigationBudget()
-
-    /// Narrowest opening that still leaves a reliable path through it.
-    public var minimumOpeningWidth: Double {
-        characterRadius * 2 + cellSize * minimumClearCells
-    }
-
-    /// Clear width left after erosion, for an opening of `width`.
-    public func clearWidth(forOpening width: Double) -> Double {
-        width - characterRadius * 2
-    }
-}
-
 /// Checks a blueprint against the catalog.
 ///
 /// This exists because levels are meant to be generated. A generator that emits
 /// a broken level should fail loudly here, not produce a scene where the thief
 /// walks through a wall.
 public enum LevelValidator {
+    /// Checks a prepared level. Takes the already-built geometry and grid so
+    /// nothing is computed twice and both sides judge the same thing.
     public static func validate(
         _ level: LevelBlueprint,
         catalog: PropCatalog,
-        navigation: NavigationBudget = .standard
+        budget: NavigationBudget,
+        geometry: LevelGeometry,
+        grid: NavGrid
     ) -> [LevelIssue] {
         var issues: [LevelIssue] = []
 
@@ -104,8 +71,8 @@ public enum LevelValidator {
                 let widthInMeters = level.metrics.meters(fromCells: opening.width)
                 // Tolerance, or a doorway authored at exactly the minimum trips
                 // on floating-point noise in the threshold itself.
-                guard widthInMeters < navigation.minimumOpeningWidth - 0.0001 else { continue }
-                let clear = navigation.clearWidth(forOpening: widthInMeters)
+                guard widthInMeters < budget.minimumOpeningWidth - 0.0001 else { continue }
+                let clear = budget.clearWidth(forOpening: widthInMeters)
                 issues.append(LevelIssue(
                     severity: clear > 0 ? .warning : .error,
                     subject: wall.id,
@@ -113,9 +80,9 @@ public enum LevelValidator {
                         format: "Opening at %.1f is %.2f m wide; after eroding for a %.2f m character radius only %.2f m remains, below the %.2f m needed for a reliable path",
                         opening.center,
                         widthInMeters,
-                        navigation.characterRadius,
+                        budget.characterRadius,
                         clear,
-                        navigation.minimumOpeningWidth
+                        budget.minimumOpeningWidth
                     )
                 ))
             }
@@ -194,7 +161,7 @@ public enum LevelValidator {
             }
         }
 
-        issues.append(contentsOf: reachabilityIssues(level, catalog: catalog, navigation: navigation))
+        issues.append(contentsOf: reachabilityIssues(level, catalog: catalog, grid: grid))
 
         return issues
     }
@@ -208,12 +175,8 @@ public enum LevelValidator {
     public static func reachabilityIssues(
         _ level: LevelBlueprint,
         catalog: PropCatalog,
-        navigation: NavigationBudget = .standard
+        grid: NavGrid
     ) -> [LevelIssue] {
-        let geometry = LevelGeometryBuilder.build(level, catalog: catalog)
-        guard !geometry.floors.isEmpty else { return [] }
-
-        let grid = NavGridBuilder.build(geometry: geometry, budget: navigation)
         guard grid.cellCount > 0 else { return [] }
 
         let origin = level.marker(.spawn)?.position

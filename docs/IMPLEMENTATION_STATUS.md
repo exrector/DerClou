@@ -99,11 +99,13 @@ Packages/HeistEngine/      local Swift package, where the engine lives
     Navigation/            NavigationBaker
     Session/               GameSession
     Views/                 HeistSceneView
-  Tests/HeistCoreTests/    43 tests
+  Tests/HeistCoreTests/    62 tests
 ```
 
 The split is the point: everything that decides *game outcomes* lives in
-`HeistCore` and is testable in milliseconds without a device.
+`HeistCore` and is testable in milliseconds without a device. The rules the
+codebase is built on are written down in `docs/ARCHITECTURE.md` — read that before
+adding a system.
 
 ## Level authoring model
 
