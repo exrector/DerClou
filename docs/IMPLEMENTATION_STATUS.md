@@ -19,8 +19,8 @@ with the owner before implementation. See "Level authoring model" below.
 | Component | Version | Notes |
 |---|---|---|
 | Deployment target | **iOS 18.0** | lowered from 27.0 on 2026-08-17 |
-| Xcode | 27.0 beta (27A5194q) | needed to *build*; the app itself runs on iOS 18 |
-| iOS SDK | 27.0 | |
+| Xcode | **26.6 release works** | the beta is no longer required — see below |
+| iOS SDK | 26.5 or 27.0 | both build the project |
 | Swift | 6.4 | package builds in language mode 6 (`HeistCore`) and 5 (`HeistKit`) |
 | Reality Composer Pro | 3.0 Beta 4 | standalone at `/Applications/RealityComposerPro.app`, **not** bundled inside Xcode-beta |
 | macOS | 27.0 (26A5406e) | |
@@ -53,26 +53,19 @@ Consequence: builds produced now cannot be submitted to App Store Connect
 (ITMS-90111 rejects beta-built binaries). Irrelevant for development, relevant
 before any TestFlight distribution.
 
-### Opening the project
+### Toolchain
 
-**Open it with Xcode-beta, not the released Xcode.** Double-clicking the project
-uses whichever Xcode is default, which is the released 26.6 — and there the
-project cannot build (no iOS 27 SDK) *and* an iPhone running iOS 27 is filtered
-out of the run destinations as an unsupported OS version. An empty device list is
-usually this, not a project misconfiguration.
+Dropping the iOS 27 navigation APIs had a second payoff beyond audience: the
+project now **builds and tests with the released Xcode 26.6**, verified against
+the iOS 18.6 simulator. Consequences:
 
-```bash
-open -a /Applications/Xcode-beta.app ~/Documents/ПРОЕКТЫ/DerClou/DerClou.xcodeproj
-```
+- no beta toolchain needed for day-to-day work;
+- Xcode Cloud can build it — it only has released Xcode;
+- ITMS-90111 (App Store rejects beta-built binaries) no longer applies.
 
-To make the beta the default toolchain for command-line builds too:
-
-```bash
-sudo xcode-select -s /Applications/Xcode-beta.app/Contents/Developer
-```
-
-A device also has to be actually connected — `xcrun devicectl list devices` shows
-`unavailable` when it is merely paired. Cable, unlocked screen, trusted computer.
+A connected device also has to be genuinely available: `xcrun devicectl list
+devices` reports `unavailable` when it is merely paired. Cable, unlocked screen,
+trusted computer.
 
 Build and test:
 
@@ -336,3 +329,34 @@ Concretely:
    designing around it.
 
 Do not start guards or vision until interaction and doors are solid.
+
+## Xcode Cloud
+
+The repository is connected to Xcode Cloud, with one product (`DerClou`) and one
+workflow (`Default`). The workflow triggered on **any branch**, so every push
+started a build; those builds failed with "Project DerClou.xcodeproj does not
+exist at the root of the repository" simply because the Xcode project had not
+been pushed yet.
+
+**The workflow is now disabled** (`isEnabled = false`, 2026-08-17) at the owner's
+request: Xcode Cloud is wanted for the eventual App Store build, not for every
+commit during development. Nothing was deleted — re-enable it when a release is
+actually being cut.
+
+Two things worth knowing for later:
+
+- the `DerClou` product is **CI-only** (no App Store Connect app record yet), and
+  products in that state are *not* returned by `GET /v1/ciProducts`. It is
+  invisible to the API until an app record exists. The product and workflow IDs
+  can be read out of Xcode's local cache at
+  `~/Library/Developer/Xcode/UserData/XcodeCloud/XcodeCloudCoreDataModel-v12.sqlite`
+  (`ZPRODUCTENTITY`, `ZWORKFLOWSUMMARYENTITY`);
+- product `0f533374-52cf-4085-b811-49ea543d829b`, workflow
+  `12DE6FC8-0C5A-4746-8FFF-61FB762ACF53`. Toggling it:
+
+```bash
+TOKEN=$(python3 ~/.appstoreconnect/asc_jwt.py)
+curl -sg -X PATCH -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"data":{"type":"ciWorkflows","id":"12DE6FC8-0C5A-4746-8FFF-61FB762ACF53","attributes":{"isEnabled":true}}}' \
+  "https://api.appstoreconnect.apple.com/v1/ciWorkflows/12DE6FC8-0C5A-4746-8FFF-61FB762ACF53"
+```
