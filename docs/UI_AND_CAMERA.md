@@ -43,15 +43,22 @@ the camera turns at 14.1 s, and I enter the corridor at 13.8 s.*
 This is the single most important screen in the game. It is where the player
 conducts time rather than guesses at it.
 
-### Consequence for framing — act on this before building the deck
+### The deck does not shrink the viewport — the level reserves a strip
 
-The collapsed strip covers the bottom of the display, which is exactly where the
-near wall and its volume currently sit. So the camera must frame against the
-**area above the deck**, not the whole display, or the deck will hide the part of
-the room closest to the player.
+Settled 2026-08-17, correcting an earlier note here that proposed feeding the
+deck's height into the framing solver as an inset. That would shrink the whole
+scene whenever a panel appeared, undoing the fullscreen framing.
 
-Practically: the deck's height becomes another inset, on top of the system safe
-area, fed into the same framing solver.
+Instead the **level** reserves it. `LevelBlueprint.reservedNearBand` (1.5 cells by
+default) marks the strip along the near edge where nothing mission-critical may
+be placed. The world still renders underneath, so the game stays fullscreen; the
+collapsed deck simply sits over scenery.
+
+`LevelValidator` reports any interactable, marker, actor start or patrol waypoint
+that strays into it, and this already moved two objects in office01.
+
+The **expanded** deck may cover part of the world freely. It is an editing mode,
+not the main view, and nothing has to re-frame when it opens.
 
 ### Waiting is an action
 
@@ -83,7 +90,7 @@ TRACES      0
 |---|---|---|
 | One finger drag | Pan the map | implemented |
 | Pinch | Zoom | implemented |
-| Two-finger vertical drag | Limited tilt — "peek" | planned |
+| Two-finger vertical drag | Limited tilt — "peek" | implemented |
 | Double tap an actor | Focus that actor | planned |
 | Button | Fit the whole mission | implemented |
 | — | **Rotation is not offered** | decided |
@@ -100,10 +107,19 @@ become west. The player peeks under an angle; they do not fly around the scene.
 That is what protects spatial memory, keeps vision cones comparable, and stops
 tap-to-move fighting the view.
 
-Note for implementation: framing, the safe-area projection and tap resolution all
-already take tilt as a parameter, so they follow a peek automatically. What needs
-care is that changing tilt changes how much depth fits on screen — the frame is
-currently solved for exactly one angle.
+**Peeking does not re-frame.** The tactical angle is the only view with a
+guaranteed framing; a peek is local inspection, so part of the level running off
+screen is expected. Automatically zooming out to keep everything visible would
+defeat the point of leaning in.
+
+Implemented starting range: 0–14° beyond the tactical 24°, at 0.06° per point of
+drag. Numbers to be settled by eye on device.
+
+**The point under the fingers stays put.** The gesture records the world point
+beneath the touch midpoint, then re-pans after each tilt so that point returns to
+the same pixel. Without it the map slides out from under the hand and the gesture
+reads as the camera lurching. This is what `ScreenProjection.screenPoint(of:)`
+exists for, and there is a round-trip test covering it.
 
 ### Walls between the camera and the action
 

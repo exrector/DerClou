@@ -65,6 +65,51 @@ public enum ScreenProjection {
         }
     }
 
+    /// Where a world point lands on screen, in points.
+    ///
+    /// The inverse of `ray`, and it exists for one reason: keeping the spot under
+    /// the player's fingers still while the camera tilts. Without it a peek
+    /// gesture slides the whole map out from under the hand.
+    public static func screenPoint(
+        of world: WorldPoint,
+        viewportSize: (width: Double, height: Double),
+        framing: CameraFraming
+    ) -> (x: Double, y: Double)? {
+        guard viewportSize.width > 0, viewportSize.height > 0 else { return nil }
+
+        let forward = (framing.focus - framing.position).normalized
+        let right = WorldPoint(x: 1, y: 0, z: 0)
+        let up = right.cross(forward)
+
+        let offset = world - framing.position
+        let aspect = viewportSize.width / viewportSize.height
+
+        let ndcX: Double
+        let ndcY: Double
+
+        switch framing.projection {
+        case .orthographic:
+            let halfHeight = framing.verticalExtent / 2
+            let halfWidth = halfHeight * aspect
+            guard halfWidth > 0, halfHeight > 0 else { return nil }
+            ndcX = (offset.x * right.x + offset.y * right.y + offset.z * right.z) / halfWidth
+            ndcY = (offset.x * up.x + offset.y * up.y + offset.z * up.z) / halfHeight
+
+        case .perspective(let fieldOfViewDegrees):
+            let depth = offset.x * forward.x + offset.y * forward.y + offset.z * forward.z
+            guard depth > 0.0001 else { return nil }
+            let tangent = tan(fieldOfViewDegrees * .pi / 360)
+            ndcX = (offset.x * right.x + offset.y * right.y + offset.z * right.z)
+                / (depth * tangent * aspect)
+            ndcY = (offset.x * up.x + offset.y * up.y + offset.z * up.z) / (depth * tangent)
+        }
+
+        return (
+            x: (ndcX + 1) / 2 * viewportSize.width,
+            y: (1 - ndcY) / 2 * viewportSize.height
+        )
+    }
+
     /// Intersects a ray with a horizontal plane, returning nil if it never
     /// crosses it in front of the camera.
     public static func hit(_ ray: WorldRay, planeY: Double = 0) -> WorldPoint? {

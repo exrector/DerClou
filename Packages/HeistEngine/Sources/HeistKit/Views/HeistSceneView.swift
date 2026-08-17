@@ -15,6 +15,8 @@ public struct HeistSceneView: View {
     @State private var viewportSize: CGSize = .zero
     @State private var lastDragTranslation: CGSize = .zero
     @State private var lastMagnification: CGFloat = 1
+    /// Peek angle and the world point under the fingers when the gesture began.
+    @State private var peekStart: (degrees: Double, anchor: WorldPoint, screen: CGPoint)?
 
     /// System safe-area insets, read by the caller *outside* `ignoresSafeArea`.
     private let safeAreaInsets: EdgeInsets
@@ -56,6 +58,18 @@ public struct HeistSceneView: View {
             // only stays learnable if screen directions never move.
             .gesture(panGesture)
             .simultaneousGesture(zoomGesture)
+            // Two fingers dragged vertically tilt the camera. Not a SwiftUI
+            // gesture because DragGesture cannot tell one finger from two.
+            .overlay {
+                #if canImport(UIKit)
+                TwoFingerDragView(
+                    onChange: { translation, midpoint in
+                        peek(verticalTranslation: translation, around: midpoint)
+                    },
+                    onEnd: { peekStart = nil }
+                )
+                #endif
+            }
             .onAppear { updateViewport(proxy.size) }
             .onChange(of: proxy.size) { _, size in updateViewport(size) }
             .onChange(of: session.level?.blueprint.id) { _, _ in updateViewport(proxy.size) }
@@ -149,6 +163,56 @@ public struct HeistSceneView: View {
             .onEnded { _ in
                 lastDragTranslation = .zero
             }
+    }
+
+    /// Tilts the camera while holding the point under the fingers in place.
+    ///
+    /// Without the anchor the whole map slides out from under the hand and the
+    /// gesture reads as the camera lurching rather than as leaning in to look.
+    private func peek(verticalTranslation: CGFloat, around midpoint: CGPoint) {
+        guard let blueprint = session.level?.blueprint,
+              let framing = camera.framing,
+              viewportSize.height > 0 else { return }
+
+        let viewport = (width: Double(viewportSize.width), height: Double(viewportSize.height))
+
+        if peekStart == nil {
+            guard let ray = ScreenProjection.ray(
+                screenPoint: (x: Double(midpoint.x), y: Double(midpoint.y)),
+                viewportSize: viewport,
+                framing: framing
+            ), let anchor = ScreenProjection.hit(ray) else { return }
+            peekStart = (camera.control.peekDegrees, anchor, midpoint)
+        }
+        guard let start = peekStart else { return }
+
+        // Dragging up leans in; the range is small by design.
+        let degreesPerPoint = 0.06
+        camera.control = camera.control.peeked(
+            to: start.degrees - Double(verticalTranslation) * degreesPerPoint
+        )
+        frameCamera(size: viewportSize)
+
+        // Re-pan so the anchor lands back where the fingers are.
+        guard let tilted = camera.framing,
+              let now = ScreenProjection.screenPoint(
+                of: start.anchor,
+                viewportSize: viewport,
+                framing: tilted
+              ) else { return }
+
+        let metersPerPoint = tilted.verticalExtent / viewport.height
+        let correction = WorldPoint(
+            x: (now.x - Double(start.screen.x)) * metersPerPoint,
+            y: 0,
+            z: (now.y - Double(start.screen.y)) * metersPerPoint
+        )
+        camera.control = camera.control.panned(
+            by: correction,
+            within: blueprint.bounds,
+            metrics: blueprint.metrics
+        )
+        frameCamera(size: viewportSize)
     }
 
     private var zoomGesture: some Gesture {

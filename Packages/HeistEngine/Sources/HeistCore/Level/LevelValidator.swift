@@ -163,7 +163,60 @@ public enum LevelValidator {
             }
         }
 
+        issues.append(contentsOf: reservedBandIssues(level, catalog: catalog))
         issues.append(contentsOf: reachabilityIssues(level, catalog: catalog, grid: grid))
+
+        return issues
+    }
+
+    /// Reports mission-critical objects placed where the collapsed Plan Deck
+    /// will cover them.
+    ///
+    /// Checked in level data rather than at runtime because it is a design
+    /// reservation: the world still renders there, so the deck can sit on top
+    /// without the camera having to give up any of the display.
+    public static func reservedBandIssues(
+        _ level: LevelBlueprint,
+        catalog: PropCatalog
+    ) -> [LevelIssue] {
+        guard level.reservedNearBand > 0 else { return [] }
+
+        let playable = level.playableBounds
+        var issues: [LevelIssue] = []
+
+        func check(id: String, position: CellPoint, noun: String) {
+            guard position.y > playable.maxY else { return }
+            issues.append(LevelIssue(
+                severity: .warning,
+                subject: id,
+                message: String(
+                    format: "%@ sits %.2f cells into the strip reserved for the Plan Deck",
+                    noun,
+                    position.y - playable.maxY
+                )
+            ))
+        }
+
+        for prop in level.props {
+            guard let prototype = catalog[prop.prototype], prototype.kind != .scenery else { continue }
+            let isCritical = !prototype.interactions.isEmpty
+                || prototype.kind == .security
+                || prototype.kind == .loot
+                || prototype.kind == .marker
+            guard isCritical else { continue }
+            check(id: prop.id, position: prop.position, noun: "Interactable '\(prop.prototype)'")
+        }
+
+        for marker in level.markers {
+            check(id: marker.id, position: marker.position, noun: "Marker '\(marker.kind.rawValue)'")
+        }
+
+        for actor in level.actors {
+            check(id: actor.id, position: actor.position, noun: "Actor start position")
+            for (offset, waypoint) in actor.route.enumerated() {
+                check(id: "\(actor.id).route[\(offset)]", position: waypoint, noun: "Patrol waypoint")
+            }
+        }
 
         return issues
     }

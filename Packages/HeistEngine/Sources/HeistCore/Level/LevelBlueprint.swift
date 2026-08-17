@@ -140,6 +140,14 @@ public struct LevelBlueprint: Codable, Sendable, Equatable, Identifiable {
     public var actors: [ActorSpec]
     public var markers: [MarkerSpec]
     public var security: [SecurityLinkSpec]
+    /// Depth of the strip along the near edge that the collapsed Plan Deck sits
+    /// over, in cells.
+    ///
+    /// The world keeps rendering underneath it — the game stays fullscreen — but
+    /// nothing the player must see or tap belongs there. This is a level-design
+    /// reservation, not a smaller camera: shrinking the viewport whenever a panel
+    /// appears would undo the fullscreen framing.
+    public var reservedNearBand: Double
 
     public init(
         id: String,
@@ -150,7 +158,8 @@ public struct LevelBlueprint: Codable, Sendable, Equatable, Identifiable {
         props: [PropSpec] = [],
         actors: [ActorSpec] = [],
         markers: [MarkerSpec] = [],
-        security: [SecurityLinkSpec] = []
+        security: [SecurityLinkSpec] = [],
+        reservedNearBand: Double = 1.5
     ) {
         self.id = id
         self.title = title
@@ -161,6 +170,7 @@ public struct LevelBlueprint: Codable, Sendable, Equatable, Identifiable {
         self.actors = actors
         self.markers = markers
         self.security = security
+        self.reservedNearBand = reservedNearBand
     }
 
     /// Bounding rectangle of all floors, in cells.
@@ -181,5 +191,17 @@ public struct LevelBlueprint: Codable, Sendable, Equatable, Identifiable {
 
     public func marker(_ kind: MarkerSpec.Kind) -> MarkerSpec? {
         markers.first { $0.kind == kind }
+    }
+
+    /// The area mission-critical objects may occupy: everything but the strip
+    /// the collapsed Plan Deck covers.
+    public var playableBounds: CellRect {
+        let full = bounds
+        return CellRect(
+            x: full.minX,
+            y: full.minY,
+            width: full.size.width,
+            depth: max(0, full.size.depth - reservedNearBand)
+        )
     }
 }
