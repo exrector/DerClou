@@ -39,6 +39,23 @@ public struct PathFollowingComponent: Component {
     }
 }
 
+/// A guard walking a fixed route.
+///
+/// Holds the mission time the guard should be posed for, written by the session
+/// each frame. The guard's position is then a lookup, not an accumulation.
+public struct GuardComponent: Component {
+    public var id: String
+    public var route: PatrolRoute
+    /// Seconds into the mission, as of the last update.
+    public var missionTime: Double
+
+    public init(id: String, route: PatrolRoute, missionTime: Double = 0) {
+        self.id = id
+        self.route = route
+        self.missionTime = missionTime
+    }
+}
+
 /// Applied to interactable props so the input layer can offer contextual verbs.
 public struct InteractableComponent: Component {
     public var id: String
@@ -67,7 +84,9 @@ public enum HeistComponents {
         LevelEntityComponent.registerComponent()
         PlayableActorComponent.registerComponent()
         PathFollowingComponent.registerComponent()
+        GuardComponent.registerComponent()
         InteractableComponent.registerComponent()
         PathFollowingSystem.registerSystem()
+        GuardPatrolSystem.registerSystem()
     }
 }

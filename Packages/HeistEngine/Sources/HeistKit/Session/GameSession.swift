@@ -20,6 +20,10 @@ public final class GameSession {
     public private(set) var destination: SIMD3<Float>?
     /// Short human-readable result of the last action, shown in the debug HUD.
     public private(set) var status: String = "No level loaded"
+    /// The mission's authoritative time. Guards are posed from it, and failures
+    /// are reported against it.
+    public private(set) var clock = MissionClock()
+
     /// World region clear of system-reserved screen areas, for the current
     /// device and orientation.
     public private(set) var safeBounds: SafeGameplayBounds?
@@ -66,6 +70,42 @@ public final class GameSession {
             ? "Loaded \(blueprint.id) with \(built.issues.errors.count) blueprint errors"
             : "Loaded \(blueprint.id), \(walkableCells) walkable cells"
         log.info("\(self.status, privacy: .public)")
+    }
+
+    // MARK: - Mission time
+
+    /// Advances mission time and poses every guard for the new moment.
+    ///
+    /// The only place render time touches gameplay: it converts frame delta into
+    /// mission seconds and hands those to systems that are otherwise pure
+    /// functions of time.
+    public func tick(realTimeDelta: Double) {
+        guard clock.isRunning else { return }
+        clock.advance(byRealTime: realTimeDelta)
+        poseGuards(at: clock.elapsed)
+    }
+
+    public func startClock() {
+        clock.start()
+    }
+
+    public func pauseClock() {
+        clock.pause()
+    }
+
+    /// Rewinds the mission to its opening state.
+    public func resetClock() {
+        clock.reset()
+        poseGuards(at: 0)
+    }
+
+    private func poseGuards(at time: Double) {
+        guard let level else { return }
+        for entity in level.actors.values {
+            guard var component = entity.components[GuardComponent.self] else { continue }
+            component.missionTime = time
+            entity.components[GuardComponent.self] = component
+        }
     }
 
     // MARK: - Safe gameplay area
