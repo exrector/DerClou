@@ -25,6 +25,15 @@ public final class TacticalCamera {
     /// Whether the level is fitted inside the viewport or fills it.
     public var mode: FramingMode
 
+    /// Perspective by default.
+    ///
+    /// Orthographic has no parallax: every point shifts by the same amount, so
+    /// the wall tops and the floor can only ever move together — the whole box
+    /// slides. Pinning the wall tops to the display while the floor swings
+    /// inside them requires near things to move differently from far ones, which
+    /// is perspective.
+    public var projection: CameraProjection = .perspective(fieldOfViewDegrees: 38)
+
     public let entity: Entity
 
     /// Last framing applied, for debugging and tests.
@@ -37,12 +46,7 @@ public final class TacticalCamera {
         self.entity = Entity()
         entity.name = "camera.tactical"
 
-        var camera = OrthographicCameraComponent()
-        camera.near = 0.05
-        camera.far = 200
-        camera.scale = 14
-        camera.scaleDirection = .vertical
-        entity.components.set(camera)
+        applyProjection()
     }
 
     /// Player pan and zoom. Rotation is deliberately not offered.
@@ -62,6 +66,7 @@ public final class TacticalCamera {
             aspectRatio: aspectRatio,
             tiltDegrees: tiltDegrees,
             mode: mode,
+            projection: projection,
             margin: margin,
             screenInsets: screenInsets,
             viewportSize: viewportSize,
@@ -77,17 +82,38 @@ public final class TacticalCamera {
         apply(framing)
     }
 
+    /// Installs the camera component for the current projection.
+    private func applyProjection() {
+        switch projection {
+        case .orthographic:
+            var camera = OrthographicCameraComponent()
+            camera.near = 0.05
+            camera.far = 400
+            camera.scaleDirection = .vertical
+            entity.components.set(camera)
+        case .perspective(let fieldOfViewDegrees):
+            entity.components.remove(OrthographicCameraComponent.self)
+            entity.components.set(PerspectiveCameraComponent(
+                near: 0.05,
+                far: 400,
+                fieldOfViewInDegrees: Float(fieldOfViewDegrees)
+            ))
+        }
+    }
+
     public func apply(_ framing: CameraFraming) {
         guard framing != self.framing else { return }
         self.framing = framing
 
-        var camera = entity.components[OrthographicCameraComponent.self] ?? OrthographicCameraComponent()
-        // Measured against the iOS 27 SDK: `scale` is the *half* extent of the
-        // orthographic view along `scaleDirection`, not the full one. Apple's
-        // documentation does not spell this out.
-        camera.scale = Float(framing.verticalExtent / 2)
-        camera.scaleDirection = .vertical
-        entity.components.set(camera)
+        if case .orthographic = projection {
+            var camera = entity.components[OrthographicCameraComponent.self]
+                ?? OrthographicCameraComponent()
+            // Measured against the SDK: `scale` is the *half* extent of the view
+            // along `scaleDirection`, not the full one.
+            camera.scale = Float(framing.verticalExtent / 2)
+            camera.scaleDirection = .vertical
+            entity.components.set(camera)
+        }
 
         let focus = SIMD3<Float>(
             Float(framing.focus.x),

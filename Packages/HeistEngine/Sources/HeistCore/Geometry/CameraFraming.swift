@@ -338,9 +338,16 @@ public enum CameraFramingSolver {
             visibleDepth: visibleDepth
         )
 
+        // The focus sits on the *top* of the walls, not on the floor.
+        //
+        // This is what pins the wall tops to the display edges: whatever the
+        // camera does, the plane it is aimed at stays put on screen, and under
+        // perspective everything below it — the floor — swings instead. Aiming
+        // at the floor would pin the floor and swing the walls, which is the
+        // wrong way round.
         let focus = WorldPoint(
             x: center.x + clamped.focusOffset.x,
-            y: 0,
+            y: metrics.wallHeight,
             z: center.z - tiltBias + clamped.focusOffset.z
         )
 
@@ -360,10 +367,15 @@ public enum CameraFramingSolver {
         let croppedDepth = max(0, levelDepth - visibleGroundDepth)
         let croppedWidth = max(0, levelWidth - visibleWidth)
 
+        // Leaning swings the camera around that fixed focus. Under perspective
+        // this is what makes the floor slide while the wall tops hold still.
+        let swingX = control.leanHorizontal * .pi / 180
+        let swingZ = control.leanVertical * .pi / 180
+
         let position = WorldPoint(
-            x: focus.x,
-            y: distance * cos(tilt),
-            z: focus.z + distance * sin(tilt)
+            x: focus.x - distance * sin(swingX),
+            y: focus.y + distance * cos(tilt) * cos(swingX),
+            z: focus.z + distance * sin(tilt) + distance * sin(swingZ)
         )
 
         return CameraFraming(
