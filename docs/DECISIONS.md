@@ -32,7 +32,11 @@ The repository name `DerClou` is an internal codename.
 
 **Decision:** Apple ecosystem first; initial game target is iPhone.
 
-Current minimum target: **iOS 27+**.
+Current minimum target: **iOS 18+**.
+
+**(Старый вариант: iOS 27+.)**
+
+Reason for revision: the project does not need the iOS 27 RealityKit Navigation Mesh stack to implement tap-to-move. The iOS 18 floor preserves the desired `RealityView` + true `OrthographicCameraComponent` rendering architecture while navigation can be supplied by GameplayKit graph/pathfinding APIs or a deterministic custom implementation.
 
 ## D-004 — Engine / framework
 
@@ -46,7 +50,7 @@ Current minimum target: **iOS 27+**.
 
 ### Rejected alternatives
 
-**Godot:** technically excellent and agent-friendly, but rejected because the project is Apple-only and we want one native Swift/Xcode codebase with the newest RealityKit/RCP3 capabilities and Xcode agent integration.
+**Godot:** technically excellent and agent-friendly, but rejected because the project is Apple-only and we want one native Swift/Xcode codebase with RealityKit/RCP3 capabilities and Xcode agent integration.
 
 **Unity:** unnecessary complexity/runtime for this project.
 
@@ -78,9 +82,11 @@ Examples:
 
 ## D-006 — Camera
 
-**Decision:** high, fixed tactical top-down camera; prefer `OrthographicCameraComponent`.
+**Decision:** high, fixed tactical top-down camera using a **true `OrthographicCameraComponent`** in the primary iOS 18+ `RealityView` path.
 
 A small tilt may be tested because the desired look has visible volume and side faces. Tactical readability takes priority.
+
+**(Старый fallback idea: support older iOS through `ARView(.nonAR)` plus a narrow-FOV `PerspectiveCamera`. This is not the current production path because Apple documents non-AR ARView as using a perspective camera, which would approximate rather than preserve true orthographic projection.)**
 
 ## D-007 — Input
 
@@ -141,7 +147,7 @@ Avoid difficulty via randomness or opaque detection.
 - keypad/alarm -> emissive/material state;
 - safe/container -> articulated 3D animation.
 
-Reality Composer Pro 3 Animation Graph / Shader Graph / Compute Graph / Behavior Trees / Script Graph can support this.
+Reality Composer Pro 3 animation/material tooling can support this, but exact generated/runtime features must be checked against the iOS 18 floor before becoming mandatory.
 
 ## D-012 — Graphics quality
 
@@ -158,6 +164,8 @@ Visual target:
 - restrained tactical overlays;
 - premium rather than cartoon/F2P aesthetic.
 
+Supporting iOS 18 does **not** lower this target. If older supported devices require adaptation, use measured capability/performance tiers for expensive rendering features instead of simplifying the overall art direction or gameplay.
+
 ## D-013 — Asset reuse
 
 **Decision:** build a reusable 3D prop/environment library.
@@ -168,11 +176,13 @@ Exact modeling/generation workflow remains open; avoid recurring paid AI asset s
 
 ## D-014 — Reality Composer Pro 3 role
 
-**Decision:** RCP3 is the visual authoring environment for scenes/assets/materials/navigation/animation behavior.
+**Decision:** RCP3 is the visual authoring environment for scenes/assets/materials/animation behavior and level metadata.
 
 Core durable game logic remains understandable in Swift rather than being scattered through unique one-off graphs.
 
-Use custom RCP3 Swift components/systems/plugins when this makes authoring reusable.
+Use custom RCP3 Swift components/systems/plugins when this makes authoring reusable, but every runtime feature must respect the iOS 18 deployment floor.
+
+**(Старый вариант: RCP3 navigation mesh and newest runtime graph features could be adopted directly because the whole game targeted iOS 27.)**
 
 ## D-015 — Coding agents
 
@@ -243,3 +253,28 @@ Earlier ideation explored many novel iPhone mechanics. For this project, technol
 Do not add AR, live camera, random new-sensor gimmicks or Wi-Fi Aware merely because Apple exposes them.
 
 The innovation is the polished mobile resurrection/evolution of the burglary planning loop using modern Apple-native tools.
+
+## D-021 — Navigation implementation is not tied to RealityKit iOS 27 APIs
+
+**Decision:** tap-to-move uses a project-owned navigation abstraction.
+
+Allowed backends:
+
+- GameplayKit `GKGraph` / `GKGridGraph`;
+- `GKObstacleGraph`;
+- `GKMeshGraph`;
+- deterministic custom A* where justified by actual level geometry and dynamic-door requirements.
+
+Apple documents GameplayKit graph classes as pathfinding tools for game worlds and `GKGraph.findPath(from:to:)` as computing a shortest traversal.
+
+**(Старый вариант: use RCP3 Navigation Mesh + RealityKit `NavigationController`, which pushed the project to iOS 27.)**
+
+The chosen implementation must preserve deterministic route selection for the planning/execution loop.
+
+## D-022 — Deployment floor must not drive visual downgrades
+
+**Decision:** iOS 18 is a compatibility floor, not an art target.
+
+Do not simplify rendering, materials, animation, lighting, level density or gameplay merely because iOS 18 includes older hardware. Profile on real supported devices and introduce explicit quality tiers only where measured performance requires them.
+
+If retaining iOS 18 creates a concrete blocker that would materially harm the intended game, surface that blocker before changing the design or raising the deployment target.
