@@ -33,6 +33,27 @@ Consequence: builds produced now cannot be submitted to App Store Connect
 (ITMS-90111 rejects beta-built binaries). Irrelevant for development, relevant
 before any TestFlight distribution.
 
+### Opening the project
+
+**Open it with Xcode-beta, not the released Xcode.** Double-clicking the project
+uses whichever Xcode is default, which is the released 26.6 — and there the
+project cannot build (no iOS 27 SDK) *and* an iPhone running iOS 27 is filtered
+out of the run destinations as an unsupported OS version. An empty device list is
+usually this, not a project misconfiguration.
+
+```bash
+open -a /Applications/Xcode-beta.app ~/Documents/ПРОЕКТЫ/DerClou/DerClou.xcodeproj
+```
+
+To make the beta the default toolchain for command-line builds too:
+
+```bash
+sudo xcode-select -s /Applications/Xcode-beta.app/Contents/Developer
+```
+
+A device also has to be actually connected — `xcrun devicectl list devices` shows
+`unavailable` when it is merely paired. Cable, unlocked screen, trusted computer.
+
 Build and test:
 
 ```bash
@@ -53,8 +74,8 @@ DerClouApp/                app shell: DerClouApp.swift, GameScreen.swift, Info.p
 DerClouTests/              runtime tests that need RealityKit
 Packages/HeistEngine/      local Swift package, where the engine lives
   Sources/HeistCore/       pure Swift: no RealityKit, no UI, no I/O
-    Geometry/              LevelMetrics, primitives, CameraFramingSolver
-    Level/                 LevelBlueprint, WallSpec, LevelGeometry, LevelValidator
+    Geometry/              LevelMetrics, primitives, CameraFramingSolver, ScreenProjection
+    Level/                 LevelBlueprint, WallSpec, LevelGeometry, LevelValidator, NavigationBudget
     Catalog/               PropCatalog, PropPrototype
     Navigation/            NavigationSourceMeshBuilder
     Levels/                Level01 (office01) as data
@@ -65,7 +86,7 @@ Packages/HeistEngine/      local Swift package, where the engine lives
     Navigation/            NavigationBaker
     Session/               GameSession
     Views/                 HeistSceneView
-  Tests/HeistCoreTests/    32 tests
+  Tests/HeistCoreTests/    43 tests
 ```
 
 The split is the point: everything that decides *game outcomes* lives in
@@ -114,10 +135,19 @@ the view along `scaleDirection`, not the full extent. Framing a 10 m building wi
 `scale = 12.9` produced a view covering ~25.9 m. `TacticalCamera` divides by two.
 
 Chosen presentation: tilt **24°** off straight down, vertical `scaleDirection`,
-auto-fit to level bounds plus 1.5 m margin. Strict top-down reads flat; 24° shows
-enough wall and prop sides to convey volume without tall geometry occluding the
-floor behind it. `near = 0.05`, `far = 200`, camera 60 m back (irrelevant to scale
-under orthographic projection).
+1 m margin around the level. Strict top-down reads flat; 24° shows enough wall and
+prop sides to convey volume without tall geometry occluding the floor behind it.
+`near = 0.05`, `far = 200`, camera 60 m back (irrelevant to scale under
+orthographic projection).
+
+Framing has two modes. `.fit` shows the whole level and letterboxes whatever does
+not match; `.fill` (the default) uses the entire display. Filling only works
+without cutting playfield if the level is shaped roughly like the device, which is
+why **office01 is 24 × 10 m** rather than square — the building's proportions are a
+framing decision, not only a design one. `CameraFraming.croppedDepth` /
+`croppedWidth` report what a given level loses, a warning is logged at runtime when
+anything is cropped, and a test asserts office01 loses nothing on a landscape
+phone.
 
 ### Navigation
 
@@ -131,10 +161,25 @@ All present and working on iOS 27:
 **The important finding for the project's direction:** the navigation mesh can be
 baked at runtime from arbitrary triangles. Authoring a mesh per scene in Reality
 Composer Pro is *not* required. Generated or data-driven levels therefore get
-working navigation for free. Bake config in use: cell 0.1 m, walkable slope 45°,
+working navigation for free. Bake config in use: cell 0.05 m, walkable slope 45°,
 character height 1.75 m, climb 0.3 m, radius 0.3 m.
 
-Measured on office01: 216 source triangles (18 boxes) → 38 navigation polygons.
+Measured on office01: 336 source triangles (28 boxes) → 80 navigation polygons.
+
+**Doorway width is a navigation constraint, not a cosmetic choice.** The bake
+voxelises the world and erodes the walkable area by the character radius, so a
+1.0 m opening with a 0.3 m radius keeps only 0.4 m — four voxels at the original
+0.05 m cell size, which bakes into a ragged polygon that actors jam in, especially
+when approaching at an angle. Two changes came out of that:
+
+- bake resolution raised to 0.05 m cells;
+- `NavigationBudget` in `HeistCore` encodes the rule, and `LevelValidator` now
+  warns when an opening is too narrow to survive the bake and errors when it is
+  narrower than the character. office01's doorways are 1.2 m.
+
+`PathFollowingSystem` also carries a stall watchdog: an actor that makes no
+progress for 1.5 s logs which waypoint it is stuck at and abandons the path,
+rather than standing still with no explanation.
 
 `NavigationMeshResource` also exposes `Area`, `Flag`, `Layer`, per-polygon marking
 and `OffMeshConnection`, plus `NavigationComponent.Filter` with area costs and
@@ -200,21 +245,26 @@ no ARKit session, no device motion. Confirmed working.
    the runtime test hangs until timeout. That test is `.disabled` with a note. If
    an automated route check is wanted, it needs a UI test with a rendered scene.
 
-2. **Taps outside the building still produce a route.** Navigation clamps an
+2. **Doorway jams are mitigated, not proven fixed.** Openings are wider, the
+   bake is finer and the validator enforces the rule, but the original symptom
+   was only reproducible by hand. If an actor still wedges, the movement log now
+   names the waypoint — check `category: movement`.
+
+3. **Taps outside the building still produce a route.** Navigation clamps an
    unreachable target to the nearest mesh point instead of rejecting it. Fine for
    now, but planning will need an explicit "not navigable" answer so a player
    cannot schedule a move to a place they cannot stand.
 
-3. Actor visuals are placeholder primitives (cylinder body, sphere head, nose cone
+4. Actor visuals are placeholder primitives (cylinder body, sphere head, nose cone
    for facing). No skeletal animation yet; movement is decoupled from geometry so
    a rigged character drops in without touching navigation.
 
-4. Only one actor is player-controlled. The guard is placed and has a route in the
+5. Only one actor is player-controlled. The guard is placed and has a route in the
    blueprint, but nothing walks it yet.
 
-5. `UIRequiresFullScreen` was removed from Info.plist — deprecated in iOS 26.
+6. `UIRequiresFullScreen` was removed from Info.plist — deprecated in iOS 26.
 
-6. Injecting input into a `simctl`-booted device with no open Simulator window
+7. Injecting input into a `simctl`-booted device with no open Simulator window
    silently does nothing — taps and even the HOME button are ignored. Open the
    Simulator window before trying to drive the app.
 

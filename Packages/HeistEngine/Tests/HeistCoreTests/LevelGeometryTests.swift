@@ -13,19 +13,21 @@ struct LevelGeometryTests {
     @Test("The floor slab sits just below the walking surface")
     func floorPlacement() {
         let floor = try! #require(geometry.floors.first)
-        #expect(floor.width == 14)
+        #expect(floor.width == 24)
         #expect(floor.depth == 10)
         #expect(floor.center.y < 0)
         #expect(floor.center.y + floor.height / 2 == 0)
     }
 
-    @Test("The corridor wall is emitted as five boxes with two door gaps")
+    @Test("The corridor wall is emitted as solid runs plus one lintel per doorway")
     func corridorWall() {
         let pieces = geometry.walls.filter { $0.sourceID.hasPrefix("office01.wall.corridor") }
-        #expect(pieces.count == 5)
+        // Three doorways: four solid runs between and around them, plus three
+        // lintels over the openings.
+        #expect(pieces.count == 7)
 
         let lintels = pieces.filter { $0.center.y > LevelMetrics.standard.doorwayHeight }
-        #expect(lintels.count == 2)
+        #expect(lintels.count == 3)
     }
 
     @Test("Walls are yawed onto their own axis")

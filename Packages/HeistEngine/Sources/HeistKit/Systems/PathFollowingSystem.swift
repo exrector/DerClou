@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 import RealityKit
 
 /// Walks entities along their path at a constant speed and turns them to face
@@ -8,6 +9,11 @@ import RealityKit
 /// physics. Timing stays a function of distance and speed, which is what makes
 /// a plan's ETA trustworthy.
 public struct PathFollowingSystem: System {
+    private static let log = Logger(subsystem: "com.exrector.DerClou", category: "movement")
+
+    /// How long an actor may make no progress before the path is abandoned.
+    private static let stallLimit: Float = 1.5
+
     private static let query = EntityQuery(
         where: .has(PathFollowingComponent.self) && .has(PlayableActorComponent.self)
     )
@@ -48,14 +54,34 @@ public struct PathFollowingSystem: System {
                 face(entity: entity, direction: direction)
             }
 
-            if path.isFinished, path.index > 0 {
-                // Keep the final facing rather than snapping back to identity.
-                entity.setPosition(position, relativeTo: nil)
+            entity.setPosition(position, relativeTo: nil)
+
+            if path.isFinished {
                 entity.components.remove(PathFollowingComponent.self)
                 continue
             }
 
-            entity.setPosition(position, relativeTo: nil)
+            // Progress watchdog. Without it a wedged actor just stands there and
+            // the only symptom is a player wondering why nothing happens.
+            let distance = simd_distance(position, path.waypoints[path.index])
+            if distance < path.lastDistance - 0.001 {
+                path.stalledFor = 0
+            } else {
+                path.stalledFor += deltaTime
+            }
+            path.lastDistance = distance
+
+            if path.stalledFor >= Self.stallLimit {
+                let actorID = actor.id
+                Self.log.error("""
+                    \(actorID, privacy: .public) made no progress for \
+                    \(Self.stallLimit, privacy: .public)s at waypoint \(path.index, privacy: .public) \
+                    of \(path.waypoints.count, privacy: .public); abandoning path
+                    """)
+                entity.components.remove(PathFollowingComponent.self)
+                continue
+            }
+
             entity.components[PathFollowingComponent.self] = path
         }
     }

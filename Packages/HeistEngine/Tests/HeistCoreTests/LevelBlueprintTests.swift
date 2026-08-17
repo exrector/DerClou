@@ -56,6 +56,57 @@ struct LevelBlueprintTests {
         #expect(issues.errors.contains { $0.subject == "office01.wall.overlap" })
     }
 
+    @Test("A doorway too narrow to survive the navigation bake is reported")
+    func narrowDoorway() {
+        var level = LevelBlueprint.office01
+        // 1.0 m sounds like a normal door, but eroding 0.3 m of character radius
+        // from each side leaves 0.4 m — eight voxels at a 0.05 m cell size, which
+        // bakes into a ragged polygon that actors jam in.
+        level.walls.append(
+            WallSpec(
+                id: "office01.wall.tight",
+                start: CellPoint(0, 3),
+                end: CellPoint(6, 3),
+                openings: [WallOpening(kind: .doorway, center: 3, width: 1.0)]
+            )
+        )
+
+        let issues = LevelValidator.validate(level, catalog: .standard)
+        #expect(issues.contains { $0.subject == "office01.wall.tight" })
+    }
+
+    @Test("A doorway narrower than the character is a hard error")
+    func impassableDoorway() {
+        var level = LevelBlueprint.office01
+        level.walls.append(
+            WallSpec(
+                id: "office01.wall.sealed",
+                start: CellPoint(0, 4),
+                end: CellPoint(6, 4),
+                openings: [WallOpening(kind: .doorway, center: 3, width: 0.5)]
+            )
+        )
+
+        let issues = LevelValidator.validate(level, catalog: .standard)
+        #expect(issues.errors.contains { $0.subject == "office01.wall.sealed" })
+    }
+
+    @Test("Windows are exempt: nobody walks through them")
+    func windowsAreExempt() {
+        var level = LevelBlueprint.office01
+        level.walls.append(
+            WallSpec(
+                id: "office01.wall.window",
+                start: CellPoint(0, 5),
+                end: CellPoint(6, 5),
+                openings: [WallOpening(kind: .window, center: 3, width: 0.8)]
+            )
+        )
+
+        let issues = LevelValidator.validate(level, catalog: .standard)
+        #expect(!issues.contains { $0.subject == "office01.wall.window" })
+    }
+
     @Test("An unknown prototype is an error")
     func unknownPrototype() {
         var level = LevelBlueprint.office01
