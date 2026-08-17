@@ -14,8 +14,9 @@ public struct HeistSceneView: View {
     @State private var camera = TacticalCamera()
     @State private var viewportSize: CGSize = .zero
     @State private var lastMagnification: CGFloat = 1
-    /// Lean angles when the current drag began.
-    @State private var leanStart: (vertical: Double, horizontal: Double)?
+    /// How far the floor is currently slid, and where it was when the drag began.
+    @State private var floorOffset: (x: Double, z: Double) = (0, 0)
+    @State private var floorStart: (x: Double, z: Double)?
 
     /// System safe-area insets, read by the caller *outside* `ignoresSafeArea`.
     private let safeAreaInsets: EdgeInsets
@@ -63,6 +64,8 @@ public struct HeistSceneView: View {
             .onChange(of: safeAreaInsets) { _, _ in updateViewport(proxy.size) }
             .onChange(of: session.cameraResetToken) { _, _ in
                 camera.control = .neutral
+                floorOffset = (0, 0)
+                session.setFloorOffset(x: 0, z: 0)
                 frameCamera(size: viewportSize)
             }
             // Mission time advances here, and only here: this is the single
@@ -151,22 +154,22 @@ public struct HeistSceneView: View {
     private var leanGesture: some Gesture {
         DragGesture(minimumDistance: 6)
             .onChanged { value in
-                if leanStart == nil {
-                    leanStart = (camera.control.leanVertical, camera.control.leanHorizontal)
-                }
-                guard let start = leanStart else { return }
+                if floorStart == nil { floorStart = floorOffset }
+                guard let start = floorStart else { return }
 
-                // Drag up, floor goes up: screen y grows downward, so the
-                // vertical translation is negated.
-                let degreesPerPoint = 0.06
-                camera.control = camera.control.leaned(
-                    vertical: start.vertical - Double(value.translation.height) * degreesPerPoint,
-                    horizontal: start.horizontal + Double(value.translation.width) * degreesPerPoint
-                )
-                frameCamera(size: viewportSize)
+                // Metres of floor travel per point of finger travel, and how far
+                // it may go before the floor would leave the walls behind.
+                let metresPerPoint = 0.012
+                let limit = 2.2
+
+                let x = min(max(start.x + Double(value.translation.width) * metresPerPoint, -limit), limit)
+                let z = min(max(start.z + Double(value.translation.height) * metresPerPoint, -limit), limit)
+
+                floorOffset = (x: x, z: z)
+                session.setFloorOffset(x: x, z: z)
             }
             .onEnded { _ in
-                leanStart = nil
+                floorStart = nil
             }
     }
 
