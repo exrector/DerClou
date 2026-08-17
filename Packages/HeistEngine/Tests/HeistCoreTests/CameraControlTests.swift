@@ -12,129 +12,161 @@ struct CameraControlTests {
             bounds: level.bounds,
             metrics: level.metrics,
             aspectRatio: viewport.width / viewport.height,
-            tiltDegrees: 24,
-            mode: .fillWidth,
-            margin: 0,
             control: control
         )
     }
 
-    // MARK: - Tactical framing
-
-    @Test("The tactical view fits the floor's width exactly")
-    func tacticalFramesTheFloor() {
-        let framing = framing(.neutral)
-        let horizontalExtent = framing.verticalExtent * (viewport.width / viewport.height)
-        let levelWidth = level.metrics.meters(fromCells: level.bounds.size.width)
-
-        #expect(abs(horizontalExtent - levelWidth) < 0.01)
+    /// Every lean worth checking, including the corners of the range.
+    var leans: [CameraControl] {
+        var controls: [CameraControl] = []
+        for vertical in [-20.0, -11, 0, 11, 20] {
+            for horizontal in [-20.0, -11, 0, 11, 20] {
+                controls.append(CameraControl(leanVertical: vertical, leanHorizontal: horizontal))
+            }
+        }
+        return controls
     }
 
-    @Test("Nothing but the floor edges shows: no ground beyond the far wall")
-    func noGroundVisible() {
-        let framing = framing(.neutral)
-        let tilt = 24.0 * .pi / 180
-
-        // Topmost point of the view, expressed as the floor position it lines up
-        // with. Beyond the far wall this is not bare ground: the wall's height
-        // leans toward the camera and covers a strip of it, reaching as far as
-        //
-        //     far edge − half thickness − height × tan(tilt)
-        //
-        // so the frame may reach past the wall's base without showing anything.
-        let halfExtent = framing.verticalExtent / 2
-        let farthestZ = framing.focus.z - halfExtent / cos(tilt)
-
+    /// The four corners of the level's outline, at the height of the wall tops.
+    /// This rectangle is the frame that must not move on screen.
+    var frameCorners: [WorldPoint] {
         let metrics = level.metrics
-        let farEdge = metrics.meters(fromCells: level.bounds.minY)
-        let coveredTo = farEdge - metrics.wallThickness / 2 - metrics.wallHeight * tan(tilt)
+        let minX = metrics.meters(fromCells: level.bounds.minX)
+        let maxX = metrics.meters(fromCells: level.bounds.maxX)
+        let minZ = metrics.meters(fromCells: level.bounds.minY)
+        let maxZ = metrics.meters(fromCells: level.bounds.maxY)
 
-        #expect(farthestZ >= coveredTo, "view reaches \(farthestZ), wall covers to \(coveredTo)")
-
-        // And the near edge: the frame must not run past the outer face of the
-        // near wall onto ground on that side either.
-        let nearEdge = metrics.meters(fromCells: level.bounds.maxY)
-        let nearestZ = framing.focus.z + halfExtent / cos(tilt)
-        #expect(nearestZ <= nearEdge + metrics.wallThickness / 2 + 0.2)
+        return [
+            WorldPoint(x: minX, y: metrics.wallHeight, z: minZ),
+            WorldPoint(x: maxX, y: metrics.wallHeight, z: minZ),
+            WorldPoint(x: minX, y: metrics.wallHeight, z: maxZ),
+            WorldPoint(x: maxX, y: metrics.wallHeight, z: maxZ)
+        ]
     }
 
-    // MARK: - Leaning
+    // MARK: - The frame is pinned
 
-    @Test("Leaning up tips the world so the floor slides up the screen")
-    func leanUpTipsTheWorld() {
-        let tilt = CameraControl(leanVertical: 12).worldTilt
+    @Test("The frame of wall tops does not move on screen at any lean")
+    func theFrameIsPinned() throws {
+        let atRest = try frameCorners.map {
+            try #require(ScreenProjection.screenPoint(
+                of: $0, viewportSize: viewport, framing: framing(.neutral)
+            ))
+        }
 
-        // Rotating the level about screen-horizontal lifts its far edge toward
-        // the camera, which is what slides the floor up the screen.
-        #expect(tilt.aroundX < 0)
-        #expect(tilt.aroundZ == 0)
-    }
+        for control in leans {
+            let framing = framing(control)
+            for (corner, rest) in zip(frameCorners, atRest) {
+                let leaned = try #require(ScreenProjection.screenPoint(
+                    of: corner, viewportSize: viewport, framing: framing
+                ))
 
-    @Test("Leaning sideways tips the world about the other axis")
-    func leanSideTipsTheWorld() {
-        let tilt = CameraControl(leanHorizontal: 8).worldTilt
-
-        #expect(tilt.aroundZ > 0)
-        #expect(tilt.aroundX == 0)
-    }
-
-    @Test("Leaning slides the camera without turning it")
-    func cameraSlidesNeverTurns() {
-        let flat = framing(.neutral)
-        let leaned = framing(CameraControl(leanVertical: 9, leanHorizontal: 9))
-
-        // The camera moves...
-        #expect(abs(leaned.position.x - flat.position.x) > 0.5)
-        // ...but keeps looking in exactly the same direction. This is what makes
-        // the building's walls stay parallel to the display edges; orbiting the
-        // camera instead turned the view and read as the map rotating.
-        #expect(abs(leaned.viewDirection.x - flat.viewDirection.x) < 1e-9)
-        #expect(abs(leaned.viewDirection.y - flat.viewDirection.y) < 1e-9)
-        #expect(abs(leaned.viewDirection.z - flat.viewDirection.z) < 1e-9)
-    }
-
-    @Test("All four directions give the same amount of parallax")
-    func leanIsSymmetric() {
-        let flat = framing(.neutral)
-        let right = framing(CameraControl(leanHorizontal: 9))
-        let left = framing(CameraControl(leanHorizontal: -9))
-        let up = framing(CameraControl(leanVertical: 9))
-        let down = framing(CameraControl(leanVertical: -9))
-
-        // Equal and opposite sideways, equal and opposite vertically. Earlier
-        // versions added the lean to one axis only, so looking behind a wall
-        // worked in one direction and not the others.
-        #expect(abs((right.position.x - flat.position.x) + (left.position.x - flat.position.x)) < 1e-9)
-        #expect(abs((up.position.z - flat.position.z) + (down.position.z - flat.position.z)) < 1e-9)
-        #expect(abs(right.position.x - flat.position.x) > 0.5)
-        #expect(abs(up.position.z - flat.position.z) > 0.5)
-    }
-
-    @Test("The map never turns: screen right stays world +x at any lean")
-    func mapDoesNotRotate() {
-        for lean in [-8.0, -4, 0, 4, 8] {
-            let framing = framing(CameraControl(leanHorizontal: lean))
-            let (right, _, _) = framing.basis
-
-            #expect(right.x > 0.999, "lean \(lean) turned the map")
-            #expect(abs(right.z) < 0.001, "lean \(lean) turned the map")
+                // Not "roughly", and not "the middle of it": every corner of the
+                // frame, to the pixel, at every lean. This is the one thing the
+                // camera exists to guarantee — the level is a box the player
+                // looks into, and the rim of that box is fixed to the display.
+                #expect(abs(leaned.x - rest.x) < 0.01, "corner \(corner) moved at \(control)")
+                #expect(abs(leaned.y - rest.y) < 0.01, "corner \(corner) moved at \(control)")
+            }
         }
     }
 
-    @Test("Leaning is clamped to a small range")
+    @Test("Nothing outside the building can come into frame")
+    func theFrameHoldsTheEdges() throws {
+        let metrics = level.metrics
+        let minX = metrics.meters(fromCells: level.bounds.minX)
+        let maxX = metrics.meters(fromCells: level.bounds.maxX)
+        let minZ = metrics.meters(fromCells: level.bounds.minY)
+        let maxZ = metrics.meters(fromCells: level.bounds.maxY)
+
+        for control in leans {
+            let framing = framing(control)
+
+            for corner in [
+                (x: 0.0, y: 0.0),
+                (x: viewport.width, y: 0.0),
+                (x: 0.0, y: viewport.height),
+                (x: viewport.width, y: viewport.height)
+            ] {
+                let ray = try #require(ScreenProjection.ray(
+                    screenPoint: corner, viewportSize: viewport, framing: framing
+                ))
+                // Where the corner of the display meets the plane of the wall
+                // tops. The walls are the outermost thing in the level, so if
+                // this lands inside the outline, nothing beyond the building can
+                // be on screen — whatever is out there is behind a wall.
+                let hit = try #require(ScreenProjection.hit(ray, planeY: metrics.wallHeight))
+
+                let slack = 0.001
+                #expect(hit.x >= minX - slack, "\(control) at \(corner)")
+                #expect(hit.x <= maxX + slack, "\(control) at \(corner)")
+                #expect(hit.z >= minZ - slack, "\(control) at \(corner)")
+                #expect(hit.z <= maxZ + slack, "\(control) at \(corner)")
+            }
+        }
+    }
+
+    // MARK: - What does move
+
+    @Test("The floor slides against the frame, by the wall height times the lean")
+    func theFloorSlides() throws {
+        let metrics = level.metrics
+        let centreOfFloor = WorldPoint(x: 12, y: 0, z: 5.5)
+
+        let rest = try #require(ScreenProjection.screenPoint(
+            of: centreOfFloor, viewportSize: viewport, framing: framing(.neutral)
+        ))
+
+        for degrees in [8.0, 14, 20] {
+            let framing = framing(CameraControl(leanVertical: degrees))
+            let leaned = try #require(ScreenProjection.screenPoint(
+                of: centreOfFloor, viewportSize: viewport, framing: framing
+            ))
+
+            // Predicted from the geometry alone: a point `h` below the anchor
+            // plane shifts by `h * tan(lean)` in world terms. That is how much
+            // of a wall's inside face comes into view.
+            let expected = metrics.wallHeight * tan(degrees * .pi / 180)
+            let metersPerPoint = (2 * framing.halfHeight * framing.position.y) / viewport.height
+            let moved = (leaned.y - rest.y) * metersPerPoint
+
+            #expect(moved > 0, "the floor must follow the finger")
+            #expect(abs(moved - expected) < 0.05, "moved \(moved) m, expected \(expected) m")
+        }
+    }
+
+    @Test("The floor follows the finger in all four directions")
+    func theFloorFollowsTheFinger() throws {
+        let centreOfFloor = WorldPoint(x: 12, y: 0, z: 5.5)
+
+        func screenPoint(_ control: CameraControl) throws -> (x: Double, y: Double) {
+            try #require(ScreenProjection.screenPoint(
+                of: centreOfFloor, viewportSize: viewport, framing: framing(control)
+            ))
+        }
+
+        let rest = try screenPoint(.neutral)
+        let down = try screenPoint(CameraControl(leanVertical: 15))
+        let up = try screenPoint(CameraControl(leanVertical: -15))
+        let right = try screenPoint(CameraControl(leanHorizontal: 15))
+        let left = try screenPoint(CameraControl(leanHorizontal: -15))
+
+        #expect(down.y > rest.y)
+        #expect(up.y < rest.y)
+        #expect(right.x > rest.x)
+        #expect(left.x < rest.x)
+
+        // Equal and opposite: looking into a room has to feel the same whichever
+        // way it is done.
+        #expect(abs((down.y - rest.y) + (up.y - rest.y)) < 0.001)
+        #expect(abs((right.x - rest.x) + (left.x - rest.x)) < 0.001)
+    }
+
+    @Test("Leaning is clamped to a range that keeps the view a plan view")
     func leanIsClamped() {
         let control = CameraControl().leaned(vertical: 90, horizontal: -90)
         #expect(control.leanVertical == CameraControl.leanRange.upperBound)
-        #expect(control.leanHorizontal == CameraControl.sidewaysLeanRange.lowerBound)
-    }
-
-    @Test("Leaning closes in so no empty space appears at the edges")
-    func leaningCompensates() {
-        let flat = framing(.neutral)
-        let leaned = framing(CameraControl(leanVertical: 14, leanHorizontal: 8))
-
-        // Foreshortening would open gaps; the framing pulls in to cover them.
-        #expect(leaned.verticalExtent < flat.verticalExtent)
+        #expect(control.leanHorizontal == CameraControl.leanRange.lowerBound)
     }
 
     // MARK: - Staying inside the building
@@ -171,6 +203,15 @@ struct CameraControlTests {
         #expect(abs(control.focusOffset.z - levelDepth / 4) < 0.001)
     }
 
+    @Test("Zooming in moves the camera closer and shows less")
+    func zoomMovesIn() {
+        let rest = framing(.neutral)
+        let close = framing(CameraControl(zoom: 2))
+
+        #expect(close.position.y < rest.position.y)
+        #expect(close.anchorDistance < rest.anchorDistance)
+    }
+
     @Test("Zoom is clamped and leaves the lean alone")
     func zoomIndependentOfLean() {
         let control = CameraControl(leanVertical: 8).zoomed(by: 10)
@@ -185,24 +226,24 @@ struct CameraControlTests {
     func projectionRoundTrip() throws {
         for control in [
             CameraControl.neutral,
-            CameraControl(leanVertical: 10, leanHorizontal: -8, zoom: 1.8)
+            CameraControl(leanVertical: 16, leanHorizontal: -14, zoom: 1.8)
         ] {
             let framing = framing(control)
             let screen = (x: 300.0, y: 210.0)
 
             let ray = try #require(ScreenProjection.ray(
-                screenPoint: screen,
-                viewportSize: viewport,
-                framing: framing
+                screenPoint: screen, viewportSize: viewport, framing: framing
             ))
-            let world = try #require(ScreenProjection.hit(ray))
+            // The ray is in the leaning scene; the floor it has to meet is the
+            // flat one the game is authored in. This is exactly the conversion
+            // tap handling does, and getting it wrong is what makes a tap land
+            // somewhere other than under the finger.
+            let onTheFloor = try #require(ScreenProjection.hit(framing.shear.undo(ray)))
             let back = try #require(ScreenProjection.screenPoint(
-                of: world,
-                viewportSize: viewport,
-                framing: framing
+                of: onTheFloor, viewportSize: viewport, framing: framing
             ))
 
-            // This is what keeps the anchor under the fingers during a peek.
+            // Taps have to land where the finger is, at any lean.
             #expect(abs(back.x - screen.x) < 0.5)
             #expect(abs(back.y - screen.y) < 0.5)
         }

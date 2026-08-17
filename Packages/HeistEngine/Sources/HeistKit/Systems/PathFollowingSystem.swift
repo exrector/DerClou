@@ -25,16 +25,17 @@ public struct PathFollowingSystem: System {
             guard var component = entity.components[PathFollowingComponent.self],
                   let actor = entity.components[PlayableActorComponent.self] else { continue }
 
-            let position = entity.position(relativeTo: nil)
+            // Level space, not world space: the scene may be leaning, and
+            // walking a route must not care how it is being drawn.
+            let position = entity.position
             let step = component.walker.advance(
                 from: WorldPoint(x: Double(position.x), y: 0, z: Double(position.z)),
                 speed: Double(actor.walkSpeed),
                 deltaTime: deltaTime
             )
 
-            entity.setPosition(
-                SIMD3<Float>(Float(step.position.x), position.y, Float(step.position.z)),
-                relativeTo: nil
+            entity.position = SIMD3<Float>(
+                Float(step.position.x), position.y, Float(step.position.z)
             )
 
             if let facing = step.facing {
@@ -64,6 +65,6 @@ public struct PathFollowingSystem: System {
         guard direction.planarLength > 0.0001 else { return }
         // Model forward is +z, matching the blueprint's rotation convention.
         let yaw = atan2(Float(direction.x), Float(direction.z))
-        entity.setOrientation(simd_quatf(angle: yaw, axis: SIMD3<Float>(0, 1, 0)), relativeTo: nil)
+        entity.orientation = simd_quatf(angle: yaw, axis: SIMD3<Float>(0, 1, 0))
     }
 }

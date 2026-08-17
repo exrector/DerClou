@@ -55,4 +55,18 @@ extension WorldPoint {
     public var onFloorPlane: WorldPoint {
         WorldPoint(x: x, y: 0, z: z)
     }
+
+    /// Rotates about the world x axis, which is the screen's horizontal axis for
+    /// the tactical camera.
+    public func rotatedAboutX(_ angle: Double) -> WorldPoint {
+        let c = cos(angle), s = sin(angle)
+        return WorldPoint(x: x, y: y * c - z * s, z: y * s + z * c)
+    }
+
+    /// Rotates about the world z axis, which runs up and down the screen for the
+    /// tactical camera.
+    public func rotatedAboutZ(_ angle: Double) -> WorldPoint {
+        let c = cos(angle), s = sin(angle)
+        return WorldPoint(x: x * c - y * s, y: x * s + y * c, z: z)
+    }
 }

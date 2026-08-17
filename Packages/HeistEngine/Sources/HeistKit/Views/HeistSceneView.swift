@@ -14,9 +14,8 @@ public struct HeistSceneView: View {
     @State private var camera = TacticalCamera()
     @State private var viewportSize: CGSize = .zero
     @State private var lastMagnification: CGFloat = 1
-    /// How far the floor is currently slid, and where it was when the drag began.
-    @State private var floorOffset: (x: Double, z: Double) = (0, 0)
-    @State private var floorStart: (x: Double, z: Double)?
+    /// How far the view was leaning when the current drag began.
+    @State private var leanAtDragStart: (vertical: Double, horizontal: Double)?
 
     /// System safe-area insets, read by the caller *outside* `ignoresSafeArea`.
     private let safeAreaInsets: EdgeInsets
@@ -54,8 +53,8 @@ public struct HeistSceneView: View {
             .onTapGesture { location in
                 handleTap(at: location)
             }
-            // Pan and pinch, but never rotation: the map is a puzzle, and it
-            // only stays learnable if screen directions never move.
+            // Peek and pinch, but never yaw: the map is a puzzle, and it only
+            // stays learnable if screen directions never move.
             .gesture(leanGesture)
             .simultaneousGesture(zoomGesture)
             .onAppear { updateViewport(proxy.size) }
@@ -64,8 +63,6 @@ public struct HeistSceneView: View {
             .onChange(of: safeAreaInsets) { _, _ in updateViewport(proxy.size) }
             .onChange(of: session.cameraResetToken) { _, _ in
                 camera.control = .neutral
-                floorOffset = (0, 0)
-                session.setFloorOffset(x: 0, z: 0)
                 frameCamera(size: viewportSize)
             }
             // Mission time advances here, and only here: this is the single
@@ -113,63 +110,42 @@ public struct HeistSceneView: View {
         camera.frame(
             bounds: blueprint.bounds,
             metrics: blueprint.metrics,
-            aspectRatio: Double(size.width / size.height),
-            screenInsets: ScreenInsets(
-                top: Double(safeAreaInsets.top),
-                leading: Double(safeAreaInsets.leading),
-                bottom: Double(safeAreaInsets.bottom),
-                trailing: Double(safeAreaInsets.trailing)
-            ),
-            viewportSize: (width: Double(size.width), height: Double(size.height))
+            aspectRatio: Double(size.width / size.height)
         )
-    }
-
-    /// Tips the level itself, pivoting on its centre.
-    ///
-    /// The camera stays put; the world leans. That is what keeps the building
-    /// pinned to the display edges and stops the map appearing to rotate.
-    private func applyWorldLean(blueprint: LevelBlueprint) {
-        guard let root = session.rootEntity else { return }
-
-        let tilt = camera.control.worldTilt
-        let centre = blueprint.metrics.worldPoint(blueprint.bounds.center)
-        let pivot = SIMD3<Float>(Float(centre.x), 0, Float(centre.z))
-
-        let rotation = simd_quatf(angle: Float(tilt.aroundX), axis: SIMD3<Float>(1, 0, 0))
-            * simd_quatf(angle: Float(tilt.aroundZ), axis: SIMD3<Float>(0, 0, 1))
-
-        root.orientation = rotation
-        // Rotating about the origin would swing the building away from centre,
-        // so the pivot is put back by hand.
-        root.position = pivot - rotation.act(pivot)
+        // The camera itself carries no lean; the scene does.
+        if let shear = camera.framing?.shear {
+            session.setViewShear(shear)
+        }
     }
 
     // MARK: - Camera gestures
 
-    /// One finger leans the view; the floor slides the way the finger goes.
+    /// One finger leans the view into the building.
     ///
-    /// Not a pan. The building stays pinned to the display edges — what changes
-    /// is the angle it is seen from, which is how the depth of a room becomes
-    /// visible without the map ever turning.
+    /// Not a pan and not a turn. The view hinges along the tops of the walls, so
+    /// they stay where they are on screen while the floor and everything
+    /// standing on it swing — which is how the depth of a room becomes visible
+    /// in any of the four directions without the map ever rotating.
     private var leanGesture: some Gesture {
         DragGesture(minimumDistance: 6)
             .onChanged { value in
-                if floorStart == nil { floorStart = floorOffset }
-                guard let start = floorStart else { return }
+                if leanAtDragStart == nil {
+                    leanAtDragStart = (camera.control.leanVertical, camera.control.leanHorizontal)
+                }
+                guard let start = leanAtDragStart else { return }
 
-                // Metres of floor travel per point of finger travel, and how far
-                // it may go before the floor would leave the walls behind.
-                let metresPerPoint = 0.012
-                let limit = 2.2
+                // Degrees of lean per point of finger travel: a drag across half
+                // the screen reaches the limit.
+                let degreesPerPoint = 0.09
 
-                let x = min(max(start.x + Double(value.translation.width) * metresPerPoint, -limit), limit)
-                let z = min(max(start.z + Double(value.translation.height) * metresPerPoint, -limit), limit)
-
-                floorOffset = (x: x, z: z)
-                session.setFloorOffset(x: x, z: z)
+                camera.control = camera.control.leaned(
+                    vertical: start.vertical + Double(value.translation.height) * degreesPerPoint,
+                    horizontal: start.horizontal + Double(value.translation.width) * degreesPerPoint
+                )
+                frameCamera(size: viewportSize)
             }
             .onEnded { _ in
-                floorStart = nil
+                leanAtDragStart = nil
             }
     }
 
@@ -207,10 +183,13 @@ public struct HeistSceneView: View {
             return
         }
 
-        // The world may be leaning, so the ray is taken into the level's own
-        // frame before meeting the floor. Without this a tap lands where the
-        // floor *would* be if it were flat, which drifts as the view leans.
-        guard let floorPoint = ScreenProjection.hit(levelSpaceRay(ray)) else {
+        // The ray comes out in world space, which is the leaning scene. The game
+        // is authored flat, so the lean is undone before the ray meets the floor
+        // — otherwise a tap lands where the floor is drawn rather than where it
+        // is, and the error grows with the lean.
+        let levelRay = framing.shear.undo(ray)
+
+        guard let floorPoint = ScreenProjection.hit(levelRay) else {
             Self.log.error("Tap did not resolve to the floor plane")
             return
         }
@@ -228,32 +207,5 @@ public struct HeistSceneView: View {
             """)
 
         session.handleTap(at: destination, entity: hit)
-    }
-
-    /// Converts a world-space ray into the level's own space, undoing the lean.
-    ///
-    /// Without this a tap lands where the floor *would* be if it were flat, and
-    /// the error grows with the lean.
-    private func levelSpaceRay(_ ray: WorldRay) -> WorldRay {
-        guard let blueprint = session.level?.blueprint else { return ray }
-
-        let tilt = camera.control.worldTilt
-        guard abs(tilt.aroundX) > 1e-6 || abs(tilt.aroundZ) > 1e-6 else { return ray }
-
-        let centre = blueprint.metrics.worldPoint(blueprint.bounds.center)
-        let pivot = SIMD3<Float>(Float(centre.x), 0, Float(centre.z))
-        let rotation = simd_quatf(angle: Float(tilt.aroundX), axis: SIMD3<Float>(1, 0, 0))
-            * simd_quatf(angle: Float(tilt.aroundZ), axis: SIMD3<Float>(0, 0, 1))
-        let inverse = rotation.inverse
-
-        func toLevel(_ point: WorldPoint) -> WorldPoint {
-            let simd = SIMD3<Float>(Float(point.x), Float(point.y), Float(point.z))
-            let local = inverse.act(simd - pivot) + pivot
-            return WorldPoint(x: Double(local.x), y: Double(local.y), z: Double(local.z))
-        }
-
-        let origin = toLevel(ray.origin)
-        let ahead = toLevel(ray.origin + ray.direction)
-        return WorldRay(origin: origin, direction: (ahead - origin).normalized)
     }
 }

@@ -1,83 +1,73 @@
 import Foundation
 
-/// How the tactical camera projects the world.
+/// Where the tactical camera stands, what it sees, and how far the view is
+/// leaning into the building.
 ///
-/// **Orthographic is the game's visual language and is not negotiable.** A true
-/// orthographic camera needs iOS 18, which is why iOS 18 is the deployment floor.
+/// The camera is a window onto an open-topped box, and three things are true of
+/// it at all times:
 ///
-/// The perspective case exists because a very narrow field of view pulled far
-/// back approximates orthographic and reaches back to iOS 13. It is kept as a
-/// deliberate escape hatch, not as the default: at any usable field of view the
-/// verticals still converge, and a tactical plan view is exactly the situation
-/// where that reads as wrong.
-public enum CameraProjection: Sendable, Equatable {
-    case orthographic
-    /// Vertical field of view, in degrees. Small values approach orthographic.
-    case perspective(fieldOfViewDegrees: Double)
-}
-
-/// How much world space a tactical camera must cover.
+/// * **It never rotates.** It looks straight down, always, and screen right is
+///   always world +x. Every exterior wall is parallel to an edge of the display
+///   and stays that way.
+/// * **It never moves for a gesture.** Only zoom changes where it stands.
+/// * **The tops of the exterior walls are pinned to the screen.** They frame the
+///   level, and that frame does not move, scale or skew for any gesture.
+///
+/// Leaning is carried by `shear`, which tips the contents of the box about the
+/// plane of the wall tops — see `ViewShear`. An off-axis frustum would express
+/// the same thing on the camera instead, and was tried first: RealityKit's
+/// `ProjectiveTransformCameraComponent` is ignored by `RealityView`, which
+/// renders black, so the shear lives on the scene.
 public struct CameraFraming: Sendable, Equatable {
-    /// Vertical extent of the orthographic view, in meters.
-    public var verticalExtent: Double
-    /// World-space point the camera looks at.
-    public var focus: WorldPoint
-    /// Camera position, in meters.
+    /// Camera position, in meters. Always looking straight down from here.
     public var position: WorldPoint
-    /// How much of the level's own depth falls outside the view, in meters.
-    /// Zero means nothing is cropped. Only `.fill` can produce a positive value.
-    public var croppedDepth: Double
+    /// The point the view is pinned on: the middle of the level, at the height
+    /// of the tops of the walls.
+    public var anchor: WorldPoint
+
+    /// Half-width of the frustum at unit depth — a tangent, not a distance.
+    public var halfWidth: Double
+    /// Half-height of the frustum at unit depth.
+    public var halfHeight: Double
+    /// How far the view is leaning into the building.
+    public var shear: ViewShear
+
     /// How much of the level's own width falls outside the view, in meters.
     public var croppedWidth: Double
-    /// Projection the framing was solved for.
-    public var projection: CameraProjection
+    /// How much of the level's own depth falls outside the view, in meters.
+    public var croppedDepth: Double
 
     public init(
-        verticalExtent: Double,
-        focus: WorldPoint,
         position: WorldPoint,
-        croppedDepth: Double = 0,
+        anchor: WorldPoint,
+        halfWidth: Double,
+        halfHeight: Double,
+        shear: ViewShear = .none,
         croppedWidth: Double = 0,
-        projection: CameraProjection = .orthographic,
-        viewDirection: WorldPoint = WorldPoint(x: 0, y: -1, z: 0)
+        croppedDepth: Double = 0
     ) {
-        self.verticalExtent = verticalExtent
-        self.focus = focus
         self.position = position
-        self.croppedDepth = croppedDepth
+        self.anchor = anchor
+        self.halfWidth = halfWidth
+        self.halfHeight = halfHeight
+        self.shear = shear
         self.croppedWidth = croppedWidth
-        self.projection = projection
-        self.viewDirection = viewDirection
+        self.croppedDepth = croppedDepth
     }
 
-    /// The fixed direction the camera looks along. Leaning slides the camera
-    /// without turning it, so this never changes for a given tilt.
-    public var viewDirection: WorldPoint = WorldPoint(x: 0, y: -1, z: 0)
+    /// Distance from the camera down to the pinned plane, in meters.
+    public var anchorDistance: Double { position.y - anchor.y }
 
-    /// Straight-line distance from the camera to its focus, in meters.
-    public var distanceToFocus: Double {
-        let dx = position.x - focus.x
-        let dy = position.y - focus.y
-        let dz = position.z - focus.z
-        return (dx * dx + dy * dy + dz * dz).squareRoot()
-    }
+    /// World meters spanned by the height of the screen, measured on the floor.
+    public var verticalExtent: Double { 2 * halfHeight * position.y }
 
-    /// Camera basis: screen right, screen up, and the view direction.
-    ///
-    /// Derived rather than assumed, because the camera can now swing sideways as
-    /// well as tilt. The world's up is used as the reference, which is what keeps
-    /// the map from rotating on screen when the view leans.
+    /// The camera's axes. Constant: the camera does not rotate, ever.
     public var basis: (right: WorldPoint, up: WorldPoint, forward: WorldPoint) {
-        // Derived from the *aim*, not from the camera's offset: the camera
-        // slides parallel to itself, so its direction is the same whatever the
-        // lean, and screen-right stays world +x.
-        let forward = viewDirection
-        let worldUp = WorldPoint(x: 0, y: 1, z: 0)
-        var right = forward.cross(worldUp).normalized
-        if right.planarLength < 1e-6 && abs(right.y) < 1e-6 {
-            right = WorldPoint(x: 1, y: 0, z: 0)
-        }
-        return (right, right.cross(forward), forward)
+        (
+            right: WorldPoint(x: 1, y: 0, z: 0),
+            up: WorldPoint(x: 0, y: 0, z: -1),
+            forward: WorldPoint(x: 0, y: -1, z: 0)
+        )
     }
 
     /// True when the whole level is on screen.
@@ -93,50 +83,29 @@ public enum FramingMode: String, Sendable, Codable, CaseIterable {
     case fit
     /// Fill the viewport edge to edge, cropping whichever axis overflows.
     ///
-    /// This is the default: empty bars around a tactical map waste the screen.
-    /// It is safe only when levels are authored roughly to the device's aspect
-    /// ratio — otherwise it eats real playfield. `CameraFraming.croppedDepth`
-    /// reports how much is being lost so a level can be checked in a test.
+    /// This is the default: the display must never show anything that is not the
+    /// game. It is safe only when levels are authored roughly to the device's
+    /// aspect ratio — `CameraFraming.croppedWidth` reports how much playfield is
+    /// being lost, so a level can be checked in a test.
     case fill
-    /// Fit the floor's width exactly to the display width.
-    ///
-    /// The default for gameplay. The floor spans the screen edge to edge, so the
-    /// left, right and far walls fall outside the frame entirely — the player
-    /// sees the room, not the box containing it. Only the near wall stays in
-    /// shot, where the camera tilt reveals its thickness and gives the scene
-    /// depth.
-    case fillWidth
 }
 
-/// Player-controlled camera offset: pan across the floor and zoom in or out.
+/// What the player can do to the camera: lean into the box, and zoom.
 ///
-/// Rotation and tilt are deliberately absent. The map is a puzzle: walls must
-/// read the same way every time, vision cones must be comparable at a glance,
-/// screen directions must stay put so tap-to-move never fights the view, and a
-/// level designer has to know what the player will see. The original game let
-/// the camera swing freely; that freedom costs more than it gives here.
-/// What the player can do to the camera: lean the view and zoom in.
-///
-/// Leaning is expressed as two angles away from straight down — one toward the
-/// screen's vertical axis, one toward its horizontal axis. Dragging a finger up
-/// slides the floor up and shows the depth of the far side of the room; dragging
-/// right slides it right and shows the depth of the left side. The map itself
-/// never turns: north stays at the top of the screen.
-///
-/// There is no free panning. The building is meant to stay pinned to the display
-/// edges, so what moves is the angle you look from, not the piece of the world
-/// you look at.
+/// Leaning is two angles, and it moves the viewpoint without moving the frame —
+/// see `CameraFraming`. Yaw is deliberately absent: every exterior wall is
+/// parallel to an edge of the screen, and the map is only learnable as a puzzle
+/// if it stays that way.
 public struct CameraControl: Sendable, Equatable {
-    /// Positive slides the floor **up** the screen, showing the depth of the far
-    /// side of the room.
+    /// Degrees of lean from dragging a finger up and down the screen. The floor
+    /// follows the finger.
     public var leanVertical: Double
-    /// Positive slides the floor **right**, showing the depth of the left side.
+    /// Degrees of lean from dragging a finger across the screen.
     public var leanHorizontal: Double
     /// Zoom multiplier. 1 frames the whole building; above 1 moves closer.
     public var zoom: Double
     /// Where the view is centred while zoomed in, in meters from the building's
-    /// centre. Only meaningful above zoom 1, and always clamped so the frame
-    /// stays inside the building.
+    /// centre. Always clamped so the frame stays inside the building.
     public var focusOffset: WorldPoint
 
     public init(
@@ -155,16 +124,12 @@ public struct CameraControl: Sendable, Equatable {
 
     public var isNeutral: Bool { self == .neutral }
 
-    /// How far the view may lean, the same in every direction.
+    /// How far the view may lean, the same in all four directions.
     ///
-    /// Enough to look behind a wall or into the depth of a room; far short of
-    /// changing viewpoint. The map cannot appear to turn at any angle in this
-    /// range, because screen-right is held to world +x — see `CameraFraming.basis`.
-    public static let leanRange: ClosedRange<Double> = -9...9
-
-    /// Sideways uses the same range: the parallax has to feel identical in all
-    /// four directions.
-    public static let sidewaysLeanRange: ClosedRange<Double> = leanRange
+    /// How much of a wall's inside face this reveals is fixed by geometry: a
+    /// lean of θ shifts the floor against the frame by the wall's height times
+    /// tan θ, so 20° shows a little over a third of the wall's height.
+    public static let leanRange: ClosedRange<Double> = -20...20
 
     /// Zoom limits.
     public static let zoomRange: ClosedRange<Double> = 1.0...3.0
@@ -172,10 +137,7 @@ public struct CameraControl: Sendable, Equatable {
     public func leaned(vertical: Double, horizontal: Double) -> CameraControl {
         CameraControl(
             leanVertical: min(max(vertical, Self.leanRange.lowerBound), Self.leanRange.upperBound),
-            leanHorizontal: min(
-                max(horizontal, Self.sidewaysLeanRange.lowerBound),
-                Self.sidewaysLeanRange.upperBound
-            ),
+            leanHorizontal: min(max(horizontal, Self.leanRange.lowerBound), Self.leanRange.upperBound),
             zoom: zoom,
             focusOffset: focusOffset
         )
@@ -199,32 +161,7 @@ public struct CameraControl: Sendable, Equatable {
         )
     }
 
-    /// How much the world is rotated to lean the view, in radians.
-    ///
-    /// Applied to the level rather than to the camera. The camera stays exactly
-    /// where the tactical framing puts it, so the building keeps filling the
-    /// display and the map never appears to turn — the floor simply tips toward
-    /// the finger, revealing the depth of the far side of a room.
-    public var worldTilt: (aroundX: Double, aroundZ: Double) {
-        (aroundX: -leanVertical * .pi / 180, aroundZ: leanHorizontal * .pi / 180)
-    }
-
-    /// Zoom factor that keeps a leaned building covering the frame.
-    ///
-    /// Foreshortening alone (`cos`) is nowhere near enough: tipping the level
-    /// also swings its far corners across the frame, which opens a wedge of
-    /// empty space at one edge. Measured on device, a 14°/8° lean left about a
-    /// tenth of the display bare, so the closing-in is linear in the total lean
-    /// and tuned to cover it.
-    public var leanCompensation: Double {
-        let total = abs(leanVertical) + abs(leanHorizontal)
-        return max(1 - total / 170, 0.5)
-    }
-
     /// Clamps the centre so the visible rectangle never leaves the floor.
-    ///
-    /// This is what stops a zoomed or leaned view from showing anything that is
-    /// not the building.
     public func clampedToLevel(
         bounds: CellRect,
         metrics: LevelMetrics,
@@ -244,183 +181,97 @@ public struct CameraControl: Sendable, Equatable {
 
 /// Computes tactical camera framing.
 ///
-/// Pure maths, kept out of the view layer so the "does the level actually fill
-/// the screen" question is answered by a unit test rather than by squinting at
-/// a screenshot.
+/// Pure maths, kept out of the view layer so "does the frame actually stay
+/// still" is answered by a unit test rather than by squinting at a screenshot.
 public enum CameraFramingSolver {
+    /// The default field of view, measured up the screen.
+    ///
+    /// Narrow on purpose — telephoto rather than wide angle. It sets how strong
+    /// the perspective is: the wider it goes, the more of every inside wall face
+    /// is visible before the player leans at all, and the more the building
+    /// reads as a funnel rather than as a plan.
+    public static let defaultFieldOfViewDegrees = 26.0
+
     /// - Parameters:
-    ///   - bounds: level bounds, in cells.
+    ///   - bounds: level bounds, in cells. Their outline at wall-top height is
+    ///     the frame that gets pinned to the display.
     ///   - metrics: cell-to-meter conversion.
     ///   - aspectRatio: viewport width divided by height.
-    ///   - tiltDegrees: tilt away from straight down.
+    ///   - mode: whether the level is fitted inside the screen or fills it.
+    ///   - fieldOfViewDegrees: vertical field of view.
     ///   - margin: padding around the level, in meters.
-    ///   - distance: camera pull-back. Irrelevant to scale under orthographic
-    ///     projection; only has to clear the geometry and stay within near/far.
+    ///   - control: the player's lean and zoom.
     public static func solve(
         bounds: CellRect,
         metrics: LevelMetrics,
         aspectRatio: Double,
-        tiltDegrees: Double,
         mode: FramingMode = .fill,
-        projection: CameraProjection = .orthographic,
-        margin: Double = 1.0,
-        screenInsets: ScreenInsets = .zero,
-        viewportSize: (width: Double, height: Double)? = nil,
+        fieldOfViewDegrees: Double = defaultFieldOfViewDegrees,
+        margin: Double = 0,
         control: CameraControl = .neutral
     ) -> CameraFraming {
+        let aspect = max(aspectRatio, 0.01)
+        let zoom = max(control.zoom, 0.01)
+
         let levelWidth = metrics.meters(fromCells: bounds.size.width)
         let levelDepth = metrics.meters(fromCells: bounds.size.depth)
-        var width = levelWidth + margin * 2
-        var depth = levelDepth + margin * 2
+        let halfWidth = (levelWidth + margin * 2) / 2
+        let halfDepth = (levelDepth + margin * 2) / 2
 
-        // Keep the whole level clear of system-reserved screen edges by pulling
-        // the camera back until the reserved strips fall on empty ground.
-        //
-        // The strips are a fraction of the *view*, and the view grows as the
-        // camera pulls back, so this is solved algebraically rather than by
-        // adding a fudge factor: covered = extent × fraction, and we need
-        // extent − covered ≥ level, hence extent = level / (1 − fraction).
-        //
-        // Chosen over modelling the notch's actual shape because iOS does not
-        // expose that geometry, and guessing it per device is exactly what
-        // docs/DEVELOPMENT_FINDINGS.md rules out.
-        if mode != .fillWidth, let viewportSize, viewportSize.width > 0, viewportSize.height > 0 {
-            let horizontalFraction = (screenInsets.leading + screenInsets.trailing) / viewportSize.width
-            let verticalFraction = (screenInsets.top + screenInsets.bottom) / viewportSize.height
-
-            if horizontalFraction > 0, horizontalFraction < 0.9 {
-                width = max(width, (levelWidth + margin * 2) / (1 - horizontalFraction))
-            }
-            if verticalFraction > 0, verticalFraction < 0.9 {
-                depth = max(depth, (levelDepth + margin * 2) / (1 - verticalFraction))
-            }
+        // How much of the frame the screen has room for. Showing the full width
+        // costs one amount, the full depth another; filling takes the smaller of
+        // the two, and whatever does not fit runs off the edge.
+        let coveredHalfDepth = switch mode {
+        case .fill: min(halfDepth, halfWidth / aspect) / zoom
+        case .fit: max(halfDepth, halfWidth / aspect) / zoom
         }
+        let coveredHalfWidth = coveredHalfDepth * aspect
 
-        // The camera never moves off the level's centre line. Leaning is applied
-        // to the world instead — see `CameraControl.worldTilt`. Orbiting the
-        // camera was tried first and was wrong twice over: screen-right swung
-        // away from world +x, so the map appeared to rotate, and the building
-        // slid off its own frame leaving empty corners.
-        let tilt = tiltDegrees * .pi / 180
-        // Tilting compresses the ground plane on screen but adds the wall
-        // height back as apparent depth.
-        let projectedDepth = depth * cos(tilt) + metrics.wallHeight * sin(tilt)
+        // The frustum, as tangents at unit depth. Fixed by the field of view
+        // alone, which is what makes the projection's shape independent of the
+        // level: only the camera's height changes with the level's size.
+        let frustumHalfHeight = tan(fieldOfViewDegrees * .pi / 360)
+        let frustumHalfWidth = frustumHalfHeight * aspect
 
-        // The vertical extent needed to show the full depth, versus the vertical
-        // extent implied by having to show the full width.
-        let verticalFromWidth = aspectRatio > 0 ? width / aspectRatio : projectedDepth
-        let verticalExtentBeforeZoom = switch mode {
-        case .fit: max(projectedDepth, verticalFromWidth)
-        case .fill: min(projectedDepth, verticalFromWidth)
-        // Width decides, full stop. Whatever does not fit vertically — the far
-        // wall, the near wall's outer face — is meant to leave the frame.
-        case .fillWidth: verticalFromWidth
-        }
+        // How far the camera stands above the wall tops for that frustum to
+        // cover exactly the part of the frame the screen has room for.
+        let anchorDistance = coveredHalfDepth / frustumHalfHeight
 
-        // Leaning foreshortens the building, which would open gaps at the edges.
-        // Closing in by the same factor keeps it filling the frame: the display
-        // must never show anything that is not the building.
-        let verticalExtent = verticalExtentBeforeZoom
-            * control.leanCompensation
-            / max(control.zoom, 0.01)
-
-        let center = metrics.worldPoint(bounds.center)
-
-        // Centre on what actually lands on screen, not on the floor.
-        //
-        // Tilting makes the far wall lean *up* into frame while the near wall
-        // simply ends at the floor, so aiming at the floor's centre leaves a
-        // sliver of ground visible beyond the far wall and wastes the same
-        // amount at the bottom. Shifting the aim back by half the wall's
-        // apparent height balances it: both walls then run off their edges.
-        // Under perspective the walls already lean into frame on their own, so
-        // the orthographic correction that pushed the aim back is not wanted.
-        let tiltBias: Double = switch (mode, projection) {
-        case (.fillWidth, .orthographic): metrics.wallHeight * sin(tilt) / (2 * cos(tilt))
-        default: 0
-        }
-
-        // Keep the frame inside the floor: at zoom 1 the centre cannot move at
-        // all, and beyond that only as far as the off-screen remainder allows.
-        let visibleWidth = verticalExtent * aspectRatio
-        let visibleDepth = verticalExtent / max(cos(tilt), 0.2)
         let clamped = control.clampedToLevel(
             bounds: bounds,
             metrics: metrics,
-            visibleWidth: visibleWidth,
-            visibleDepth: visibleDepth
+            visibleWidth: coveredHalfWidth * 2,
+            visibleDepth: coveredHalfDepth * 2
         )
 
-        // The focus sits on the *top* of the walls, not on the floor.
-        //
-        // This is what pins the wall tops to the display edges: whatever the
-        // camera does, the plane it is aimed at stays put on screen, and under
-        // perspective everything below it — the floor — swings instead. Aiming
-        // at the floor would pin the floor and swing the walls, which is the
-        // wrong way round.
-        // Aim at the centre of the floor. The wall tops end up acting as the
-        // visual anchor on their own, because they are nearer the camera and so
-        // shift least when the view leans — which is the effect wanted, without
-        // forcing any point to be mathematically pinned.
-        let focus = WorldPoint(
-            x: center.x + clamped.focusOffset.x,
-            y: 0,
-            z: center.z - tiltBias + clamped.focusOffset.z
+        let centre = metrics.worldPoint(bounds.center)
+        let anchor = WorldPoint(
+            x: centre.x + clamped.focusOffset.x,
+            y: metrics.wallHeight,
+            z: centre.z + clamped.focusOffset.z
         )
 
-        // Orthographic scale is independent of distance, so the camera only has
-        // to clear the geometry. A perspective camera has to stand exactly far
-        // enough back that `verticalExtent` fills its field of view.
-        let distance: Double = switch projection {
-        case .orthographic:
-            60
-        case .perspective(let fieldOfViewDegrees):
-            // Stand far enough back that the floor's width exactly spans the
-            // field of view at the distance of the floor itself.
-            (verticalExtent / 2) / tan(fieldOfViewDegrees * .pi / 360)
-        }
-
-        // What the framing costs, measured against the level itself rather than
-        // the margin, so trimming empty padding does not count as cropping.
-        let visibleGroundDepth = (verticalExtent - metrics.wallHeight * sin(tilt)) / cos(tilt)
-        let croppedDepth = max(0, levelDepth - visibleGroundDepth)
-        let croppedWidth = max(0, levelWidth - visibleWidth)
-
-        // The camera slides *parallel to itself*. Its direction never changes.
-        //
-        // This is the whole trick, and orbiting was the mistake made three times
-        // before it: swinging the camera around the building turns the view, so
-        // walls stop being parallel to the display edges and the level reads as
-        // rotating. Sliding the camera sideways keeps every line where it was
-        // and lets perspective alone reveal the depth — you see behind the near
-        // wall on one side, then the other, exactly as looking into a doll's
-        // house by moving your head.
-        let basePosition = WorldPoint(
-            x: focus.x,
-            y: focus.y + distance * cos(tilt),
-            z: focus.z + distance * sin(tilt)
+        // Leaning, as a shear about the anchor plane. The signs put the floor
+        // under the finger: drag right and the floor goes right, which reveals
+        // the inside of the wall it moves away from.
+        let shear = ViewShear(
+            acrossX: -tan(clamped.leanHorizontal * .pi / 180),
+            acrossZ: -tan(clamped.leanVertical * .pi / 180),
+            anchorHeight: metrics.wallHeight
         )
 
-        // Screen axes for the fixed viewing direction.
-        let forward = (focus - basePosition).normalized
-        let right = WorldPoint(x: 1, y: 0, z: 0)
-        let up = right.cross(forward)
-
-        // Lean is expressed in degrees; convert to a slide proportional to the
-        // camera's distance, so the effect feels the same at any zoom.
-        let slideRight = distance * tan(control.leanHorizontal * .pi / 180)
-        let slideUp = distance * tan(control.leanVertical * .pi / 180)
-
-        let position = basePosition + right * slideRight + up * slideUp
+        // Straight above the anchor. The gesture does not move the camera at
+        // all — if it did, the frame would move with it.
+        let position = WorldPoint(x: anchor.x, y: anchor.y + anchorDistance, z: anchor.z)
 
         return CameraFraming(
-            verticalExtent: verticalExtent,
-            focus: focus,
             position: position,
-            croppedDepth: croppedDepth,
-            croppedWidth: croppedWidth,
-            projection: projection,
-            viewDirection: forward
+            anchor: anchor,
+            halfWidth: frustumHalfWidth,
+            halfHeight: frustumHalfHeight,
+            shear: shear,
+            croppedWidth: max(0, levelWidth - coveredHalfWidth * 2),
+            croppedDepth: max(0, levelDepth - coveredHalfDepth * 2)
         )
     }
 }

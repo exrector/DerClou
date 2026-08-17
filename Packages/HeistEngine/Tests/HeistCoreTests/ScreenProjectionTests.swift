@@ -11,7 +11,7 @@ struct ScreenProjectionTests {
             bounds: level.bounds,
             metrics: level.metrics,
             aspectRatio: viewport.width / viewport.height,
-            tiltDegrees: 24
+
         )
     }
 
@@ -24,12 +24,12 @@ struct ScreenProjectionTests {
         return ScreenProjection.hit(ray)
     }
 
-    @Test("Tapping the middle of the screen lands on the camera focus")
+    @Test("Tapping the middle of the screen lands under the camera")
     func centreTap() throws {
         let point = try #require(floorPoint(x: viewport.width / 2, y: viewport.height / 2))
 
-        #expect(abs(point.x - framing.focus.x) < 0.001)
-        #expect(abs(point.z - framing.focus.z) < 0.001)
+        #expect(abs(point.x - framing.anchor.x) < 0.001)
+        #expect(abs(point.z - framing.anchor.z) < 0.001)
         #expect(abs(point.y) < 0.001)
     }
 
@@ -63,10 +63,15 @@ struct ScreenProjectionTests {
         let minZ = metrics.meters(fromCells: level.bounds.minY)
         let maxZ = metrics.meters(fromCells: level.bounds.maxY)
 
-        #expect(topLeft.x < minX)
-        #expect(bottomRight.x > maxX)
-        #expect(topLeft.z < minZ)
-        #expect(bottomRight.z > maxZ)
+        // Filling the screen may shave the outer face of an exterior wall, but
+        // no more than that: every square metre a player can act on has to be
+        // reachable with a finger.
+        let shave = metrics.wallThickness
+
+        #expect(topLeft.x < minX + shave)
+        #expect(bottomRight.x > maxX - shave)
+        #expect(topLeft.z < minZ + shave)
+        #expect(bottomRight.z > maxZ - shave)
     }
 
     @Test("Screen and world round-trip through the thief's spawn point")

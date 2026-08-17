@@ -15,7 +15,7 @@ struct SafeGameplayBoundsTests {
             bounds: level.bounds,
             metrics: level.metrics,
             aspectRatio: viewport.width / viewport.height,
-            tiltDegrees: 24
+
         )
     }
 
