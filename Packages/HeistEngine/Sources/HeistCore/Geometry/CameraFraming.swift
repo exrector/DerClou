@@ -38,7 +38,8 @@ public struct CameraFraming: Sendable, Equatable {
         position: WorldPoint,
         croppedDepth: Double = 0,
         croppedWidth: Double = 0,
-        projection: CameraProjection = .orthographic
+        projection: CameraProjection = .orthographic,
+        viewDirection: WorldPoint = WorldPoint(x: 0, y: -1, z: 0)
     ) {
         self.verticalExtent = verticalExtent
         self.focus = focus
@@ -46,7 +47,12 @@ public struct CameraFraming: Sendable, Equatable {
         self.croppedDepth = croppedDepth
         self.croppedWidth = croppedWidth
         self.projection = projection
+        self.viewDirection = viewDirection
     }
+
+    /// The fixed direction the camera looks along. Leaning slides the camera
+    /// without turning it, so this never changes for a given tilt.
+    public var viewDirection: WorldPoint = WorldPoint(x: 0, y: -1, z: 0)
 
     /// Straight-line distance from the camera to its focus, in meters.
     public var distanceToFocus: Double {
@@ -62,7 +68,10 @@ public struct CameraFraming: Sendable, Equatable {
     /// well as tilt. The world's up is used as the reference, which is what keeps
     /// the map from rotating on screen when the view leans.
     public var basis: (right: WorldPoint, up: WorldPoint, forward: WorldPoint) {
-        let forward = (focus - position).normalized
+        // Derived from the *aim*, not from the camera's offset: the camera
+        // slides parallel to itself, so its direction is the same whatever the
+        // lean, and screen-right stays world +x.
+        let forward = viewDirection
         let worldUp = WorldPoint(x: 0, y: 1, z: 0)
         var right = forward.cross(worldUp).normalized
         if right.planarLength < 1e-6 && abs(right.y) < 1e-6 {
@@ -146,16 +155,16 @@ public struct CameraControl: Sendable, Equatable {
 
     public var isNeutral: Bool { self == .neutral }
 
-    /// How far the view may lean.
+    /// How far the view may lean, the same in every direction.
     ///
-    /// Deliberately tiny. The point is a glance into a room, not a change of
-    /// viewpoint: the building must never look like it is being turned around,
-    /// and the plan must stay readable throughout.
-    public static let leanRange: ClosedRange<Double> = -7...7
+    /// Enough to look behind a wall or into the depth of a room; far short of
+    /// changing viewpoint. The map cannot appear to turn at any angle in this
+    /// range, because screen-right is held to world +x — see `CameraFraming.basis`.
+    public static let leanRange: ClosedRange<Double> = -9...9
 
-    /// Sideways is held tighter still, since swinging around the building is
-    /// what reads as the map turning.
-    public static let sidewaysLeanRange: ClosedRange<Double> = -5...5
+    /// Sideways uses the same range: the parallax has to feel identical in all
+    /// four directions.
+    public static let sidewaysLeanRange: ClosedRange<Double> = leanRange
 
     /// Zoom limits.
     public static let zoomRange: ClosedRange<Double> = 1.0...3.0
@@ -377,16 +386,32 @@ public enum CameraFramingSolver {
         let croppedDepth = max(0, levelDepth - visibleGroundDepth)
         let croppedWidth = max(0, levelWidth - visibleWidth)
 
-        // Leaning swings the camera around that fixed focus. Under perspective
-        // this is what makes the floor slide while the wall tops hold still.
-        let swingX = control.leanHorizontal * .pi / 180
-        let swingZ = control.leanVertical * .pi / 180
-
-        let position = WorldPoint(
-            x: focus.x - distance * sin(swingX),
-            y: focus.y + distance * cos(tilt) * cos(swingX),
-            z: focus.z + distance * sin(tilt) + distance * sin(swingZ)
+        // The camera slides *parallel to itself*. Its direction never changes.
+        //
+        // This is the whole trick, and orbiting was the mistake made three times
+        // before it: swinging the camera around the building turns the view, so
+        // walls stop being parallel to the display edges and the level reads as
+        // rotating. Sliding the camera sideways keeps every line where it was
+        // and lets perspective alone reveal the depth — you see behind the near
+        // wall on one side, then the other, exactly as looking into a doll's
+        // house by moving your head.
+        let basePosition = WorldPoint(
+            x: focus.x,
+            y: focus.y + distance * cos(tilt),
+            z: focus.z + distance * sin(tilt)
         )
+
+        // Screen axes for the fixed viewing direction.
+        let forward = (focus - basePosition).normalized
+        let right = WorldPoint(x: 1, y: 0, z: 0)
+        let up = right.cross(forward)
+
+        // Lean is expressed in degrees; convert to a slide proportional to the
+        // camera's distance, so the effect feels the same at any zoom.
+        let slideRight = distance * tan(control.leanHorizontal * .pi / 180)
+        let slideUp = distance * tan(control.leanVertical * .pi / 180)
+
+        let position = basePosition + right * slideRight + up * slideUp
 
         return CameraFraming(
             verticalExtent: verticalExtent,
@@ -394,7 +419,8 @@ public enum CameraFramingSolver {
             position: position,
             croppedDepth: croppedDepth,
             croppedWidth: croppedWidth,
-            projection: projection
+            projection: projection,
+            viewDirection: forward
         )
     }
 }

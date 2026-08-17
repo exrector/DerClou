@@ -107,7 +107,6 @@ public struct HeistSceneView: View {
 
     private func frameCamera(size: CGSize) {
         guard let blueprint = session.level?.blueprint, size.width > 0, size.height > 0 else { return }
-        applyWorldLean(blueprint: blueprint)
         camera.frame(
             bounds: blueprint.bounds,
             metrics: blueprint.metrics,

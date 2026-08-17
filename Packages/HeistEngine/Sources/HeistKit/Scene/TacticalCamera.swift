@@ -125,7 +125,19 @@ public final class TacticalCamera {
             Float(framing.position.y),
             Float(framing.position.z)
         )
-        entity.look(at: focus, from: position, relativeTo: nil)
+        // Orientation is built from the framing's own basis rather than
+        // `look(at:from:)`, so screen-right stays locked to world +x and the
+        // walls stay parallel to the display edges however the view leans.
+        let (right, up, forward) = framing.basis
+        entity.setPosition(position, relativeTo: nil)
+        entity.setOrientation(
+            simd_quatf(simd_float3x3(
+                SIMD3<Float>(Float(right.x), Float(right.y), Float(right.z)),
+                SIMD3<Float>(Float(up.x), Float(up.y), Float(up.z)),
+                SIMD3<Float>(Float(-forward.x), Float(-forward.y), Float(-forward.z))
+            )),
+            relativeTo: nil
+        )
 
         log.debug("Framed camera: vertical extent \(framing.verticalExtent, privacy: .public) m")
     }
