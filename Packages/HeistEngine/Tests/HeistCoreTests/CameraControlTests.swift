@@ -58,77 +58,115 @@ struct CameraControlTests {
         #expect(nearestZ <= nearEdge + metrics.wallThickness / 2 + 0.2)
     }
 
-    // MARK: - Peek
+    // MARK: - Leaning
 
-    @Test("Peeking lowers the camera without turning the map")
-    func peekLowersTheCamera() {
+    @Test("Leaning up tips the world so the floor slides up the screen")
+    func leanUpTipsTheWorld() {
+        let tilt = CameraControl(leanVertical: 12).worldTilt
+
+        // Rotating the level about screen-horizontal lifts its far edge toward
+        // the camera, which is what slides the floor up the screen.
+        #expect(tilt.aroundX < 0)
+        #expect(tilt.aroundZ == 0)
+    }
+
+    @Test("Leaning sideways tips the world about the other axis")
+    func leanSideTipsTheWorld() {
+        let tilt = CameraControl(leanHorizontal: 8).worldTilt
+
+        #expect(tilt.aroundZ > 0)
+        #expect(tilt.aroundX == 0)
+    }
+
+    @Test("The camera itself never moves off centre while leaning")
+    func cameraStaysPut() {
+        // The whole point of tipping the world instead of orbiting the camera:
+        // orbiting swung screen-right away from world +x, so the map appeared to
+        // rotate, and slid the building off its own frame.
         let flat = framing(.neutral)
-        let peeked = framing(CameraControl(peekDegrees: 12))
+        let leaned = framing(CameraControl(leanVertical: 14, leanHorizontal: 8))
 
-        // Lower camera: less height, more standoff.
-        #expect(peeked.position.y < flat.position.y)
-        #expect(peeked.position.z > flat.position.z)
-        // The map never rotates, so the camera stays on the level's centre line.
-        #expect(abs(peeked.position.x - flat.position.x) < 0.001)
+        #expect(abs(leaned.position.x - flat.position.x) < 0.001)
+        #expect(abs(leaned.focus.x - flat.focus.x) < 0.001)
     }
 
-    @Test("Peeking is clamped to a small range")
-    func peekIsClamped() {
-        #expect(CameraControl().peeked(to: 90).peekDegrees == CameraControl.peekRange.upperBound)
-        #expect(CameraControl().peeked(to: -30).peekDegrees == 0)
+    @Test("The map never turns: screen right stays world +x at any lean")
+    func mapDoesNotRotate() {
+        for lean in [-8.0, -4, 0, 4, 8] {
+            let framing = framing(CameraControl(leanHorizontal: lean))
+            let (right, _, _) = framing.basis
+
+            #expect(right.x > 0.999, "lean \(lean) turned the map")
+            #expect(abs(right.z) < 0.001, "lean \(lean) turned the map")
+        }
     }
 
-    @Test("Peeking may push the level off screen rather than zooming out")
-    func peekMayCrop() {
-        let peeked = framing(CameraControl(peekDegrees: 14))
+    @Test("Leaning is clamped to a small range")
+    func leanIsClamped() {
+        let control = CameraControl().leaned(vertical: 90, horizontal: -90)
+        #expect(control.leanVertical == CameraControl.leanRange.upperBound)
+        #expect(control.leanHorizontal == CameraControl.sidewaysLeanRange.lowerBound)
+    }
 
-        // Deliberate: a peek is local inspection. Auto-zooming out to keep
-        // everything visible would defeat the point of leaning in.
+    @Test("Leaning closes in so no empty space appears at the edges")
+    func leaningCompensates() {
         let flat = framing(.neutral)
-        #expect(abs(peeked.verticalExtent - flat.verticalExtent) < 0.001)
+        let leaned = framing(CameraControl(leanVertical: 14, leanHorizontal: 8))
+
+        // Foreshortening would open gaps; the framing pulls in to cover them.
+        #expect(leaned.verticalExtent < flat.verticalExtent)
     }
 
-    @Test("Zoom is clamped and does not disturb the peek angle")
-    func zoomIndependentOfPeek() {
-        let control = CameraControl(peekDegrees: 8).zoomed(by: 10)
+    // MARK: - Staying inside the building
+
+    @Test("At neutral zoom the view cannot be moved off centre")
+    func neutralZoomIsPinned() {
+        let control = CameraControl(focusOffset: WorldPoint(x: 30, y: 0, z: 30))
+            .clampedToLevel(
+                bounds: level.bounds,
+                metrics: level.metrics,
+                visibleWidth: level.metrics.meters(fromCells: level.bounds.size.width),
+                visibleDepth: level.metrics.meters(fromCells: level.bounds.size.depth)
+            )
+
+        #expect(control.focusOffset == .zero)
+    }
+
+    @Test("Zoomed in, the frame still cannot leave the floor")
+    func zoomedFrameStaysInside() {
+        let metrics = level.metrics
+        let levelWidth = metrics.meters(fromCells: level.bounds.size.width)
+        let levelDepth = metrics.meters(fromCells: level.bounds.size.depth)
+
+        // Half the building visible: the centre may stray a quarter of it.
+        let control = CameraControl(zoom: 2, focusOffset: WorldPoint(x: 100, y: 0, z: 100))
+            .clampedToLevel(
+                bounds: level.bounds,
+                metrics: metrics,
+                visibleWidth: levelWidth / 2,
+                visibleDepth: levelDepth / 2
+            )
+
+        #expect(abs(control.focusOffset.x - levelWidth / 4) < 0.001)
+        #expect(abs(control.focusOffset.z - levelDepth / 4) < 0.001)
+    }
+
+    @Test("Zoom is clamped and leaves the lean alone")
+    func zoomIndependentOfLean() {
+        let control = CameraControl(leanVertical: 8).zoomed(by: 10)
 
         #expect(control.zoom == CameraControl.zoomRange.upperBound)
-        #expect(control.peekDegrees == 8)
-    }
-
-    @Test("Panning is refused at neutral zoom, allowed while peeking")
-    func panningRules() {
-        let metrics = level.metrics
-        let delta = WorldPoint(x: 5, y: 0, z: 0)
-
-        let neutral = CameraControl().panned(by: delta, within: level.bounds, metrics: metrics)
-        #expect(neutral.pan == .zero)
-
-        let peeking = CameraControl(peekDegrees: 10)
-            .panned(by: delta, within: level.bounds, metrics: metrics)
-        #expect(peeking.pan.x > 0)
-    }
-
-    @Test("Panning cannot wander off the level when zoomed")
-    func panningIsClamped() {
-        var control = CameraControl(zoom: 2)
-        for _ in 0..<50 {
-            control = control.panned(
-                by: WorldPoint(x: 10, y: 0, z: 10),
-                within: level.bounds,
-                metrics: level.metrics
-            )
-        }
-
-        let halfWidth = level.metrics.meters(fromCells: level.bounds.size.width) / 2
-        #expect(control.pan.x <= halfWidth)
+        #expect(control.leanVertical == 8)
     }
 
     // MARK: - Screen projection round trip
 
     @Test("A world point projects back to the pixel it came from")
     func projectionRoundTrip() throws {
-        for control in [CameraControl.neutral, CameraControl(zoom: 1.8, peekDegrees: 10)] {
+        for control in [
+            CameraControl.neutral,
+            CameraControl(leanVertical: 10, leanHorizontal: -8, zoom: 1.8)
+        ] {
             let framing = framing(control)
             let screen = (x: 300.0, y: 210.0)
 
