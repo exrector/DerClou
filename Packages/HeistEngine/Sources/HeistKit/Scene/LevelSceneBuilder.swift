@@ -38,6 +38,13 @@ public enum LevelSceneBuilder {
         let root = Entity()
         root.name = "level.\(blueprint.id)"
 
+        // Everything that may slide under the fixed walls lives in one group:
+        // the floor and the things standing on it. The walls stay in the root,
+        // pinned to the screen.
+        let floorGroup = Entity()
+        floorGroup.name = "level.floorGroup"
+        root.addChild(floorGroup)
+
         // Ground first: a dark apron well beyond the building, so the display
         // never shows empty background at the edges however the camera is
         // panned or zoomed. What sits under a hardware cutout is scenery.
@@ -47,7 +54,7 @@ public enum LevelSceneBuilder {
             let entity = GreyboxKit.entity(for: box)
             entity.components.set(LevelEntityComponent(id: box.sourceID, kind: .architecture))
             entity.collision = CollisionComponent(shapes: [collisionShape(for: box)])
-            root.addChild(entity)
+            floorGroup.addChild(entity)
         }
 
         for box in geometry.walls {
@@ -68,7 +75,7 @@ public enum LevelSceneBuilder {
                     InteractableComponent(id: prop.id, interactions: prop.prototype.interactions)
                 )
             }
-            root.addChild(entity)
+            floorGroup.addChild(entity)
         }
 
         var actorEntities: [String: Entity] = [:]

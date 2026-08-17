@@ -80,6 +80,17 @@ public final class GameSession {
         cameraResetToken += 1
     }
 
+    /// Slides the floor and its contents under the fixed walls.
+    ///
+    /// The camera does not move at all. The walls stay exactly where they are on
+    /// screen and only what stands on the floor shifts, which is what makes it
+    /// read as looking further into the building from above rather than as the
+    /// whole level being dragged around.
+    public func setFloorOffset(x: Double, z: Double) {
+        guard let group = level?.root.findEntity(named: "level.floorGroup") else { return }
+        group.setPosition(SIMD3<Float>(Float(x), 0, Float(z)), relativeTo: level?.root)
+    }
+
     // MARK: - Mission time
 
     /// Advances mission time and poses every guard for the new moment.
