@@ -140,3 +140,45 @@ provided by the OS, never hand-maintained
 ```
 
 This is the current project rule unless real device testing demonstrates a concrete reason to refine it.
+
+---
+
+## 2026-08-17 — Safe-area rule implemented
+
+The rule above is now enforced in code, not only written down.
+
+### How it works
+
+- `ScreenInsets` and `SafeGameplayBounds` in `HeistCore`, with `SafeAreaSolver`
+  projecting the four corners of the system safe area onto the floor plane using
+  the same camera framing the renderer uses. The result is axis-aligned because
+  the tactical camera only tilts, never yaws.
+- The insets come from SwiftUI and must be read **outside** `ignoresSafeArea` —
+  read inside, they are already consumed and arrive as zero. `GameScreen` reads
+  them at the top level and passes them down.
+- `GameSession.updateSafeArea` recomputes the region whenever the viewport,
+  orientation or level changes, and logs any mission-critical object that falls
+  outside it.
+- Scenery is exempt by design: only props with interactions, security devices,
+  loot, markers and actor start positions are checked.
+- A debug outline of the **real, system-derived** region can be toggled from the
+  debug panel. It is not a hard-coded approximation.
+
+### What it caught immediately
+
+Two real placement bugs in `office01`, neither visible in the level file:
+
+1. `panel.corridor` — a security panel on the west wall, 0.51 m outside the safe
+   area. Moved to the corridor's south wall.
+2. `shelf.02` — an interactable cabinet against the east wall, 0.20 m outside.
+   Moved inward.
+
+### Correction to the assumed inset geometry
+
+The first test fixture assumed the reserved region is on one side only. Measured
+on an iPhone 16 simulator in landscape, the system reports **L59 / R59 / B21** —
+both sides, regardless of which way the housing physically faces. The one-sided
+fixture passed while a real object was outside the area on the other side.
+
+Landscape insets must therefore be treated as symmetric-until-proven-otherwise,
+and fixtures should use measured values rather than assumed ones.

@@ -14,8 +14,12 @@ public struct HeistSceneView: View {
     @State private var camera = TacticalCamera()
     @State private var viewportSize: CGSize = .zero
 
-    public init(session: GameSession) {
+    /// System safe-area insets, read by the caller *outside* `ignoresSafeArea`.
+    private let safeAreaInsets: EdgeInsets
+
+    public init(session: GameSession, safeAreaInsets: EdgeInsets = EdgeInsets()) {
         self.session = session
+        self.safeAreaInsets = safeAreaInsets
     }
 
     public var body: some View {
@@ -48,15 +52,35 @@ public struct HeistSceneView: View {
             }
             .onAppear { updateViewport(proxy.size) }
             .onChange(of: proxy.size) { _, size in updateViewport(size) }
-            .onChange(of: session.level?.blueprint.id) { _, _ in frameCamera(size: viewportSize) }
+            .onChange(of: session.level?.blueprint.id) { _, _ in updateViewport(proxy.size) }
+            .onChange(of: safeAreaInsets) { _, _ in updateViewport(proxy.size) }
         }
+        // The world fills the display; only gameplay-critical placement and the
+        // HUD respect the safe area. See docs/DEVELOPMENT_FINDINGS.md.
         .ignoresSafeArea()
     }
 
     private func updateViewport(_ size: CGSize) {
         viewportSize = size
-        Self.log.debug("Viewport \(size.width, privacy: .public)x\(size.height, privacy: .public)")
+        Self.log.debug("""
+            Viewport \(size.width, privacy: .public)x\(size.height, privacy: .public), \
+            insets L\(safeAreaInsets.leading, privacy: .public) T\(safeAreaInsets.top, privacy: .public) \
+            R\(safeAreaInsets.trailing, privacy: .public) B\(safeAreaInsets.bottom, privacy: .public)
+            """)
         frameCamera(size: size)
+
+        // The safe region is derived from the framing, so it follows it.
+        guard let framing = camera.framing, size.width > 0, size.height > 0 else { return }
+        session.updateSafeArea(
+            viewportSize: (width: Double(size.width), height: Double(size.height)),
+            insets: ScreenInsets(
+                top: Double(safeAreaInsets.top),
+                leading: Double(safeAreaInsets.leading),
+                bottom: Double(safeAreaInsets.bottom),
+                trailing: Double(safeAreaInsets.trailing)
+            ),
+            framing: framing
+        )
     }
 
     private func frameCamera(size: CGSize) {

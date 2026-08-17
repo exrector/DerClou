@@ -103,7 +103,7 @@ extension LevelBlueprint {
                 PropSpec(id: "office01.crate.02", prototype: "crate.storage", position: CellPoint(16.0, 2.6)),
                 PropSpec(id: "office01.crate.03", prototype: "crate.storage", position: CellPoint(21.5, 1.2), rotation: 90),
                 PropSpec(id: "office01.shelf.01", prototype: "cabinet.filing", position: CellPoint(19.0, 0.5)),
-                PropSpec(id: "office01.shelf.02", prototype: "cabinet.filing", position: CellPoint(23.4, 3.5), rotation: 90),
+                PropSpec(id: "office01.shelf.02", prototype: "cabinet.filing", position: CellPoint(22.6, 3.5), rotation: 90),
                 // Against the far wall, not beside the door: a safe parked in
                 // front of a doorway seals the room once the character radius is
                 // taken into account.
@@ -117,7 +117,10 @@ extension LevelBlueprint {
                 // Corridor security
                 PropSpec(id: "office01.camera.corridor", prototype: "camera.ceiling", position: CellPoint(7.0, 6.3)),
                 PropSpec(id: "office01.camera.store", prototype: "camera.ceiling", position: CellPoint(19.0, 6.3)),
-                PropSpec(id: "office01.panel.corridor", prototype: "panel.security", position: CellPoint(0.25, 7.6), rotation: 90),
+                // On the corridor's south wall, not the west one: an object the
+                // player must reach and operate cannot sit where a sensor
+                // housing may cover it. See docs/DEVELOPMENT_FINDINGS.md.
+                PropSpec(id: "office01.panel.corridor", prototype: "panel.security", position: CellPoint(11.5, 9.75), rotation: 180),
 
                 PropSpec(id: "office01.extraction", prototype: "marker.extraction", position: CellPoint(1.2, 9.0))
             ],
