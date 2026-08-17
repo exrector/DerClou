@@ -76,23 +76,31 @@ struct ScreenProjectionTests {
         // that position resolves back to the same spot.
         let target = level.metrics.worldPoint(CellPoint(2.0, 8.6))
 
-        var low = 0.0
-        var high = viewport.width
-        for _ in 0..<40 {
-            let mid = (low + high) / 2
-            let point = try #require(floorPoint(x: mid, y: viewport.height / 2))
-            if point.x < target.x { low = mid } else { high = mid }
-        }
-        let screenX = (low + high) / 2
+        // Under perspective the two screen axes are coupled — moving down the
+        // screen changes the depth, which changes the world x a column maps to —
+        // so solve them alternately until both settle.
+        var screenX = viewport.width / 2
+        var screenY = viewport.height / 2
 
-        low = 0
-        high = viewport.height
-        for _ in 0..<40 {
-            let mid = (low + high) / 2
-            let point = try #require(floorPoint(x: screenX, y: mid))
-            if point.z < target.z { low = mid } else { high = mid }
+        for _ in 0..<4 {
+            var low = 0.0
+            var high = viewport.width
+            for _ in 0..<40 {
+                let mid = (low + high) / 2
+                let point = try #require(floorPoint(x: mid, y: screenY))
+                if point.x < target.x { low = mid } else { high = mid }
+            }
+            screenX = (low + high) / 2
+
+            low = 0
+            high = viewport.height
+            for _ in 0..<40 {
+                let mid = (low + high) / 2
+                let point = try #require(floorPoint(x: screenX, y: mid))
+                if point.z < target.z { low = mid } else { high = mid }
+            }
+            screenY = (low + high) / 2
         }
-        let screenY = (low + high) / 2
 
         let resolved = try #require(floorPoint(x: screenX, y: screenY))
         #expect(abs(resolved.x - target.x) < 0.01)

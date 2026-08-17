@@ -1,6 +1,6 @@
 # Implementation Status
 
-Last updated: 2026-08-17. Covers issue #1 (Phase 0–2).
+Last updated: 2026-08-17. Covers issue #1 (Phase 0–2), plus the move off iOS 27.
 
 ## Summary
 
@@ -18,16 +18,36 @@ with the owner before implementation. See "Level authoring model" below.
 
 | Component | Version | Notes |
 |---|---|---|
-| Xcode | **27.0 beta (27A5194q)** | `/Applications/Xcode-beta.app` |
+| Deployment target | **iOS 18.0** | lowered from 27.0 on 2026-08-17 |
+| Xcode | 27.0 beta (27A5194q) | needed to *build*; the app itself runs on iOS 18 |
 | iOS SDK | 27.0 | |
 | Swift | 6.4 | package builds in language mode 6 (`HeistCore`) and 5 (`HeistKit`) |
 | Reality Composer Pro | 3.0 Beta 4 | standalone at `/Applications/RealityComposerPro.app`, **not** bundled inside Xcode-beta |
 | macOS | 27.0 (26A5406e) | |
 | Simulator | iPhone 17 Pro, iOS 27.0 (24A5355p) | |
 
-Release Xcode 26.6 ships the iOS 26.5 SDK, which has **no** `NavigationComponent`,
-`NavigationController` or `NavigationMeshResource`. Building this project requires
-the beta toolchain.
+### Why iOS 18 and not lower
+
+Measured against the installed SDK, API by API:
+
+| API | Minimum iOS |
+|---|---|
+| `RealityView`, `RealityViewCameraContent` | **18.0** |
+| `OrthographicCameraComponent` | **18.0** |
+| `InputTargetComponent` | 18.0 — no longer used |
+| `PhysicallyBasedMaterial`, `System` | 15.0 |
+| `CollisionComponent`, `Scene.raycast`, `Entity.look`, `PerspectiveCameraComponent` | 13.0 |
+| `NavigationMesh*` / `NavigationController` | 27.0 — replaced by our own A* |
+
+So the floor is set by exactly three APIs, all of them core to the look. Going
+lower would mean `ARView(.nonAR)` plus a narrow-FOV perspective camera imitating
+orthographic — rejected, because converging verticals are precisely wrong for a
+tactical plan view. `CameraProjection.perspective` exists in the code as a
+documented escape hatch, not as the default.
+
+**iOS 18 is an API floor, not an art budget.** Nothing in the rendering, art
+direction, level complexity or gameplay is cut for it; `RenderQuality` scales
+light count and shadow cost *up* on capable hardware.
 
 Consequence: builds produced now cannot be submitted to App Store Connect
 (ITMS-90111 rejects beta-built binaries). Irrelevant for development, relevant
@@ -149,20 +169,34 @@ framing decision, not only a design one. `CameraFraming.croppedDepth` /
 anything is cropped, and a test asserts office01 loses nothing on a landscape
 phone.
 
-### Navigation
+### Navigation — our own, not RealityKit's
 
-All present and working on iOS 27:
+The iOS 27 navigation APIs work, and the mesh does bake at runtime from arbitrary
+triangles. They were still removed, for two independent reasons.
 
-- `NavigationMeshResource(triangleIndices:vertices:configuration:)`
-- `NavigationMeshComponent(navigationMeshes:)` on the level root
-- `NavigationComponent()` on the moving entity
-- `NavigationController(entity:)` and `computePath(to:) async`
+**They were wrong for the geometry.** A voxelising baker is fed the whole scene
+and infers walkability from surface slope. It therefore treats the top of a wall
+and a desktop as walkable ledges, and it takes the segment *above* a doorway —
+the lintel — as solid all the way down. Symptoms seen in play: actors walking
+through walls, rooms unreachable from each other, actors tripping over furniture.
 
-**The important finding for the project's direction:** the navigation mesh can be
-baked at runtime from arbitrary triangles. Authoring a mesh per scene in Reality
-Composer Pro is *not* required. Generated or data-driven levels therefore get
-working navigation for free. Bake config in use: cell 0.05 m, walkable slope 45°,
-character height 1.75 m, climb 0.3 m, radius 0.3 m.
+**They cost four OS generations.** They are the only thing that required iOS 27.
+
+Replaced by `NavGrid` + `PathFinder` in `HeistCore`:
+
+- the grid is built from the blueprint's own boxes, and an obstacle only counts
+  if it occupies `0 ..< characterHeight` — a lintel at 2.1–2.6 m does not;
+- obstacles are dilated by the character radius, so any route along cell centres
+  automatically clears walls;
+- eight-way A* with no corner cutting, then line-of-sight smoothing to remove the
+  grid staircase;
+- pure Swift, no simulator needed, deterministic by construction — the same
+  request always returns the same path, which is what a recorded plan depends on.
+
+`LevelValidator` now also flood-fills the grid from the spawn point and reports
+anything cut off. That caught a real bug immediately: the store room's safe was
+placed beside its door, and once the character radius was added it sealed the
+room. A level file gives no hint of that; only walking it does.
 
 Measured on office01: 336 source triangles (28 boxes) → 80 navigation polygons.
 

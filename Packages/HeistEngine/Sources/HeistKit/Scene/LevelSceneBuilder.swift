@@ -9,8 +9,8 @@ public struct BuiltLevel {
     public let root: Entity
     /// Actor entities by stable blueprint ID.
     public let actors: [String: Entity]
-    /// Baked navigation mesh, nil if baking failed.
-    public let navigationMesh: NavigationMeshResource?
+    /// Walkability grid used for path finding.
+    public let navGrid: NavGrid
     /// Problems the validator found. Errors mean the level is not trustworthy.
     public let issues: [LevelIssue]
 }
@@ -23,7 +23,8 @@ public struct BuiltLevel {
 public enum LevelSceneBuilder {
     public static func build(
         _ blueprint: LevelBlueprint,
-        catalog: PropCatalog = .standard
+        catalog: PropCatalog = .standard,
+        quality: RenderQuality = .recommended()
     ) -> BuiltLevel {
         let issues = LevelValidator.validate(blueprint, catalog: catalog)
         let geometry = LevelGeometryBuilder.build(blueprint, catalog: catalog)
@@ -36,7 +37,6 @@ public enum LevelSceneBuilder {
             entity.components.set(LevelEntityComponent(id: box.sourceID, kind: .architecture))
             entity.components.set(NavigableSurfaceComponent())
             entity.collision = CollisionComponent(shapes: [collisionShape(for: box)])
-            entity.components.set(InputTargetComponent())
             root.addChild(entity)
         }
 
@@ -57,7 +57,6 @@ public enum LevelSceneBuilder {
                 entity.components.set(
                     InteractableComponent(id: prop.id, interactions: prop.prototype.interactions)
                 )
-                entity.components.set(InputTargetComponent())
             }
             root.addChild(entity)
         }
@@ -69,19 +68,16 @@ public enum LevelSceneBuilder {
             actorEntities[actor.id] = entity
         }
 
-        addLighting(to: root, geometry: geometry, metrics: blueprint.metrics)
+        addLighting(to: root, geometry: geometry, metrics: blueprint.metrics, quality: quality)
 
-        let navigationMesh = NavigationBaker.bake(geometry: geometry)
-        if let navigationMesh {
-            root.components.set(NavigationMeshComponent(navigationMeshes: [navigationMesh]))
-        }
+        let navGrid = NavGridBuilder.build(geometry: geometry)
 
         return BuiltLevel(
             blueprint: blueprint,
             geometry: geometry,
             root: root,
             actors: actorEntities,
-            navigationMesh: navigationMesh,
+            navGrid: navGrid,
             issues: issues
         )
     }
@@ -154,7 +150,6 @@ public enum LevelSceneBuilder {
         container.addChild(nose)
 
         container.components.set(LevelEntityComponent(id: actor.id, kind: .actor))
-        container.components.set(NavigationComponent())
 
         if actor.prototype.id == "actor.thief" {
             container.components.set(
@@ -165,7 +160,6 @@ public enum LevelSceneBuilder {
         container.components.set(CollisionComponent(
             shapes: [.generateCapsule(height: height, radius: radius)]
         ))
-        container.components.set(InputTargetComponent())
 
         return container
     }
@@ -174,14 +168,21 @@ public enum LevelSceneBuilder {
     ///
     /// Shadows are what stop an orthographic top-down view from reading flat, so
     /// the directional light is deliberately angled rather than straight down.
-    private static func addLighting(to root: Entity, geometry: LevelGeometry, metrics: LevelMetrics) {
+    private static func addLighting(
+        to root: Entity,
+        geometry: LevelGeometry,
+        metrics: LevelMetrics,
+        quality: RenderQuality
+    ) {
         let key = Entity()
         key.name = "light.key"
         key.components.set(DirectionalLightComponent(
             color: PlatformColor(red: 1.0, green: 0.96, blue: 0.90, alpha: 1),
             intensity: 3200
         ))
-        key.components.set(DirectionalLightComponent.Shadow(depthBias: 1.5))
+        if quality.castsShadows {
+            key.components.set(DirectionalLightComponent.Shadow(depthBias: quality.shadowDepthBias))
+        }
 
         let bounds = boundsOfFloors(geometry)
         key.look(
@@ -207,7 +208,7 @@ public enum LevelSceneBuilder {
         // Practicals: one warm ceiling lamp per floor quadrant, so rooms read as
         // lit spaces rather than a uniformly bright plan.
         let lampHeight = Float(metrics.wallHeight - 0.3)
-        for (index, position) in practicalPositions(bounds).enumerated() {
+        for (index, position) in practicalPositions(bounds, budget: quality.practicalLightBudget).enumerated() {
             let lamp = Entity()
             lamp.name = "light.practical.\(index)"
             lamp.components.set(PointLightComponent(
@@ -238,18 +239,27 @@ public enum LevelSceneBuilder {
         return (minX, maxX, minZ, maxZ, (minX + maxX) / 2, (minZ + maxZ) / 2)
     }
 
+    /// Ceiling lamps spread over the floor plan, so rooms read as lit spaces
+    /// rather than a uniformly bright plan. Count scales with the device.
     private static func practicalPositions(
-        _ bounds: (minX: Double, maxX: Double, minZ: Double, maxZ: Double, centerX: Double, centerZ: Double)
+        _ bounds: (minX: Double, maxX: Double, minZ: Double, maxZ: Double, centerX: Double, centerZ: Double),
+        budget: Int
     ) -> [(Float, Float)] {
-        let quarterX = bounds.minX + (bounds.maxX - bounds.minX) * 0.25
-        let threeQuarterX = bounds.minX + (bounds.maxX - bounds.minX) * 0.75
-        let quarterZ = bounds.minZ + (bounds.maxZ - bounds.minZ) * 0.25
-        let threeQuarterZ = bounds.minZ + (bounds.maxZ - bounds.minZ) * 0.8
-        return [
-            (Float(quarterX), Float(quarterZ)),
-            (Float(threeQuarterX), Float(quarterZ)),
-            (Float(quarterX), Float(threeQuarterZ)),
-            (Float(threeQuarterX), Float(threeQuarterZ))
-        ]
+        let width = bounds.maxX - bounds.minX
+        let depth = bounds.maxZ - bounds.minZ
+
+        // Lay the budget out as a grid biased to the wider axis.
+        let columns = max(1, Int((Double(budget) * width / max(depth, 0.001)).squareRoot().rounded()))
+        let rows = max(1, Int((Double(budget) / Double(columns)).rounded(.up)))
+
+        var positions: [(Float, Float)] = []
+        for row in 0..<rows {
+            for column in 0..<columns where positions.count < budget {
+                let x = bounds.minX + width * (Double(column) + 0.5) / Double(columns)
+                let z = bounds.minZ + depth * (Double(row) + 0.5) / Double(rows)
+                positions.append((Float(x), Float(z)))
+            }
+        }
+        return positions
     }
 }

@@ -21,65 +21,28 @@ struct RuntimeNavigationTests {
         #expect(built.root.children.count > 10)
     }
 
-    @Test("The navigation mesh bakes from generated geometry")
-    func navigationBakes() throws {
+    @Test("The walkability grid is built with the scene")
+    func navigationGridIsBuilt() {
         HeistComponents.registerAll()
         let built = LevelSceneBuilder.build(.office01)
 
-        let mesh = try #require(built.navigationMesh, "NavigationMeshResource failed to bake")
-        #expect(!mesh.vertices.isEmpty)
-        #expect(!mesh.polygonIndices.isEmpty)
+        #expect(built.navGrid.cellCount > 0)
+        #expect(built.navGrid.walkable.contains(true))
     }
 
-    /// Disabled: `NavigationController.computePath` never returns when the scene
-    /// is not being rendered. A headless `ARView` is enough to *bake* a mesh but
-    /// not to service a path request, so this hangs until the test times out.
-    ///
-    /// The same route is verified in the app by the debug smoke route in
-    /// `GameScreen`; see docs/IMPLEMENTATION_STATUS.md.
-    @Test(
-        "A path between the two offices routes around the divider wall",
-        .disabled("Needs a rendering scene; verified by the in-app smoke route")
-    )
-    func pathRoutesAroundWall() async throws {
+    @Test("A path between the two offices routes around the divider wall")
+    func pathRoutesAroundWall() throws {
         HeistComponents.registerAll()
         let built = LevelSceneBuilder.build(.office01)
 
-        // Anchor the level in a real scene so navigation queries resolve.
-        let anchor = AnchorEntity(world: .zero)
-        anchor.addChild(built.root)
-        let scene = try makeScene(containing: anchor)
-        _ = scene
+        let start = WorldPoint(x: 2.4, y: 0, z: 4.5)
+        let goal = WorldPoint(x: 9.5, y: 0, z: 4.5)
+        let path = try PathFinder.findPath(from: start, to: goal, in: built.navGrid).get()
 
-        let thief = try #require(built.actors["office01.thief.01"])
-        // Office A and office B are separated by a solid wall; the only link is
-        // the corridor, so any valid path must be much longer than the direct
-        // line between them.
-        thief.setPosition(SIMD3<Float>(2.4, 0, 2.4), relativeTo: nil)
-        let target = SIMD3<Float>(10.0, 0, 2.4)
-
-        let controller = try NavigationController(entity: thief)
-        let path = try #require(
-            await controller.computePath(to: target),
-            "No path computed between the two offices"
-        )
-
-        #expect(path.count >= 2)
-
-        var length: Float = 0
-        var previous = thief.position(relativeTo: nil)
-        for node in path {
-            length += distance(previous, node.position)
-            previous = node.position
-        }
-
-        let straightLine = distance(thief.position(relativeTo: nil), target)
-        #expect(length > straightLine * 1.3, "Path length \(length) vs straight line \(straightLine)")
+        // Office A and office B are separated by a solid wall, so the route has
+        // to detour through the corridor rather than cut across.
+        #expect(path.length > 9.0, "length \(path.length)")
+        #expect(path.waypoints.contains { $0.z > 6.4 })
     }
 
-    private func makeScene(containing anchor: AnchorEntity) throws -> RealityKit.Scene {
-        let view = ARView(frame: .zero, cameraMode: .nonAR, automaticallyConfigureSession: false)
-        view.scene.addAnchor(anchor)
-        return view.scene
-    }
 }

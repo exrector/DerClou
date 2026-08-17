@@ -194,7 +194,107 @@ public enum LevelValidator {
             }
         }
 
+        issues.append(contentsOf: reachabilityIssues(level, catalog: catalog, navigation: navigation))
+
         return issues
+    }
+
+    /// Walks the level the way an actor would and reports anything cut off.
+    ///
+    /// Placement mistakes do not look like mistakes in a level file: a safe put
+    /// down next to a door reads fine as data, and only turns out to have sealed
+    /// the room once someone tries to walk in. Since levels are meant to be
+    /// generated, this has to be checked, not eyeballed.
+    public static func reachabilityIssues(
+        _ level: LevelBlueprint,
+        catalog: PropCatalog,
+        navigation: NavigationBudget = .standard
+    ) -> [LevelIssue] {
+        let geometry = LevelGeometryBuilder.build(level, catalog: catalog)
+        guard !geometry.floors.isEmpty else { return [] }
+
+        let grid = NavGridBuilder.build(geometry: geometry, budget: navigation)
+        guard grid.cellCount > 0 else { return [] }
+
+        let origin = level.marker(.spawn)?.position
+            ?? level.actors.first?.position
+        guard let origin else { return [] }
+
+        let start = level.metrics.worldPoint(origin)
+        guard let startCell = grid.nearestWalkable(to: start, maximumRadius: 1.5) else {
+            return [LevelIssue(
+                severity: .error,
+                subject: level.id,
+                message: "Spawn point has no walkable ground within 1.5 m"
+            )]
+        }
+
+        let reached = floodFill(from: startCell, in: grid)
+        var issues: [LevelIssue] = []
+
+        func check(id: String, position: CellPoint, noun: String) {
+            let world = level.metrics.worldPoint(position)
+            // Reachable means "an actor can stand next to it", so look for a
+            // walkable cell within arm's reach rather than under the object.
+            guard let cell = grid.nearestWalkable(to: world, maximumRadius: 1.5) else {
+                issues.append(LevelIssue(
+                    severity: .error,
+                    subject: id,
+                    message: "\(noun) has no walkable ground within 1.5 m — nobody can stand next to it"
+                ))
+                return
+            }
+            if !reached.contains(cell.row * grid.columns + cell.column) {
+                issues.append(LevelIssue(
+                    severity: .error,
+                    subject: id,
+                    message: "\(noun) is cut off from the spawn point — check for furniture blocking a doorway"
+                ))
+            }
+        }
+
+        for prop in level.props {
+            guard let prototype = catalog[prop.prototype],
+                  !prototype.interactions.isEmpty else { continue }
+            check(id: prop.id, position: prop.position, noun: "Interactable '\(prop.prototype)'")
+        }
+
+        for marker in level.markers where marker.kind != .spawn {
+            check(id: marker.id, position: marker.position, noun: "Marker '\(marker.kind.rawValue)'")
+        }
+
+        for actor in level.actors {
+            check(id: actor.id, position: actor.position, noun: "Actor")
+            for (offset, waypoint) in actor.route.enumerated() {
+                check(id: "\(actor.id).route[\(offset)]", position: waypoint, noun: "Patrol waypoint")
+            }
+        }
+
+        return issues
+    }
+
+    /// Indices of every cell connected to `start` by four-way movement.
+    private static func floodFill(from start: NavGrid.Cell, in grid: NavGrid) -> Set<Int> {
+        var seen: Set<Int> = []
+        var stack = [start]
+        seen.insert(start.row * grid.columns + start.column)
+
+        while let cell = stack.popLast() {
+            let neighbours = [
+                NavGrid.Cell(column: cell.column + 1, row: cell.row),
+                NavGrid.Cell(column: cell.column - 1, row: cell.row),
+                NavGrid.Cell(column: cell.column, row: cell.row + 1),
+                NavGrid.Cell(column: cell.column, row: cell.row - 1)
+            ]
+            for neighbour in neighbours where grid.isWalkable(neighbour) {
+                let index = neighbour.row * grid.columns + neighbour.column
+                if seen.insert(index).inserted {
+                    stack.append(neighbour)
+                }
+            }
+        }
+
+        return seen
     }
 
     public static func isOnFloor(_ point: CellPoint, level: LevelBlueprint) -> Bool {
