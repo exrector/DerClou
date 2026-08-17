@@ -182,3 +182,32 @@ fixture passed while a real object was outside the area on the other side.
 
 Landscape insets must therefore be treated as symmetric-until-proven-otherwise,
 and fixtures should use measured values rather than assumed ones.
+
+---
+
+## 2026-08-17 — Filling the display edges: scenery, not thicker walls
+
+First attempt was wrong and is recorded so it is not repeated: the building's
+exterior walls were thickened to 2 m so that *they* would sit under the cutout.
+That ate playable space, dominated the frame and washed out the interior, for no
+gain.
+
+**The rule:** the edges of the display are filled by the world *outside* the
+building — neighbouring walls in right-angled runs, trees, hedges — not by making
+the target building's own geometry heavier.
+
+Implemented as a `scenery` prop kind, which:
+
+- sits outside the floor rects, and is therefore exempt from the "placed outside
+  every floor" validation;
+- never enters the navigation grid, so it cannot affect routing;
+- is exempt from the safe-area placement check, since covering the screen edges
+  is its entire purpose;
+- is placed in level data like any other prop, so a generator can scatter it.
+
+Underneath everything is a dark ground plane extending well past the building, so
+no camera position can reveal empty background.
+
+The building itself keeps ordinary wall thickness. The camera separately
+guarantees the floor stays inside the system safe area, so gameplay is never
+under the cutout while the street around it is.
