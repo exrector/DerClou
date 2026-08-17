@@ -96,11 +96,35 @@ public struct CameraControl: Sendable, Equatable {
     public var pan: WorldPoint
     /// Zoom multiplier. 1 frames the level; above 1 moves closer.
     public var zoom: Double
+    /// Extra tilt beyond the tactical angle, in degrees — the "peek".
+    ///
+    /// Small on purpose. Enough to see the inner face of a wall, a doorway, a
+    /// wall-mounted camera or the height of furniture, and no more. The map's
+    /// orientation never changes: this is looking under an angle, not flying
+    /// around the scene.
+    public var peekDegrees: Double
 
-    public init(pan: WorldPoint = .zero, zoom: Double = 1) {
+    public init(pan: WorldPoint = .zero, zoom: Double = 1, peekDegrees: Double = 0) {
         self.pan = pan
         self.zoom = zoom
+        self.peekDegrees = peekDegrees
     }
+
+    /// How far the tactical angle may be pushed. Determined by eye on device;
+    /// this is a starting range, not a final one.
+    public static let peekRange: ClosedRange<Double> = 0...14
+
+    public func peeked(to degrees: Double) -> CameraControl {
+        CameraControl(
+            pan: pan,
+            zoom: zoom,
+            peekDegrees: min(max(degrees, Self.peekRange.lowerBound), Self.peekRange.upperBound)
+        )
+    }
+
+    /// True while the player is looking under an angle rather than at the
+    /// guaranteed tactical framing.
+    public var isPeeking: Bool { peekDegrees > 0.01 }
 
     public static let neutral = CameraControl()
 
@@ -113,26 +137,34 @@ public struct CameraControl: Sendable, Equatable {
     public func zoomed(by factor: Double) -> CameraControl {
         CameraControl(
             pan: pan,
-            zoom: min(max(zoom * factor, Self.zoomRange.lowerBound), Self.zoomRange.upperBound)
+            zoom: min(max(zoom * factor, Self.zoomRange.lowerBound), Self.zoomRange.upperBound),
+            peekDegrees: peekDegrees
         )
     }
 
     /// Pans by a world-space delta, clamped so the view cannot leave the level.
     public func panned(by delta: WorldPoint, within bounds: CellRect, metrics: LevelMetrics) -> CameraControl {
-        guard zoom > 1 else { return CameraControl(pan: .zero, zoom: zoom) }
+        // Peeking is a local inspection: panning is unrestricted there, because
+        // part of the level leaving the frame is expected rather than a fault.
+        guard zoom > 1 || isPeeking else {
+            return CameraControl(pan: .zero, zoom: zoom, peekDegrees: peekDegrees)
+        }
 
         // How far the centre may stray: the part of the level currently off
         // screen, halved.
         let slackX = metrics.meters(fromCells: bounds.size.width) * (1 - 1 / zoom) / 2
         let slackZ = metrics.meters(fromCells: bounds.size.depth) * (1 - 1 / zoom) / 2
 
+        // A peek is allowed to push a little past the level's own edge.
+        let allowance = isPeeking ? metrics.wallHeight : 0
         return CameraControl(
             pan: WorldPoint(
-                x: min(max(pan.x + delta.x, -slackX), slackX),
+                x: min(max(pan.x + delta.x, -slackX - allowance), slackX + allowance),
                 y: 0,
-                z: min(max(pan.z + delta.z, -slackZ), slackZ)
+                z: min(max(pan.z + delta.z, -slackZ - allowance), slackZ + allowance)
             ),
-            zoom: zoom
+            zoom: zoom,
+            peekDegrees: peekDegrees
         )
     }
 }
@@ -191,7 +223,10 @@ public enum CameraFramingSolver {
             }
         }
 
-        let tilt = tiltDegrees * .pi / 180
+        // Peeking lowers the camera; the framing guarantee applies to the
+        // tactical angle only, so a peek may legitimately push part of the level
+        // off screen rather than zooming out to compensate.
+        let tilt = (tiltDegrees + control.peekDegrees) * .pi / 180
         // Tilting compresses the ground plane on screen but adds the wall
         // height back as apparent depth.
         let projectedDepth = depth * cos(tilt) + metrics.wallHeight * sin(tilt)

@@ -15,10 +15,28 @@ struct LevelBlueprintTests {
         #expect(metrics.cellPoint(world) == point)
     }
 
-    @Test("office01 passes validation")
+    @Test("office01 passes validation, warnings included")
     func officeValidates() {
         let issues = LevelBuild.make(.office01).issues
-        #expect(!issues.hasErrors, "\(issues)")
+        // Warnings count too: a level shipped with known placement complaints is
+        // a level someone will eventually stop reading the log for.
+        #expect(issues.isEmpty, "\(issues)")
+    }
+
+    @Test("Anything critical under the collapsed Plan Deck is reported")
+    func reservedBandIsChecked() {
+        var level = LevelBlueprint.office01
+        // The near strip: rendered, but covered by the deck.
+        level.props.append(
+            PropSpec(
+                id: "office01.loot.underDeck",
+                prototype: "loot.cash",
+                position: CellPoint(12, level.bounds.maxY - 0.5)
+            )
+        )
+
+        let issues = LevelBuild.make(level).issues
+        #expect(issues.contains { $0.subject == "office01.loot.underDeck" })
     }
 
     @Test("An opening that runs past the end of its wall is an error")

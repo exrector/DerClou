@@ -121,10 +121,9 @@ extension LevelBlueprint {
                 // Corridor security
                 PropSpec(id: "office01.camera.corridor", prototype: "camera.ceiling", position: CellPoint(7.0, 6.3)),
                 PropSpec(id: "office01.camera.store", prototype: "camera.ceiling", position: CellPoint(19.0, 6.3)),
-                // On the corridor's south wall, not the west one: an object the
-                // player must reach and operate cannot sit where a sensor
-                // housing may cover it. See docs/DEVELOPMENT_FINDINGS.md.
-                PropSpec(id: "office01.panel.corridor", prototype: "panel.security", position: CellPoint(11.5, 10.75), rotation: 180),
+                // On the corridor wall, clear of both the sensor housing at the
+                // screen edges and the strip the Plan Deck will cover.
+                PropSpec(id: "office01.panel.corridor", prototype: "panel.security", position: CellPoint(4.0, 6.3)),
 
                 PropSpec(id: "office01.extraction", prototype: "marker.extraction", position: CellPoint(1.2, 9.0))
             ],
@@ -138,8 +137,8 @@ extension LevelBlueprint {
                     route: [
                         CellPoint(20.0, 8.0),
                         CellPoint(5.0, 8.0),
-                        CellPoint(5.0, 10.2),
-                        CellPoint(20.0, 10.2)
+                        CellPoint(5.0, 9.2),
+                        CellPoint(20.0, 9.2)
                     ]
                 )
             ],
