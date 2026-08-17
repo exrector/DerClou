@@ -10,6 +10,7 @@ This repository is a native Apple game project. Before doing nontrivial work, re
 - `docs/ORIGINAL_GAMES_RESEARCH.md`
 - `docs/IP_AND_LEGAL_BOUNDARIES.md`
 - `docs/CAMPAIGN_PLAN.md`
+- `docs/PLATFORM_COMPATIBILITY.md`
 - `docs/ROADMAP.md`
 
 ## Project summary
@@ -18,7 +19,7 @@ Build a polished **top-down / 2.5D burglary-planning puzzle game** for iPhone, i
 
 ## Fixed technical choices
 
-- iOS 27+
+- **iOS 18+**. **(Старый вариант: iOS 27+.)**
 - Swift
 - SwiftUI
 - RealityKit
@@ -26,10 +27,12 @@ Build a polished **top-down / 2.5D burglary-planning puzzle game** for iPhone, i
 - Xcode
 - native Apple stack only
 - true 3D world with a fixed high top-down tactical camera
-- prefer RealityKit `OrthographicCameraComponent`
-- use RealityKit navigation mesh / `NavigationController` for tap-to-move where suitable
+- use SwiftUI `RealityView` with a virtual RealityKit camera and `OrthographicCameraComponent` for the intended tactical projection
+- tap-to-move pathfinding must use a project-owned navigation abstraction backed by GameplayKit graph/pathfinding APIs or a validated deterministic custom A* implementation. **(Старый вариант: RealityKit Navigation Mesh / `NavigationController` from iOS 27.)**
 
 Do not migrate the project to Godot, Unity, SpriteKit, SceneKit or a web stack without an explicit owner decision.
+
+Supporting iOS 18 is an API-coverage decision, **not** a reason to reduce visual quality, animation quality, materials, lighting, level complexity or gameplay. If older supported hardware needs adaptation, use measured quality/performance tiers while preserving the production art direction.
 
 ## Fixed gameplay choices
 
@@ -61,12 +64,13 @@ Examples:
 ## Agent behavior
 
 - Check the repository before asking the owner to repeat context.
-- Check current Apple documentation before assuming API availability/behavior.
+- Check current Apple documentation and the installed SDK before assuming API availability/behavior.
 - Use Xcode build/test feedback as part of implementation.
 - Prefer small, reusable RealityKit components and systems over level-specific scripts.
 - Do not create elaborate abstractions before the vertical slice needs them.
 - Keep core gameplay rules in maintainable Swift/data structures even when Reality Composer Pro visual graphs are used for authoring.
 - Surface blockers immediately.
+- Never silently simplify the game merely to retain the iOS 18 deployment floor. Report the exact blocker first.
 - Preserve IP separation from the original games.
 - `docs/IP_AND_LEGAL_BOUNDARIES.md` is mandatory project policy for levels, characters, story, UI, assets, naming and any use of original-game research.
 - Extract abstract mechanics from the originals, then independently redesign geometry, timings, security graphs, story context and visual expression. Do not reconstruct specific original missions.
@@ -75,9 +79,9 @@ Examples:
 
 A polished first vertical slice containing:
 
-1. high-quality top-down 3D room layout;
+1. high-quality top-down orthographic 3D room layout;
 2. one playable thief;
-3. tap-to-move pathfinding;
+3. deterministic tap-to-move pathfinding using the project navigation layer; **(Старый вариант: RealityKit Navigation Mesh.)**
 4. one deterministic patrol guard + vision;
 5. one rotating security camera;
 6. one interactive door;
