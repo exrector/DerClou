@@ -146,6 +146,14 @@ extension PropCatalog {
             interactions: [.open, .takeLoot]
         ),
         PropPrototype(
+            id: "crate.storage",
+            kind: .container,
+            footprint: CellSize(width: 1.0, depth: 0.8),
+            height: 0.9,
+            surface: .wood,
+            interactions: [.open, .takeLoot]
+        ),
+        PropPrototype(
             id: "plant.potted",
             kind: .furniture,
             footprint: CellSize(width: 0.5, depth: 0.5),

@@ -22,14 +22,18 @@ public final class TacticalCamera {
     /// Extra margin around the level bounds, in meters.
     public var margin: Double
 
+    /// Whether the level is fitted inside the viewport or fills it.
+    public var mode: FramingMode
+
     public let entity: Entity
 
     /// Last framing applied, for debugging and tests.
     public private(set) var framing: CameraFraming?
 
-    public init(tiltDegrees: Double = 24, margin: Double = 1.5) {
+    public init(tiltDegrees: Double = 24, margin: Double = 1.0, mode: FramingMode = .fill) {
         self.tiltDegrees = tiltDegrees
         self.margin = margin
+        self.mode = mode
         self.entity = Entity()
         entity.name = "camera.tactical"
 
@@ -48,8 +52,16 @@ public final class TacticalCamera {
             metrics: metrics,
             aspectRatio: aspectRatio,
             tiltDegrees: tiltDegrees,
+            mode: mode,
             margin: margin
         )
+        if !framing.showsWholeLevel {
+            log.warning("""
+                Filling the viewport crops \(framing.croppedWidth, privacy: .public) m of width \
+                and \(framing.croppedDepth, privacy: .public) m of depth — \
+                this level's shape does not suit the screen
+                """)
+        }
         apply(framing)
     }
 

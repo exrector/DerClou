@@ -41,11 +41,19 @@ public struct PathFollowingComponent: Component {
     public var index: Int
     /// How close counts as "arrived at this waypoint", in meters.
     public var arrivalTolerance: Float
+    /// Seconds spent without meaningful progress toward the current waypoint.
+    /// Used to detect an actor wedged against geometry instead of failing
+    /// silently, which is exactly how doorway jams present themselves.
+    public var stalledFor: Float
+    /// Distance to the current waypoint at the previous update.
+    public var lastDistance: Float
 
     public init(waypoints: [SIMD3<Float>], arrivalTolerance: Float = 0.05) {
         self.waypoints = waypoints
         self.index = 0
         self.arrivalTolerance = arrivalTolerance
+        self.stalledFor = 0
+        self.lastDistance = .greatestFiniteMagnitude
     }
 
     public var isFinished: Bool { index >= waypoints.count }

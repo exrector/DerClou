@@ -17,8 +17,8 @@ public enum NavigationBaker {
         characterHeight: Double = 1.75
     ) -> NavigationMeshResource.Configuration {
         NavigationMeshResource.Configuration(
-            cellSize: 0.1,
-            cellHeight: 0.1,
+            cellSize: 0.05,
+            cellHeight: 0.05,
             walkableSlopeAngle: 45,
             characterHeight: characterHeight,
             walkableClimb: 0.3,
