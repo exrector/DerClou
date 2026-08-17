@@ -190,3 +190,27 @@ When considering a newer API:
 3. determine whether the capability already exists through stable older APIs or a small project-owned implementation;
 4. measure implementation/maintenance cost;
 5. change the deployment target only if the product benefit clearly justifies the lost device coverage.
+
+
+---
+
+## 2026-08-17 — Perspective replaces orthographic
+
+The owner changed this after seeing the orthographic camera on device.
+
+Orthographic projection has no parallax: every point moves by the same amount on
+screen regardless of depth. So the tops of the walls and the floor can only ever
+move together, and any camera gesture slides the whole building around like a
+box. What is wanted — and what Fallout Shelter does — is the wall tops staying
+put against the display while the floor swings inside them, so the player can
+look into a room from different angles.
+
+That needs near geometry to move differently from far geometry, which is
+perspective. `PerspectiveCameraComponent` with a moderate field of view is now
+the tactical camera.
+
+Consequence for the deployment floor: `OrthographicCameraComponent` was one of
+the three APIs holding the target at iOS 18. `PerspectiveCameraComponent` goes
+back to iOS 13, so the floor is now set by `RealityView` and
+`RealityViewCameraContent` alone — still iOS 18, but for one fewer reason. Worth
+revisiting if reaching older devices ever matters.
