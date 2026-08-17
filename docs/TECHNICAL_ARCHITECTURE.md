@@ -4,15 +4,22 @@ Status: baseline architecture for first implementation.
 
 ## 1. Platform target
 
-Primary target: **iPhone, iOS 27+**.
+Primary target: **iPhone, iOS 18+**.
 
-Why iOS 27 is currently accepted:
+Lowered from iOS 27 on 2026-08-17. Reasons:
 
-- RealityKit navigation APIs and Reality Composer Pro 3 navigation tooling fit the exact tap-to-move game model;
-- the project is intentionally using the newest Apple game/spatial tooling rather than back-porting prematurely;
-- limiting compatibility simplifies the first implementation.
+- iOS 27 is beta, so an iOS-27-only build reaches essentially no players;
+- the only iOS 27 APIs the design needed were the navigation mesh ones, and our
+  own grid A* (`HeistCore/Navigation`) is a better fit anyway — deterministic,
+  testable without a simulator, and under our control;
+- iOS 18 is set by three APIs that *are* core to the look: `RealityView`,
+  `RealityViewCameraContent` and `OrthographicCameraComponent`.
 
-Revisit minimum OS only after the vertical slice works.
+Going below 18 would mean `ARView(.nonAR)` plus a narrow-FOV perspective camera
+faking the orthographic view. Rejected: the tactical plan view is exactly where
+converging verticals read as wrong.
+
+The floor is an API constraint, not a quality ceiling. See `RenderQuality`.
 
 ## 2. Technology stack
 

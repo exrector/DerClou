@@ -17,7 +17,7 @@ The game should feel like a living security-system puzzle, not an action game.
 ## Non-negotiable product decisions
 
 - Apple ecosystem first.
-- Current target: **iOS 27+**.
+- Current target: **iOS 18+** (lowered from iOS 27 on 2026-08-17).
 - Native stack: **Swift + SwiftUI + RealityKit + Reality Composer Pro 3 + Xcode**.
 - Use Xcode's agentic coding support with **Claude Agent / Claude Code now**, and **Codex later**.
 - Do **not** switch the project to Unity, Godot, SpriteKit, SceneKit or a web engine unless the owner explicitly changes this decision.

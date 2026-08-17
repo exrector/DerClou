@@ -4,8 +4,8 @@ import PackageDescription
 let package = Package(
     name: "HeistEngine",
     platforms: [
-        .iOS("27.0"),
-        .macOS("27.0")
+        .iOS(.v18),
+        .macOS(.v15)
     ],
     products: [
         // Pure Swift game rules and level data. No RealityKit, no UI.

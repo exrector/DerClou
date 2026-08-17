@@ -1,6 +1,22 @@
 import Foundation
 
-/// How much world space an orthographic tactical camera must cover.
+/// How the tactical camera projects the world.
+///
+/// **Orthographic is the game's visual language and is not negotiable.** A true
+/// orthographic camera needs iOS 18, which is why iOS 18 is the deployment floor.
+///
+/// The perspective case exists because a very narrow field of view pulled far
+/// back approximates orthographic and reaches back to iOS 13. It is kept as a
+/// deliberate escape hatch, not as the default: at any usable field of view the
+/// verticals still converge, and a tactical plan view is exactly the situation
+/// where that reads as wrong.
+public enum CameraProjection: Sendable, Equatable {
+    case orthographic
+    /// Vertical field of view, in degrees. Small values approach orthographic.
+    case perspective(fieldOfViewDegrees: Double)
+}
+
+/// How much world space a tactical camera must cover.
 public struct CameraFraming: Sendable, Equatable {
     /// Vertical extent of the orthographic view, in meters.
     public var verticalExtent: Double
@@ -13,19 +29,31 @@ public struct CameraFraming: Sendable, Equatable {
     public var croppedDepth: Double
     /// How much of the level's own width falls outside the view, in meters.
     public var croppedWidth: Double
+    /// Projection the framing was solved for.
+    public var projection: CameraProjection
 
     public init(
         verticalExtent: Double,
         focus: WorldPoint,
         position: WorldPoint,
         croppedDepth: Double = 0,
-        croppedWidth: Double = 0
+        croppedWidth: Double = 0,
+        projection: CameraProjection = .orthographic
     ) {
         self.verticalExtent = verticalExtent
         self.focus = focus
         self.position = position
         self.croppedDepth = croppedDepth
         self.croppedWidth = croppedWidth
+        self.projection = projection
+    }
+
+    /// Straight-line distance from the camera to its focus, in meters.
+    public var distanceToFocus: Double {
+        let dx = position.x - focus.x
+        let dy = position.y - focus.y
+        let dz = position.z - focus.z
+        return (dx * dx + dy * dy + dz * dz).squareRoot()
     }
 
     /// True when the whole level is on screen.
@@ -68,8 +96,8 @@ public enum CameraFramingSolver {
         aspectRatio: Double,
         tiltDegrees: Double,
         mode: FramingMode = .fill,
-        margin: Double = 1.0,
-        distance: Double = 60
+        projection: CameraProjection = .orthographic,
+        margin: Double = 1.0
     ) -> CameraFraming {
         let levelWidth = metrics.meters(fromCells: bounds.size.width)
         let levelDepth = metrics.meters(fromCells: bounds.size.depth)
@@ -98,6 +126,17 @@ public enum CameraFramingSolver {
 
         let center = metrics.worldPoint(bounds.center)
         let focus = WorldPoint(x: center.x, y: 0, z: center.z)
+
+        // Orthographic scale is independent of distance, so the camera only has
+        // to clear the geometry. A perspective camera has to stand exactly far
+        // enough back that `verticalExtent` fills its field of view.
+        let distance: Double = switch projection {
+        case .orthographic:
+            60
+        case .perspective(let fieldOfViewDegrees):
+            (verticalExtent / 2) / tan(fieldOfViewDegrees * .pi / 360)
+        }
+
         let position = WorldPoint(
             x: center.x,
             y: distance * cos(tilt),
@@ -109,7 +148,8 @@ public enum CameraFramingSolver {
             focus: focus,
             position: position,
             croppedDepth: croppedDepth,
-            croppedWidth: croppedWidth
+            croppedWidth: croppedWidth,
+            projection: projection
         )
     }
 }

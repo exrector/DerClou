@@ -33,7 +33,7 @@ Build a polished native iPhone top-down/2.5D heist-planning puzzle game inspired
 - Main tactical rendering path: **SwiftUI `RealityView` + virtual RealityKit camera + `OrthographicCameraComponent`**. **(Старый вариант: iOS 27 was selected partly to use the newest RealityKit navigation stack.)**
 - No virtual joystick.
 - Player interaction: tap floor/room/corridor to move; tap world objects to interact.
-- Pathfinding must be independent of iOS 27 Navigation Mesh APIs. Use a project-owned navigation abstraction backed by GameplayKit (`GKGraph`, `GKGridGraph`, `GKObstacleGraph`, `GKMeshGraph`) or a custom deterministic A* implementation after testing which representation fits the level geometry best. **(Старый вариант: use RealityKit Navigation Mesh / `NavigationController` on iOS 27.)**
+- Pathfinding must be independent of iOS 27 Navigation Mesh APIs. **Settled 2026-08-17 and implemented:** a project-owned deterministic grid A* in `HeistCore` (`NavGrid` + `PathFinder`), built from the blueprint's own geometry. GameplayKit was evaluated and not needed — the custom layer gives exact control of the obstacle dilation radius, guaranteed determinism and unit tests with no simulator. **(Старый вариант: use RealityKit Navigation Mesh / `NavigationController` on iOS 27.)**
 - Player-character walking speed is intentionally constant in the first implementation.
 - Differences between crew members should primarily be skills, permitted actions, carrying capacity and action duration.
 - Guards/patrols are deterministic and learnable. Randomness must not invalidate careful planning.
@@ -276,3 +276,18 @@ Create a polished vertical slice, not a disposable demo:
 - minimal planning → execute → retry loop.
 
 The architecture should support adding new levels mostly by placing/configuring reusable components rather than writing bespoke code for every mission.
+
+## Deployment floor vs visual target
+
+**iOS 18 is an API floor, not an art budget.**
+
+Do not simplify rendering, art direction, level complexity, lighting, materials,
+animations or gameplay in order to support iOS 18. Scale *up* on capable hardware
+instead: `RenderQuality` in `HeistKit` picks a tier from the device and adjusts
+light counts and shadow cost. The baseline tier is still the full visual target.
+
+Principle for API choices, set by the owner on 2026-08-17:
+
+> Use the oldest stable Apple API that solves the problem well. Reach for the
+> newest RealityKit APIs only when they give a substantial advantage that cannot
+> reasonably be had otherwise.

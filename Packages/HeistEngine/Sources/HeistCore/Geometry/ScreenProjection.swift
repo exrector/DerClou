@@ -43,17 +43,35 @@ public enum ScreenProjection {
         let ndcX = (screenPoint.x / viewportSize.width) * 2 - 1
         let ndcY = 1 - (screenPoint.y / viewportSize.height) * 2
 
-        let halfHeight = framing.verticalExtent / 2
-        let halfWidth = halfHeight * (viewportSize.width / viewportSize.height)
+        let aspect = viewportSize.width / viewportSize.height
 
-        // Orthographic: the ray starts offset from the camera and runs parallel
-        // to the view direction, rather than fanning out from a focal point.
-        let origin = add(
-            framing.position,
-            add(scale(right, ndcX * halfWidth), scale(up, ndcY * halfHeight))
-        )
+        switch framing.projection {
+        case .orthographic:
+            // Rays run parallel to the view direction and start offset from the
+            // camera, rather than fanning out from a focal point.
+            let halfHeight = framing.verticalExtent / 2
+            let halfWidth = halfHeight * aspect
+            let origin = add(
+                framing.position,
+                add(scale(right, ndcX * halfWidth), scale(up, ndcY * halfHeight))
+            )
+            return WorldRay(origin: origin, direction: forward)
 
-        return WorldRay(origin: origin, direction: forward)
+        case .perspective(let fieldOfViewDegrees):
+            // All rays share the camera's position and diverge by the field of
+            // view.
+            let tangent = tan(fieldOfViewDegrees * .pi / 360)
+            let direction = normalize(
+                add(
+                    forward,
+                    add(
+                        scale(right, ndcX * aspect * tangent),
+                        scale(up, ndcY * tangent)
+                    )
+                )
+            )
+            return WorldRay(origin: framing.position, direction: direction)
+        }
     }
 
     /// Intersects a ray with a horizontal plane, returning nil if it never

@@ -26,7 +26,6 @@ public final class GameSession {
     public private(set) var lastPathNodeCount: Int = 0
 
     @ObservationIgnored private var destinationMarker: Entity?
-    @ObservationIgnored private var pathTask: Task<Void, Never>?
 
     public init() {}
 
@@ -60,10 +59,10 @@ public final class GameSession {
             .first { $0.prototype.id == "actor.thief" }?
             .id
 
-        let navigationState = built.navigationMesh == nil ? "navigation bake FAILED" : "navigation ready"
+        let walkableCells = built.navGrid.walkable.count { $0 }
         status = built.issues.hasErrors
             ? "Loaded \(blueprint.id) with \(built.issues.errors.count) blueprint errors"
-            : "Loaded \(blueprint.id), \(navigationState)"
+            : "Loaded \(blueprint.id), \(walkableCells) walkable cells"
         log.info("\(self.status, privacy: .public)")
     }
 
@@ -119,60 +118,63 @@ public final class GameSession {
         moveSelectedActor(to: worldPoint)
     }
 
-    /// Requests a navigation path and starts walking the selected actor.
+    /// Finds a route and starts walking the selected actor.
+    ///
+    /// Synchronous and deterministic: the same actor position and destination
+    /// always yield the same path, which is what makes a recorded plan
+    /// trustworthy.
     public func moveSelectedActor(to worldPoint: SIMD3<Float>) {
         guard let actor = selectedActorEntity, let actorID = selectedActorID else {
             status = "No actor selected"
             return
         }
+        guard let level else { return }
 
-        showDestinationMarker(at: worldPoint)
-        destination = worldPoint
+        let from = actor.position(relativeTo: nil)
+        let start = WorldPoint(x: Double(from.x), y: 0, z: Double(from.z))
+        let goal = WorldPoint(x: Double(worldPoint.x), y: 0, z: Double(worldPoint.z))
 
-        pathTask?.cancel()
-        pathTask = Task { [weak self] in
-            guard let self else { return }
-            await self.requestPath(for: actor, actorID: actorID, to: worldPoint)
-        }
-    }
-
-    private func requestPath(for actor: Entity, actorID: String, to worldPoint: SIMD3<Float>) async {
-        let controller: NavigationController
-        do {
-            controller = try NavigationController(entity: actor)
-        } catch {
-            status = "Navigation unavailable: \(error.localizedDescription)"
-            log.error("NavigationController init failed: \(error.localizedDescription, privacy: .public)")
-            return
-        }
-
-        guard let path = await controller.computePath(to: worldPoint), !path.isEmpty else {
-            status = "No route to that point"
+        switch PathFinder.findPath(from: start, to: goal, in: level.navGrid) {
+        case .failure(let failure):
             actor.components.remove(PathFollowingComponent.self)
-            return
+            destinationMarker?.isEnabled = false
+            status = switch failure {
+            case .startNotOnGrid: "\(actorID) is not standing anywhere walkable"
+            case .destinationNotReachable: "Nowhere to stand there"
+            case .noRoute: "No route to that point"
+            }
+            log.debug("Path failed for \(actorID, privacy: .public): \(failure.rawValue, privacy: .public)")
+
+        case .success(let path):
+            let waypoints = path.waypoints.map {
+                SIMD3<Float>(Float($0.x), 0, Float($0.z))
+            }
+            actor.components.set(PathFollowingComponent(waypoints: waypoints))
+
+            // Mark where the actor will actually end up, not where the finger
+            // landed — they differ when the tap lands on furniture or a wall.
+            if let arrival = waypoints.last {
+                showDestinationMarker(at: arrival)
+                destination = arrival
+            }
+
+            lastPathNodeCount = waypoints.count
+            lastPathLength = path.length
+
+            let speed = actor.components[PlayableActorComponent.self]?.walkSpeed ?? 1.4
+            let eta = path.length / Double(speed)
+            status = String(
+                format: "%@ -> %.1f m, %d legs, ETA %.1f s",
+                actorID,
+                path.length,
+                waypoints.count,
+                eta
+            )
+            log.debug("""
+                Path for \(actorID, privacy: .public): \
+                \(waypoints.count) legs, \(path.length, privacy: .public) m
+                """)
         }
-
-        guard !Task.isCancelled else { return }
-
-        let waypoints = path.map(\.position)
-        actor.components.set(PathFollowingComponent(waypoints: waypoints))
-
-        lastPathNodeCount = waypoints.count
-        lastPathLength = Double(pathLength(from: actor.position(relativeTo: nil), through: waypoints))
-
-        let speed = actor.components[PlayableActorComponent.self]?.walkSpeed ?? 1.4
-        let eta = lastPathLength / Double(speed)
-        status = String(
-            format: "%@ -> %.1f m, %d nodes, ETA %.1f s",
-            actorID,
-            lastPathLength,
-            waypoints.count,
-            eta
-        )
-        log.debug("""
-            Path for \(actorID, privacy: .public): \
-            \(waypoints.count) nodes, \(self.lastPathLength, privacy: .public) m
-            """)
     }
 
     // MARK: - Helpers
@@ -205,12 +207,4 @@ public final class GameSession {
         destinationMarker.setPosition(SIMD3<Float>(point.x, 0.02, point.z), relativeTo: nil)
     }
 
-    private func pathLength(from start: SIMD3<Float>, through waypoints: [SIMD3<Float>]) -> Float {
-        guard let first = waypoints.first else { return 0 }
-        var total = distance(start, first)
-        for index in 1..<max(waypoints.count, 1) {
-            total += distance(waypoints[index - 1], waypoints[index])
-        }
-        return total
-    }
 }

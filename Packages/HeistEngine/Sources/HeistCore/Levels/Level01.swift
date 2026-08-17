@@ -104,11 +104,13 @@ extension LevelBlueprint {
                 PropSpec(id: "office01.crate.03", prototype: "crate.storage", position: CellPoint(21.5, 1.2), rotation: 90),
                 PropSpec(id: "office01.shelf.01", prototype: "cabinet.filing", position: CellPoint(19.0, 0.5)),
                 PropSpec(id: "office01.shelf.02", prototype: "cabinet.filing", position: CellPoint(23.4, 3.5), rotation: 90),
+                // Against the far wall, not beside the door: a safe parked in
+                // front of a doorway seals the room once the character radius is
+                // taken into account.
                 PropSpec(
                     id: "office01.safe.store",
                     prototype: "safe.wall",
-                    position: CellPoint(18.0, 5.2),
-                    rotation: 180,
+                    position: CellPoint(22.0, 0.5),
                     config: ["difficulty": .int(4)]
                 ),
 
