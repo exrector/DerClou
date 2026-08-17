@@ -1,0 +1,82 @@
+import Foundation
+import OSLog
+import RealityKit
+import HeistCore
+
+/// The fixed top-down planning camera.
+///
+/// Orthographic on purpose: with no perspective divergence, a corridor is the
+/// same width wherever it sits on screen, so distances read as distances and the
+/// scene works as a tactical map while still being real 3D.
+@MainActor
+public final class TacticalCamera {
+    private let log = Logger(subsystem: "com.exrector.DerClou", category: "camera")
+
+    /// Tilt away from straight down, in degrees.
+    ///
+    /// Zero is a pure plan view and loses all sense of volume; a small tilt
+    /// exposes enough of the wall and prop sides to read height without letting
+    /// tall geometry hide the floor behind it.
+    public var tiltDegrees: Double
+
+    /// Extra margin around the level bounds, in meters.
+    public var margin: Double
+
+    public let entity: Entity
+
+    /// Last framing applied, for debugging and tests.
+    public private(set) var framing: CameraFraming?
+
+    public init(tiltDegrees: Double = 24, margin: Double = 1.5) {
+        self.tiltDegrees = tiltDegrees
+        self.margin = margin
+        self.entity = Entity()
+        entity.name = "camera.tactical"
+
+        var camera = OrthographicCameraComponent()
+        camera.near = 0.05
+        camera.far = 200
+        camera.scale = 14
+        camera.scaleDirection = .vertical
+        entity.components.set(camera)
+    }
+
+    /// Frames the given level for a viewport of `aspectRatio`.
+    public func frame(bounds: CellRect, metrics: LevelMetrics, aspectRatio: Double) {
+        let framing = CameraFramingSolver.solve(
+            bounds: bounds,
+            metrics: metrics,
+            aspectRatio: aspectRatio,
+            tiltDegrees: tiltDegrees,
+            margin: margin
+        )
+        apply(framing)
+    }
+
+    public func apply(_ framing: CameraFraming) {
+        guard framing != self.framing else { return }
+        self.framing = framing
+
+        var camera = entity.components[OrthographicCameraComponent.self] ?? OrthographicCameraComponent()
+        // Measured against the iOS 27 SDK: `scale` is the *half* extent of the
+        // orthographic view along `scaleDirection`, not the full one. Apple's
+        // documentation does not spell this out.
+        camera.scale = Float(framing.verticalExtent / 2)
+        camera.scaleDirection = .vertical
+        entity.components.set(camera)
+
+        let focus = SIMD3<Float>(
+            Float(framing.focus.x),
+            Float(framing.focus.y),
+            Float(framing.focus.z)
+        )
+        let position = SIMD3<Float>(
+            Float(framing.position.x),
+            Float(framing.position.y),
+            Float(framing.position.z)
+        )
+        entity.look(at: focus, from: position, relativeTo: nil)
+
+        log.debug("Framed camera: vertical extent \(framing.verticalExtent, privacy: .public) m")
+    }
+}
