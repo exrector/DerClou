@@ -249,6 +249,20 @@ When inspired by a specific original mission, extract the abstract mechanic firs
 
 `docs/ORIGINAL_GAMES_RESEARCH.md` contains verified links and all 18 sequel mission names.
 
+## Documentation is working memory, not a specification
+
+These documents record decisions so an agent does not silently re-invent the
+project. They do **not** outrank the owner.
+
+When the owner looks at the running game and says to change something, the order
+is: do it, look at the result, decide, then update the document. Never refuse or
+stall on the grounds that a document says otherwise — say what the document
+currently says if it is relevant, and get on with the change.
+
+This is written down because it went wrong on 2026-08-17: the orthographic camera
+was treated as fixed because `CLAUDE.md` said so, while the owner was asking for
+behaviour that orthographic projection cannot produce.
+
 ## Working with the owner
 
 - The owner is driving product/game design and does not want to spend time hand-writing routine code.

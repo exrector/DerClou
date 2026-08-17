@@ -25,14 +25,14 @@ public final class TacticalCamera {
     /// Whether the level is fitted inside the viewport or fills it.
     public var mode: FramingMode
 
-    /// Perspective by default.
+    /// Perspective by default: orthographic has no parallax, so wall tops and
+    /// floor can only move together.
+        /// Narrow on purpose — telephoto rather than wide angle.
     ///
-    /// Orthographic has no parallax: every point shifts by the same amount, so
-    /// the wall tops and the floor can only ever move together — the whole box
-    /// slides. Pinning the wall tops to the display while the floor swings
-    /// inside them requires near things to move differently from far ones, which
-    /// is perspective.
-    public var projection: CameraProjection = .perspective(fieldOfViewDegrees: 38)
+    /// A wide field of view turns rooms into perspective funnels. Narrow, with
+    /// the camera correspondingly far back, keeps the base view reading as a
+    /// tactical board while still giving parallax the moment the view leans.
+    public var projection: CameraProjection = .perspective(fieldOfViewDegrees: 26)
 
     public let entity: Entity
 

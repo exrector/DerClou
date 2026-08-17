@@ -146,14 +146,16 @@ public struct CameraControl: Sendable, Equatable {
 
     public var isNeutral: Bool { self == .neutral }
 
-    /// How far the view may lean vertically. Past this the floor plan stops
-    /// reading as a plan and the far wall starts hiding the room behind it.
-    public static let leanRange: ClosedRange<Double> = -14...14
+    /// How far the view may lean.
+    ///
+    /// Deliberately tiny. The point is a glance into a room, not a change of
+    /// viewpoint: the building must never look like it is being turned around,
+    /// and the plan must stay readable throughout.
+    public static let leanRange: ClosedRange<Double> = -7...7
 
-    /// Sideways lean is held tighter. Swinging the camera around the building
-    /// rotates screen-right away from world +x, and past about 8° that starts to
-    /// read as the map itself turning — which it must never do.
-    public static let sidewaysLeanRange: ClosedRange<Double> = -8...8
+    /// Sideways is held tighter still, since swinging around the building is
+    /// what reads as the map turning.
+    public static let sidewaysLeanRange: ClosedRange<Double> = -5...5
 
     /// Zoom limits.
     public static let zoomRange: ClosedRange<Double> = 1.0...3.0
@@ -322,9 +324,11 @@ public enum CameraFramingSolver {
         // sliver of ground visible beyond the far wall and wastes the same
         // amount at the bottom. Shifting the aim back by half the wall's
         // apparent height balances it: both walls then run off their edges.
-        let tiltBias: Double = switch mode {
-        case .fillWidth: metrics.wallHeight * sin(tilt) / (2 * cos(tilt))
-        case .fit, .fill: 0
+        // Under perspective the walls already lean into frame on their own, so
+        // the orthographic correction that pushed the aim back is not wanted.
+        let tiltBias: Double = switch (mode, projection) {
+        case (.fillWidth, .orthographic): metrics.wallHeight * sin(tilt) / (2 * cos(tilt))
+        default: 0
         }
 
         // Keep the frame inside the floor: at zoom 1 the centre cannot move at
@@ -345,9 +349,13 @@ public enum CameraFramingSolver {
         // perspective everything below it — the floor — swings instead. Aiming
         // at the floor would pin the floor and swing the walls, which is the
         // wrong way round.
+        // Aim at the centre of the floor. The wall tops end up acting as the
+        // visual anchor on their own, because they are nearer the camera and so
+        // shift least when the view leans — which is the effect wanted, without
+        // forcing any point to be mathematically pinned.
         let focus = WorldPoint(
             x: center.x + clamped.focusOffset.x,
-            y: metrics.wallHeight,
+            y: 0,
             z: center.z - tiltBias + clamped.focusOffset.z
         )
 
@@ -358,6 +366,8 @@ public enum CameraFramingSolver {
         case .orthographic:
             60
         case .perspective(let fieldOfViewDegrees):
+            // Stand far enough back that the floor's width exactly spans the
+            // field of view at the distance of the floor itself.
             (verticalExtent / 2) / tan(fieldOfViewDegrees * .pi / 360)
         }
 
