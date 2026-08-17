@@ -50,8 +50,9 @@ public struct PlacedProp: Sendable, Equatable, Identifiable {
         self.config = config
     }
 
-    public var walkSpeed: Double {
-        config["walkSpeed"]?.doubleValue ?? 1.4
+    /// Physical profile of this actor, from its prototype and overrides.
+    public var character: CharacterProfile {
+        CharacterProfile(prototype: prototype, config: config)
     }
 }
 
@@ -63,10 +64,7 @@ public struct LevelGeometry: Sendable, Equatable {
     public var actors: [PlacedProp]
     public var markers: [MarkerSpec]
 
-    /// Boxes the navigation baker must treat as walkable ground.
-    public var walkableBoxes: [WorldBox] { floors }
-
-    /// Boxes the navigation baker must treat as obstacles.
+    /// Boxes that block movement, for the walkability grid.
     public var obstacleBoxes: [WorldBox] {
         walls + props.filter { $0.prototype.blocksMovement }.map(\.box)
     }

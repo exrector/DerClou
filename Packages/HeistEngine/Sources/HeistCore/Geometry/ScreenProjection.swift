@@ -34,10 +34,10 @@ public enum ScreenProjection {
     ) -> WorldRay? {
         guard viewportSize.width > 0, viewportSize.height > 0 else { return nil }
 
-        let forward = normalize(subtract(framing.focus, framing.position))
+        let forward = (framing.focus - framing.position).normalized
         // Screen-right is world +x for a camera that only ever tilts.
         let right = WorldPoint(x: 1, y: 0, z: 0)
-        let up = cross(right, forward)
+        let up = right.cross(forward)
 
         // Normalised device coordinates: x right, y up, both in -1...1.
         let ndcX = (screenPoint.x / viewportSize.width) * 2 - 1
@@ -51,25 +51,16 @@ public enum ScreenProjection {
             // camera, rather than fanning out from a focal point.
             let halfHeight = framing.verticalExtent / 2
             let halfWidth = halfHeight * aspect
-            let origin = add(
-                framing.position,
-                add(scale(right, ndcX * halfWidth), scale(up, ndcY * halfHeight))
-            )
+            let origin = framing.position + right * (ndcX * halfWidth) + up * (ndcY * halfHeight)
             return WorldRay(origin: origin, direction: forward)
 
         case .perspective(let fieldOfViewDegrees):
             // All rays share the camera's position and diverge by the field of
             // view.
             let tangent = tan(fieldOfViewDegrees * .pi / 360)
-            let direction = normalize(
-                add(
-                    forward,
-                    add(
-                        scale(right, ndcX * aspect * tangent),
-                        scale(up, ndcY * tangent)
-                    )
-                )
-            )
+            let direction = (forward
+                + right * (ndcX * aspect * tangent)
+                + up * (ndcY * tangent)).normalized
             return WorldRay(origin: framing.position, direction: direction)
         }
     }
@@ -80,34 +71,6 @@ public enum ScreenProjection {
         guard abs(ray.direction.y) > 1e-6 else { return nil }
         let distance = (planeY - ray.origin.y) / ray.direction.y
         guard distance > 0 else { return nil }
-        return add(ray.origin, scale(ray.direction, distance))
-    }
-
-    // MARK: - Small vector helpers
-
-    private static func add(_ lhs: WorldPoint, _ rhs: WorldPoint) -> WorldPoint {
-        WorldPoint(x: lhs.x + rhs.x, y: lhs.y + rhs.y, z: lhs.z + rhs.z)
-    }
-
-    private static func subtract(_ lhs: WorldPoint, _ rhs: WorldPoint) -> WorldPoint {
-        WorldPoint(x: lhs.x - rhs.x, y: lhs.y - rhs.y, z: lhs.z - rhs.z)
-    }
-
-    private static func scale(_ point: WorldPoint, _ factor: Double) -> WorldPoint {
-        WorldPoint(x: point.x * factor, y: point.y * factor, z: point.z * factor)
-    }
-
-    private static func normalize(_ point: WorldPoint) -> WorldPoint {
-        let length = (point.x * point.x + point.y * point.y + point.z * point.z).squareRoot()
-        guard length > 1e-9 else { return WorldPoint(x: 0, y: -1, z: 0) }
-        return WorldPoint(x: point.x / length, y: point.y / length, z: point.z / length)
-    }
-
-    private static func cross(_ lhs: WorldPoint, _ rhs: WorldPoint) -> WorldPoint {
-        WorldPoint(
-            x: lhs.y * rhs.z - lhs.z * rhs.y,
-            y: lhs.z * rhs.x - lhs.x * rhs.z,
-            z: lhs.x * rhs.y - lhs.y * rhs.x
-        )
+        return ray.origin + ray.direction * distance
     }
 }

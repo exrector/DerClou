@@ -20,11 +20,6 @@ public final class GameSession {
     public private(set) var destination: SIMD3<Float>?
     /// Short human-readable result of the last action, shown in the debug HUD.
     public private(set) var status: String = "No level loaded"
-    /// Length of the last computed path, in meters.
-    public private(set) var lastPathLength: Double = 0
-    /// Number of waypoints in the last computed path.
-    public private(set) var lastPathNodeCount: Int = 0
-
     @ObservationIgnored private var destinationMarker: Entity?
 
     public init() {}
@@ -146,33 +141,29 @@ public final class GameSession {
             log.debug("Path failed for \(actorID, privacy: .public): \(failure.rawValue, privacy: .public)")
 
         case .success(let path):
-            let waypoints = path.waypoints.map {
-                SIMD3<Float>(Float($0.x), 0, Float($0.z))
-            }
-            actor.components.set(PathFollowingComponent(waypoints: waypoints))
+            actor.components.set(PathFollowingComponent(waypoints: path.waypoints))
 
             // Mark where the actor will actually end up, not where the finger
             // landed — they differ when the tap lands on furniture or a wall.
-            if let arrival = waypoints.last {
-                showDestinationMarker(at: arrival)
-                destination = arrival
+            if let arrival = path.waypoints.last {
+                let marker = SIMD3<Float>(Float(arrival.x), 0, Float(arrival.z))
+                showDestinationMarker(at: marker)
+                destination = marker
             }
 
-            lastPathNodeCount = waypoints.count
-            lastPathLength = path.length
-
-            let speed = actor.components[PlayableActorComponent.self]?.walkSpeed ?? 1.4
-            let eta = path.length / Double(speed)
+            let speed = Double(actor.components[PlayableActorComponent.self]?.walkSpeed
+                ?? Float(CharacterProfile.fallbackWalkSpeed))
+            let eta = path.length / speed
             status = String(
                 format: "%@ -> %.1f m, %d legs, ETA %.1f s",
                 actorID,
                 path.length,
-                waypoints.count,
+                path.waypoints.count,
                 eta
             )
             log.debug("""
                 Path for \(actorID, privacy: .public): \
-                \(waypoints.count) legs, \(path.length, privacy: .public) m
+                \(path.waypoints.count) legs, \(path.length, privacy: .public) m
                 """)
         }
     }

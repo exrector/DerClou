@@ -15,11 +15,6 @@ public struct LevelEntityComponent: Component {
     }
 }
 
-/// Marks a floor entity as a valid tap-to-move target.
-public struct NavigableSurfaceComponent: Component {
-    public init() {}
-}
-
 /// Marks an entity the player can select and command.
 public struct PlayableActorComponent: Component {
     public var id: String
@@ -32,42 +27,15 @@ public struct PlayableActorComponent: Component {
     }
 }
 
-/// The path an actor is currently walking.
+/// The route an actor is currently walking.
 ///
-/// Movement is a straight interpolation along explicit waypoints, never a
-/// physics force, so arrival time is a pure function of path length and speed.
+/// Holds a `PathWalker` from `HeistCore`: the component is storage, the walking
+/// rules live where they can be tested.
 public struct PathFollowingComponent: Component {
-    public var waypoints: [SIMD3<Float>]
-    public var index: Int
-    /// How close counts as "arrived at this waypoint", in meters.
-    public var arrivalTolerance: Float
-    /// Seconds spent without meaningful progress toward the current waypoint.
-    /// Used to detect an actor wedged against geometry instead of failing
-    /// silently, which is exactly how doorway jams present themselves.
-    public var stalledFor: Float
-    /// Distance to the current waypoint at the previous update.
-    public var lastDistance: Float
+    public var walker: PathWalker
 
-    public init(waypoints: [SIMD3<Float>], arrivalTolerance: Float = 0.05) {
-        self.waypoints = waypoints
-        self.index = 0
-        self.arrivalTolerance = arrivalTolerance
-        self.stalledFor = 0
-        self.lastDistance = .greatestFiniteMagnitude
-    }
-
-    public var isFinished: Bool { index >= waypoints.count }
-
-    /// Remaining path length in meters, measured from `position`.
-    public func remainingDistance(from position: SIMD3<Float>) -> Float {
-        guard !isFinished else { return 0 }
-        var total = distance(position, waypoints[index])
-        var cursor = index
-        while cursor + 1 < waypoints.count {
-            total += distance(waypoints[cursor], waypoints[cursor + 1])
-            cursor += 1
-        }
-        return total
+    public init(waypoints: [WorldPoint]) {
+        self.walker = PathWalker(waypoints: waypoints)
     }
 }
 
@@ -97,7 +65,6 @@ public enum HeistComponents {
         isRegistered = true
 
         LevelEntityComponent.registerComponent()
-        NavigableSurfaceComponent.registerComponent()
         PlayableActorComponent.registerComponent()
         PathFollowingComponent.registerComponent()
         InteractableComponent.registerComponent()

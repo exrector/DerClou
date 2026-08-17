@@ -31,11 +31,8 @@ public enum RenderQuality: String, Sendable, CaseIterable, Comparable {
         }
     }
 
-    /// Whether the key light casts dynamic shadows.
-    ///
-    /// Shadows are what stop a top-down orthographic view reading flat, so they
-    /// stay on everywhere; only their cost is tuned.
-    public var castsShadows: Bool { true }
+    // Shadows are never disabled: they are what stops a top-down orthographic
+    // view reading flat. Only their cost is tuned, via `shadowDepthBias`.
 
     /// Depth bias for the shadow map. Lower is crisper.
     public var shadowDepthBias: Float {
