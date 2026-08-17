@@ -68,7 +68,13 @@ public enum LevelSceneBuilder {
 
         var actorEntities: [String: Entity] = [:]
         for actor in geometry.actors {
-            let entity = actorEntity(for: actor)
+            // A patrol route turns a placement into a guard. Levels say where
+            // the route goes; the system decides how to walk it.
+            let spec = blueprint.actors.first { $0.id == actor.id }
+            let route = spec.flatMap {
+                PatrolRoute(actor: $0, metrics: blueprint.metrics, character: actor.character)
+            }
+            let entity = actorEntity(for: actor, route: route)
             root.addChild(entity)
             actorEntities[actor.id] = entity
         }
@@ -92,7 +98,7 @@ public enum LevelSceneBuilder {
     ///
     /// Kept as a container entity with visual children so swapping in a rigged
     /// character later does not disturb movement, selection or navigation.
-    private static func actorEntity(for actor: PlacedProp) -> Entity {
+    private static func actorEntity(for actor: PlacedProp, route: PatrolRoute?) -> Entity {
         let container = Entity()
         container.name = actor.id
         container.setPosition(
@@ -151,6 +157,10 @@ public enum LevelSceneBuilder {
             container.components.set(
                 PlayableActorComponent(id: actor.id, walkSpeed: Float(actor.character.walkSpeed))
             )
+        }
+
+        if let route {
+            container.components.set(GuardComponent(id: actor.id, route: route))
         }
 
         container.components.set(CollisionComponent(

@@ -54,6 +54,17 @@ public struct HeistSceneView: View {
             .onChange(of: proxy.size) { _, size in updateViewport(size) }
             .onChange(of: session.level?.blueprint.id) { _, _ in updateViewport(proxy.size) }
             .onChange(of: safeAreaInsets) { _, _ in updateViewport(proxy.size) }
+            // Mission time advances here, and only here: this is the single
+            // point where render time is allowed to touch gameplay.
+            .task {
+                var last = Date()
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .milliseconds(16))
+                    let now = Date()
+                    session.tick(realTimeDelta: now.timeIntervalSince(last))
+                    last = now
+                }
+            }
         }
         // The world fills the display; only gameplay-critical placement and the
         // HUD respect the safe area. See docs/DEVELOPMENT_FINDINGS.md.

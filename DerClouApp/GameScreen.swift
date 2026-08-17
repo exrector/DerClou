@@ -35,6 +35,9 @@ struct GameScreen: View {
         .persistentSystemOverlays(.hidden)
         .task {
             session.load(.office01)
+            // Guards start walking immediately for now; once planning exists,
+            // the clock only runs while a plan is being executed.
+            session.startClock()
         }
     }
 
@@ -68,6 +71,10 @@ struct GameScreen: View {
         VStack(alignment: .leading, spacing: 5) {
             Text(session.level?.blueprint.title ?? "Loading")
                 .font(.subheadline.weight(.semibold))
+
+            Text(session.clock.formatted)
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.white)
 
             Text(session.status)
                 .font(.caption2)
