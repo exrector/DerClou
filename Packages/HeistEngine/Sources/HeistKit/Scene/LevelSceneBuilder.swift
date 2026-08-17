@@ -38,6 +38,11 @@ public enum LevelSceneBuilder {
         let root = Entity()
         root.name = "level.\(blueprint.id)"
 
+        // Ground first: a dark apron well beyond the building, so the display
+        // never shows empty background at the edges however the camera is
+        // panned or zoomed. What sits under a hardware cutout is scenery.
+        root.addChild(GreyboxKit.ground(around: geometry))
+
         for box in geometry.floors {
             let entity = GreyboxKit.entity(for: box)
             entity.components.set(LevelEntityComponent(id: box.sourceID, kind: .architecture))

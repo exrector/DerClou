@@ -72,6 +72,14 @@ public final class GameSession {
         log.info("\(self.status, privacy: .public)")
     }
 
+    /// Bumped when the player asks to re-frame the whole level.
+    public private(set) var cameraResetToken = 0
+
+    /// Asks the view to drop pan and zoom and frame the level again.
+    public func requestCameraReset() {
+        cameraResetToken += 1
+    }
+
     // MARK: - Mission time
 
     /// Advances mission time and poses every guard for the new moment.

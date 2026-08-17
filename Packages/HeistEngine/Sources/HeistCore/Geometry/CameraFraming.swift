@@ -76,6 +76,59 @@ public enum FramingMode: String, Sendable, Codable, CaseIterable {
     case fill
 }
 
+/// Player-controlled camera offset: pan across the floor and zoom in or out.
+///
+/// Rotation and tilt are deliberately absent. The map is a puzzle: walls must
+/// read the same way every time, vision cones must be comparable at a glance,
+/// screen directions must stay put so tap-to-move never fights the view, and a
+/// level designer has to know what the player will see. The original game let
+/// the camera swing freely; that freedom costs more than it gives here.
+public struct CameraControl: Sendable, Equatable {
+    /// Pan offset from the level centre, in meters.
+    public var pan: WorldPoint
+    /// Zoom multiplier. 1 frames the level; above 1 moves closer.
+    public var zoom: Double
+
+    public init(pan: WorldPoint = .zero, zoom: Double = 1) {
+        self.pan = pan
+        self.zoom = zoom
+    }
+
+    public static let neutral = CameraControl()
+
+    public var isNeutral: Bool { self == .neutral }
+
+    /// Zoom limits. The lower bound keeps the level from shrinking into the
+    /// middle of the screen; the upper one stops the player losing all context.
+    public static let zoomRange: ClosedRange<Double> = 1.0...3.0
+
+    public func zoomed(by factor: Double) -> CameraControl {
+        CameraControl(
+            pan: pan,
+            zoom: min(max(zoom * factor, Self.zoomRange.lowerBound), Self.zoomRange.upperBound)
+        )
+    }
+
+    /// Pans by a world-space delta, clamped so the view cannot leave the level.
+    public func panned(by delta: WorldPoint, within bounds: CellRect, metrics: LevelMetrics) -> CameraControl {
+        guard zoom > 1 else { return CameraControl(pan: .zero, zoom: zoom) }
+
+        // How far the centre may stray: the part of the level currently off
+        // screen, halved.
+        let slackX = metrics.meters(fromCells: bounds.size.width) * (1 - 1 / zoom) / 2
+        let slackZ = metrics.meters(fromCells: bounds.size.depth) * (1 - 1 / zoom) / 2
+
+        return CameraControl(
+            pan: WorldPoint(
+                x: min(max(pan.x + delta.x, -slackX), slackX),
+                y: 0,
+                z: min(max(pan.z + delta.z, -slackZ), slackZ)
+            ),
+            zoom: zoom
+        )
+    }
+}
+
 /// Computes tactical camera framing.
 ///
 /// Pure maths, kept out of the view layer so the "does the level actually fill
@@ -97,12 +150,38 @@ public enum CameraFramingSolver {
         tiltDegrees: Double,
         mode: FramingMode = .fill,
         projection: CameraProjection = .orthographic,
-        margin: Double = 1.0
+        margin: Double = 1.0,
+        screenInsets: ScreenInsets = .zero,
+        viewportSize: (width: Double, height: Double)? = nil,
+        control: CameraControl = .neutral
     ) -> CameraFraming {
         let levelWidth = metrics.meters(fromCells: bounds.size.width)
         let levelDepth = metrics.meters(fromCells: bounds.size.depth)
-        let width = levelWidth + margin * 2
-        let depth = levelDepth + margin * 2
+        var width = levelWidth + margin * 2
+        var depth = levelDepth + margin * 2
+
+        // Keep the whole level clear of system-reserved screen edges by pulling
+        // the camera back until the reserved strips fall on empty ground.
+        //
+        // The strips are a fraction of the *view*, and the view grows as the
+        // camera pulls back, so this is solved algebraically rather than by
+        // adding a fudge factor: covered = extent × fraction, and we need
+        // extent − covered ≥ level, hence extent = level / (1 − fraction).
+        //
+        // Chosen over modelling the notch's actual shape because iOS does not
+        // expose that geometry, and guessing it per device is exactly what
+        // docs/DEVELOPMENT_FINDINGS.md rules out.
+        if let viewportSize, viewportSize.width > 0, viewportSize.height > 0 {
+            let horizontalFraction = (screenInsets.leading + screenInsets.trailing) / viewportSize.width
+            let verticalFraction = (screenInsets.top + screenInsets.bottom) / viewportSize.height
+
+            if horizontalFraction > 0, horizontalFraction < 0.9 {
+                width = max(width, (levelWidth + margin * 2) / (1 - horizontalFraction))
+            }
+            if verticalFraction > 0, verticalFraction < 0.9 {
+                depth = max(depth, (levelDepth + margin * 2) / (1 - verticalFraction))
+            }
+        }
 
         let tilt = tiltDegrees * .pi / 180
         // Tilting compresses the ground plane on screen but adds the wall
@@ -112,20 +191,16 @@ public enum CameraFramingSolver {
         // The vertical extent needed to show the full depth, versus the vertical
         // extent implied by having to show the full width.
         let verticalFromWidth = aspectRatio > 0 ? width / aspectRatio : projectedDepth
-        let verticalExtent = switch mode {
+        let verticalExtentBeforeZoom = switch mode {
         case .fit: max(projectedDepth, verticalFromWidth)
         case .fill: min(projectedDepth, verticalFromWidth)
         }
 
-        // What that costs, measured against the level itself rather than the
-        // margin, so trimming empty padding does not count as cropping.
-        let visibleGroundDepth = (verticalExtent - metrics.wallHeight * sin(tilt)) / cos(tilt)
-        let visibleWidth = verticalExtent * aspectRatio
-        let croppedDepth = max(0, levelDepth - visibleGroundDepth)
-        let croppedWidth = max(0, levelWidth - visibleWidth)
+        // Zoom shrinks the covered extent; pan slides the focus.
+        let verticalExtent = verticalExtentBeforeZoom / max(control.zoom, 0.01)
 
         let center = metrics.worldPoint(bounds.center)
-        let focus = WorldPoint(x: center.x, y: 0, z: center.z)
+        let focus = WorldPoint(x: center.x + control.pan.x, y: 0, z: center.z + control.pan.z)
 
         // Orthographic scale is independent of distance, so the camera only has
         // to clear the geometry. A perspective camera has to stand exactly far
@@ -137,10 +212,17 @@ public enum CameraFramingSolver {
             (verticalExtent / 2) / tan(fieldOfViewDegrees * .pi / 360)
         }
 
+        // What the framing costs, measured against the level itself rather than
+        // the margin, so trimming empty padding does not count as cropping.
+        let visibleGroundDepth = (verticalExtent - metrics.wallHeight * sin(tilt)) / cos(tilt)
+        let visibleWidth = verticalExtent * aspectRatio
+        let croppedDepth = max(0, levelDepth - visibleGroundDepth)
+        let croppedWidth = max(0, levelWidth - visibleWidth)
+
         let position = WorldPoint(
-            x: center.x,
+            x: focus.x,
             y: distance * cos(tilt),
-            z: center.z + distance * sin(tilt)
+            z: focus.z + distance * sin(tilt)
         )
 
         return CameraFraming(
