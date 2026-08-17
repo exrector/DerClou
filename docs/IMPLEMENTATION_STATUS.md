@@ -6,8 +6,8 @@ Last updated: 2026-08-17. Covers issue #1 (Phase 0–2).
 
 The native iOS 27 project exists, builds, runs on the iOS 27 simulator, renders a
 real 3D office location under an orthographic top-down camera, bakes a navigation
-mesh at runtime and walks an actor along a computed path around a solid wall at a
-constant speed.
+mesh at runtime, resolves screen taps to world positions, and walks an actor along
+a computed path around a solid wall at a constant speed.
 
 One deliberate extension beyond the literal issue text: the test location is not
 hard-coded scene setup. It is built from a `LevelBlueprint` value through a
@@ -141,6 +141,33 @@ and `OffMeshConnection`, plus `NavigationComponent.Filter` with area costs and
 include/exclude flags. That is a ready-made vocabulary for locked doors,
 staff-only routes, vents and windows — worth using rather than reinventing.
 
+### Tap input
+
+`SpatialTapGesture().targetedToAnyEntity()` was the first approach and **never
+fired**. It only reports taps that RealityKit's input stack matches to an entity,
+and that never happened in this orthographic non-AR scene even with floors
+carrying both `CollisionComponent` and `InputTargetComponent`.
+
+What works instead, and is now the design:
+
+1. a plain SwiftUI `.onTapGesture { location in }` on the `RealityView`;
+2. `ScreenProjection.ray(screenPoint:viewportSize:framing:)` in `HeistCore`
+   builds the world ray by hand from the camera framing we already compute —
+   orthographic projection makes this exact, and it is unit tested including a
+   screen-to-world-to-screen round trip;
+3. `ScreenProjection.hit(_:planeY:)` intersects the floor plane;
+4. `Scene.raycast(origin:direction:length:)` finds what the ray passes through,
+   which is independent of the input stack and does work.
+
+Second cause, found by the owner: the debug HUD was swallowing taps. It is now
+`.allowsHitTesting(false)` — verified by tapping directly on the HUD panel and
+watching the tap resolve to the floor underneath it.
+
+Measured on the simulator: tap at (600, 201) resolved to world (12.24, 5.00) and
+produced a 2.70 m path; a tap under the HUD at (700, 40) resolved to world
+(15.46, −0.67) — outside the building — and navigation clamped it to the nearest
+reachable point, producing a valid 11.54 m path rather than failing.
+
 ### Movement
 
 `PathFollowingSystem` interpolates along path nodes at a constant configured speed
@@ -158,7 +185,8 @@ no ARKit session, no device motion. Confirmed working.
    Xcode-beta 27.0 as `Reality Composer Pro.app` was in Xcode 26.
 2. `EntityTargetValue` on iOS has **no** `convert(_:from:to:)` and no
    `location3D` member — those are visionOS APIs. On iOS use
-   `ray(through:in:to:)` or `unproject(_:to:)`.
+   `ray(through:in:to:)` or `unproject(_:to:)`. In practice none of this matters,
+   because entity-targeted gestures never fired at all (see "Tap input").
 3. `OrthographicCameraComponent.scale` is a half extent (above).
 4. `Entity` has no `.collision` property; that is `HasCollision` on `ModelEntity`.
    Use `components.set(CollisionComponent(...))`.
@@ -167,29 +195,28 @@ no ARKit session, no device motion. Confirmed working.
 
 ## Known problems
 
-1. **Tap-to-move is implemented but not yet confirmed by a real tap.** The gesture
-   (`SpatialTapGesture().targetedToAnyEntity()` → ray/floor-plane intersection →
-   `GameSession.handleTap`) is wired and compiles, but no input could be delivered
-   to the simulator in this session: the Simulator app window was closed and both
-   injected taps and the HOME button were ignored by the booted device. Navigation
-   was proven instead through a debug smoke route (below). **First thing to verify
-   manually.** `HeistSceneView` logs every raw tap to
-   `subsystem: com.exrector.DerClou, category: view`.
-
-2. **`NavigationController.computePath` never returns in a headless test.** A
+1. **`NavigationController.computePath` never returns in a headless test.** A
    bare `ARView` is enough to bake a mesh but not to service a path request, so
    the runtime test hangs until timeout. That test is `.disabled` with a note. If
    an automated route check is wanted, it needs a UI test with a rendered scene.
 
-3. **Debug smoke route runs on launch.** `GameScreen.runNavigationSmokeRoute()`,
-   `#if DEBUG` only, sends the thief across the building 1.5 s after load. Remove
-   once real input is confirmed.
+2. **Taps outside the building still produce a route.** Navigation clamps an
+   unreachable target to the nearest mesh point instead of rejecting it. Fine for
+   now, but planning will need an explicit "not navigable" answer so a player
+   cannot schedule a move to a place they cannot stand.
 
-4. Actor visuals are placeholder primitives (cylinder body, sphere head, nose cone
+3. Actor visuals are placeholder primitives (cylinder body, sphere head, nose cone
    for facing). No skeletal animation yet; movement is decoupled from geometry so
    a rigged character drops in without touching navigation.
 
+4. Only one actor is player-controlled. The guard is placed and has a route in the
+   blueprint, but nothing walks it yet.
+
 5. `UIRequiresFullScreen` was removed from Info.plist — deprecated in iOS 26.
+
+6. Injecting input into a `simctl`-booted device with no open Simulator window
+   silently does nothing — taps and even the HOME button are ignored. Open the
+   Simulator window before trying to drive the app.
 
 ## Acceptance criteria for issue #1
 
@@ -199,7 +226,7 @@ no ARKit session, no device motion. Confirmed working.
 | Project builds from a clean checkout | done |
 | Launching shows a real 3D office-like scene | done |
 | Tactical camera gives top-down / 2.5D presentation | done, 24° tilt |
-| Tapping valid floor sends the actor there via navmesh | implemented, **not confirmed by real input** |
+| Tapping valid floor sends the actor there via navmesh | done, confirmed on simulator |
 | Actor routes around an obstacle instead of through it | done — 12.46 m path vs 11.34 m straight line |
 | Movement uses a constant configured speed | done, 1.4 m/s |
 | No joystick | done |
@@ -208,13 +235,12 @@ no ARKit session, no device motion. Confirmed working.
 
 ## Recommended next task
 
-**Confirm tap input on a device or with a visible simulator window, then build the
-generic interaction framework (Phase 3).**
+**Build the generic interaction framework (Phase 3).**
 
 Concretely:
 
-1. Run on a real iPhone, tap the floor, confirm the actor moves and the destination
-   marker appears. Remove the debug smoke route.
+1. Run once on a real iPhone to confirm the presentation at true device scale and
+   frame rate; everything so far is simulator-verified only.
 2. Implement `InteractionSystem`: tap an interactable → walk to its approach point
    → run the interaction for its configured duration → emit an event. The
    `InteractableComponent` and the catalog's `interactions` list already exist;

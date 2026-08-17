@@ -69,6 +69,36 @@ public final class GameSession {
 
     // MARK: - Input
 
+    /// First entity the ray hits, ignoring pure scenery.
+    ///
+    /// Uses `Scene.raycast` rather than gesture targeting so hit resolution does
+    /// not depend on RealityKit's input stack, which never reported hits for
+    /// this orthographic non-AR scene.
+    public func entity(along ray: WorldRay) -> Entity? {
+        guard let scene = level?.root.scene else { return nil }
+
+        let origin = SIMD3<Float>(
+            Float(ray.origin.x),
+            Float(ray.origin.y),
+            Float(ray.origin.z)
+        )
+        let direction = SIMD3<Float>(
+            Float(ray.direction.x),
+            Float(ray.direction.y),
+            Float(ray.direction.z)
+        )
+
+        let hits = scene.raycast(origin: origin, direction: direction, length: 500)
+        // Nearest hit that means something to gameplay: a selectable actor or an
+        // interactable prop. Walls and floors are just scenery for tap purposes.
+        return hits
+            .sorted { $0.distance < $1.distance }
+            .first { hit in
+                playableActorID(for: hit.entity) != nil || interactableComponent(for: hit.entity) != nil
+            }?
+            .entity
+    }
+
     /// Handles a tap that resolved to a world position, plus whatever entity was
     /// under the finger.
     public func handleTap(at worldPoint: SIMD3<Float>, entity: Entity?) {

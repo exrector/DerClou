@@ -18,26 +18,15 @@ struct GameScreen: View {
             debugOverlay
                 .padding(.horizontal, 20)
                 .padding(.top, 12)
+                // The HUD is read-only. Without this it swallows taps meant for
+                // the scene underneath it.
+                .allowsHitTesting(false)
         }
         .statusBarHidden()
         .persistentSystemOverlays(.hidden)
         .task {
             session.load(.office01)
-            await runNavigationSmokeRoute()
         }
-    }
-
-    /// Sends the thief across the building once on launch.
-    ///
-    /// Debug builds only. The route starts in the corridor and ends inside
-    /// office B, which is only reachable through a doorway — so if the thief
-    /// arrives, tap-to-move's whole chain (bake, path request, path following)
-    /// works even when no input device is available.
-    private func runNavigationSmokeRoute() async {
-        #if DEBUG
-        try? await Task.sleep(for: .seconds(1.5))
-        session.moveSelectedActor(to: SIMD3<Float>(11.5, 0, 2.4))
-        #endif
     }
 
     private var debugOverlay: some View {
