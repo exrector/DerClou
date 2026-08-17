@@ -29,28 +29,23 @@ public struct HeistSceneView: View {
             } update: { content in
                 // The level loads asynchronously, so the root usually appears
                 // after the view is first made.
-                if let root = session.rootEntity, root.parent == nil,
+                if let root = session.rootEntity,
                    !content.entities.contains(where: { $0 === root }) {
                     content.entities.append(root)
                 }
                 frameCamera(size: viewportSize)
             }
-            .gesture(
-                SpatialTapGesture()
-                    .targetedToAnyEntity()
-                    .onEnded { value in
-                        handleTap(value)
-                    }
-            )
-            .simultaneousGesture(
-                SpatialTapGesture()
-                    .onEnded { value in
-                        Self.log.debug("""
-                            Raw tap at \(value.location.x, privacy: .public), \
-                            \(value.location.y, privacy: .public)
-                            """)
-                    }
-            )
+            // A plain tap, resolved by our own projection.
+            //
+            // `SpatialTapGesture().targetedToAnyEntity()` was tried first and
+            // never fired on device: it only reports taps that RealityKit's
+            // input stack matches to an entity, and that never happened for the
+            // orthographic non-AR scene. Projecting the tap ourselves works
+            // regardless, and is unit tested.
+            .contentShape(Rectangle())
+            .onTapGesture { location in
+                handleTap(at: location)
+            }
             .onAppear { updateViewport(proxy.size) }
             .onChange(of: proxy.size) { _, size in updateViewport(size) }
             .onChange(of: session.level?.blueprint.id) { _, _ in frameCamera(size: viewportSize) }
@@ -73,35 +68,39 @@ public struct HeistSceneView: View {
         )
     }
 
-    /// Turns a screen tap into a world-space point on the floor plane.
-    ///
-    /// The ray/plane intersection is done explicitly rather than trusting the
-    /// hit point on whatever geometry happened to be under the finger: tapping
-    /// the far side of a desk should still mean "the floor there".
-    private func handleTap(_ value: EntityTargetValue<SpatialTapGesture.Value>) {
-        let tappedEntity = value.entity
+    /// Turns a screen tap into a world point on the floor plane, plus whatever
+    /// the ray hits along the way.
+    private func handleTap(at location: CGPoint) {
+        Self.log.debug("""
+            Tap at \(location.x, privacy: .public), \(location.y, privacy: .public)
+            """)
 
-        if let ray = value.ray(through: value.location, in: .local, to: .scene),
-           let point = intersectFloorPlane(origin: ray.origin, direction: ray.direction) {
-            session.handleTap(at: point, entity: tappedEntity)
+        guard let framing = camera.framing, viewportSize.width > 0 else {
+            Self.log.error("Tap ignored: camera not framed yet")
             return
         }
 
-        // Fallback: project the tap straight into the scene. Less precise on
-        // sloped or stacked geometry, fine for a single-storey floor plan.
-        if let point = value.unproject(\.location, to: .scene) {
-            session.handleTap(at: SIMD3<Float>(point.x, 0, point.z), entity: tappedEntity)
+        guard let ray = ScreenProjection.ray(
+            screenPoint: (x: Double(location.x), y: Double(location.y)),
+            viewportSize: (width: Double(viewportSize.width), height: Double(viewportSize.height)),
+            framing: framing
+        ), let floorPoint = ScreenProjection.hit(ray) else {
+            Self.log.error("Tap did not resolve to the floor plane")
+            return
         }
-    }
 
-    private func intersectFloorPlane(
-        origin: SIMD3<Float>,
-        direction: SIMD3<Float>
-    ) -> SIMD3<Float>? {
-        guard abs(direction.y) > 0.0001 else { return nil }
-        let distance = -origin.y / direction.y
-        guard distance > 0 else { return nil }
-        let point = origin + direction * distance
-        return SIMD3<Float>(point.x, 0, point.z)
+        let destination = SIMD3<Float>(
+            Float(floorPoint.x),
+            0,
+            Float(floorPoint.z)
+        )
+        let hit = session.entity(along: ray)
+
+        Self.log.debug("""
+            Tap -> world \(destination.x, privacy: .public), \(destination.z, privacy: .public) \
+            on \(hit?.name ?? "floor", privacy: .public)
+            """)
+
+        session.handleTap(at: destination, entity: hit)
     }
 }
