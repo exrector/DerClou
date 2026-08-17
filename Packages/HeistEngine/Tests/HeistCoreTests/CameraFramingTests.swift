@@ -68,7 +68,7 @@ struct CameraFramingTests {
         let framing = framing(aspect: landscapeAspect)
 
         #expect(framing.focus.x == 12)
-        #expect(framing.focus.z == 5)
+        #expect(framing.focus.z == 5.5)
         #expect(framing.position.y > 50)
         #expect(framing.position.z > framing.focus.z)
     }

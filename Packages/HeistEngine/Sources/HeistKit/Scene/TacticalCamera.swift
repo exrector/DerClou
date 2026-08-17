@@ -30,7 +30,7 @@ public final class TacticalCamera {
     /// Last framing applied, for debugging and tests.
     public private(set) var framing: CameraFraming?
 
-    public init(tiltDegrees: Double = 24, margin: Double = 1.0, mode: FramingMode = .fill) {
+    public init(tiltDegrees: Double = 24, margin: Double = 0, mode: FramingMode = .fillWidth) {
         self.tiltDegrees = tiltDegrees
         self.margin = margin
         self.mode = mode

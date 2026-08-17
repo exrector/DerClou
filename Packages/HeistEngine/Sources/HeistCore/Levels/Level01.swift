@@ -17,11 +17,15 @@ public enum LevelLibrary {
 extension LevelBlueprint {
     /// Engineering test location: three rooms off a single corridor.
     ///
-    /// Deliberately proportioned for a landscape phone (24 × 10 m ≈ 2.4:1) so the
-    /// tactical camera can fill the screen without cropping playfield. Levels
-    /// that are squarer than the device force a choice between empty bars and
-    /// lost map, so the shape of the building is a framing decision, not just a
-    /// design one.
+    /// Proportioned so the floor fills a landscape phone exactly: its width spans
+    /// the display, and its depth plus the wall height leaning into frame fills
+    /// the height. The left, right and far walls therefore fall outside the
+    /// frame; only the near wall stays in shot, where the camera tilt shows its
+    /// thickness. Nothing of the building is cropped and no ground shows at the
+    /// edges.
+    ///
+    /// The shape of the building is a framing decision as much as a design one:
+    /// 24 × 11 m is what a 2.17:1 display asks for at a 24° tilt.
     ///
     /// Offices A and B are separated by a solid wall, as are B and the store
     /// room, so every route between rooms has to go around through the corridor.
@@ -36,20 +40,20 @@ extension LevelBlueprint {
     ///       +---[door]----+-----[door]----+--------[door]-----------+  y = 6
     ///       |                    corridor                           |
     ///       +-------------------------------------------------------+
-    ///     (0,10)                                                  (24,10)
+    ///     (0,11)                                                  (24,11)
     public static var office01: LevelBlueprint {
         LevelBlueprint(
             id: "office01",
             title: "Office Floor",
             metrics: .standard,
             floors: [
-                FloorSpec(id: "office01.floor.main", rect: CellRect(x: 0, y: 0, width: 24, depth: 10))
+                FloorSpec(id: "office01.floor.main", rect: CellRect(x: 0, y: 0, width: 24, depth: 11))
             ],
             walls: [
                 WallSpec(id: "office01.wall.north", start: CellPoint(0, 0), end: CellPoint(24, 0)),
-                WallSpec(id: "office01.wall.south", start: CellPoint(0, 10), end: CellPoint(24, 10)),
-                WallSpec(id: "office01.wall.west", start: CellPoint(0, 0), end: CellPoint(0, 10)),
-                WallSpec(id: "office01.wall.east", start: CellPoint(24, 0), end: CellPoint(24, 10)),
+                WallSpec(id: "office01.wall.south", start: CellPoint(0, 11), end: CellPoint(24, 11)),
+                WallSpec(id: "office01.wall.west", start: CellPoint(0, 0), end: CellPoint(0, 11)),
+                WallSpec(id: "office01.wall.east", start: CellPoint(24, 0), end: CellPoint(24, 11)),
                 WallSpec(
                     id: "office01.wall.corridor",
                     start: CellPoint(0, 6),
@@ -120,33 +124,9 @@ extension LevelBlueprint {
                 // On the corridor's south wall, not the west one: an object the
                 // player must reach and operate cannot sit where a sensor
                 // housing may cover it. See docs/DEVELOPMENT_FINDINGS.md.
-                PropSpec(id: "office01.panel.corridor", prototype: "panel.security", position: CellPoint(11.5, 9.75), rotation: 180),
+                PropSpec(id: "office01.panel.corridor", prototype: "panel.security", position: CellPoint(11.5, 10.75), rotation: 180),
 
-                PropSpec(id: "office01.extraction", prototype: "marker.extraction", position: CellPoint(1.2, 9.0)),
-
-                // Outside the building. None of this is playable: it exists so
-                // the edges of the display — including whatever a Dynamic Island
-                // covers — show a street rather than empty ground. Right-angled
-                // runs of neighbouring walls read as adjacent buildings.
-                PropSpec(id: "office01.ext.west.building.01", prototype: "building.neighbour", position: CellPoint(-4.0, 1.5), rotation: 90),
-                PropSpec(id: "office01.ext.west.building.02", prototype: "building.neighbour", position: CellPoint(-6.0, 4.5), rotation: 0),
-                PropSpec(id: "office01.ext.west.tree.01", prototype: "tree.large", position: CellPoint(-2.4, 7.5)),
-                PropSpec(id: "office01.ext.west.tree.02", prototype: "tree.small", position: CellPoint(-2.0, 3.0)),
-                PropSpec(id: "office01.ext.west.hedge", prototype: "hedge.block", position: CellPoint(-2.2, 9.6), rotation: 90),
-
-                PropSpec(id: "office01.ext.east.building.01", prototype: "building.neighbour", position: CellPoint(28.0, 2.0), rotation: 90),
-                PropSpec(id: "office01.ext.east.building.02", prototype: "building.neighbour", position: CellPoint(30.0, 6.0), rotation: 0),
-                PropSpec(id: "office01.ext.east.tree.01", prototype: "tree.large", position: CellPoint(26.4, 8.0)),
-                PropSpec(id: "office01.ext.east.tree.02", prototype: "tree.small", position: CellPoint(26.2, 4.2)),
-                PropSpec(id: "office01.ext.east.hedge", prototype: "hedge.block", position: CellPoint(26.4, 0.6), rotation: 90),
-
-                PropSpec(id: "office01.ext.north.tree.01", prototype: "tree.small", position: CellPoint(6.0, -2.2)),
-                PropSpec(id: "office01.ext.north.hedge.01", prototype: "hedge.block", position: CellPoint(12.0, -2.0)),
-                PropSpec(id: "office01.ext.north.tree.02", prototype: "tree.large", position: CellPoint(19.0, -2.6)),
-
-                PropSpec(id: "office01.ext.south.hedge.01", prototype: "hedge.block", position: CellPoint(7.0, 12.2)),
-                PropSpec(id: "office01.ext.south.tree.01", prototype: "tree.small", position: CellPoint(16.0, 12.4)),
-                PropSpec(id: "office01.ext.south.hedge.02", prototype: "hedge.block", position: CellPoint(21.0, 12.2))
+                PropSpec(id: "office01.extraction", prototype: "marker.extraction", position: CellPoint(1.2, 9.0))
             ],
             actors: [
                 ActorSpec(id: "office01.thief.01", prototype: "actor.thief", position: CellPoint(2.0, 8.6)),
@@ -158,8 +138,8 @@ extension LevelBlueprint {
                     route: [
                         CellPoint(20.0, 8.0),
                         CellPoint(5.0, 8.0),
-                        CellPoint(5.0, 9.2),
-                        CellPoint(20.0, 9.2)
+                        CellPoint(5.0, 10.2),
+                        CellPoint(20.0, 10.2)
                     ]
                 )
             ],
