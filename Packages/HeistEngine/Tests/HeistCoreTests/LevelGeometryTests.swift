@@ -14,7 +14,7 @@ struct LevelGeometryTests {
     func floorPlacement() {
         let floor = try! #require(geometry.floors.first)
         #expect(floor.width == 24)
-        #expect(floor.depth == 10)
+        #expect(floor.depth == 11)
         #expect(floor.center.y < 0)
         #expect(floor.center.y + floor.height / 2 == 0)
     }

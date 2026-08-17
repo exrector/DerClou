@@ -74,6 +74,14 @@ public enum FramingMode: String, Sendable, Codable, CaseIterable {
     /// ratio — otherwise it eats real playfield. `CameraFraming.croppedDepth`
     /// reports how much is being lost so a level can be checked in a test.
     case fill
+    /// Fit the floor's width exactly to the display width.
+    ///
+    /// The default for gameplay. The floor spans the screen edge to edge, so the
+    /// left, right and far walls fall outside the frame entirely — the player
+    /// sees the room, not the box containing it. Only the near wall stays in
+    /// shot, where the camera tilt reveals its thickness and gives the scene
+    /// depth.
+    case fillWidth
 }
 
 /// Player-controlled camera offset: pan across the floor and zoom in or out.
@@ -171,7 +179,7 @@ public enum CameraFramingSolver {
         // Chosen over modelling the notch's actual shape because iOS does not
         // expose that geometry, and guessing it per device is exactly what
         // docs/DEVELOPMENT_FINDINGS.md rules out.
-        if let viewportSize, viewportSize.width > 0, viewportSize.height > 0 {
+        if mode != .fillWidth, let viewportSize, viewportSize.width > 0, viewportSize.height > 0 {
             let horizontalFraction = (screenInsets.leading + screenInsets.trailing) / viewportSize.width
             let verticalFraction = (screenInsets.top + screenInsets.bottom) / viewportSize.height
 
@@ -194,13 +202,33 @@ public enum CameraFramingSolver {
         let verticalExtentBeforeZoom = switch mode {
         case .fit: max(projectedDepth, verticalFromWidth)
         case .fill: min(projectedDepth, verticalFromWidth)
+        // Width decides, full stop. Whatever does not fit vertically — the far
+        // wall, the near wall's outer face — is meant to leave the frame.
+        case .fillWidth: verticalFromWidth
         }
 
         // Zoom shrinks the covered extent; pan slides the focus.
         let verticalExtent = verticalExtentBeforeZoom / max(control.zoom, 0.01)
 
         let center = metrics.worldPoint(bounds.center)
-        let focus = WorldPoint(x: center.x + control.pan.x, y: 0, z: center.z + control.pan.z)
+
+        // Centre on what actually lands on screen, not on the floor.
+        //
+        // Tilting makes the far wall lean *up* into frame while the near wall
+        // simply ends at the floor, so aiming at the floor's centre leaves a
+        // sliver of ground visible beyond the far wall and wastes the same
+        // amount at the bottom. Shifting the aim back by half the wall's
+        // apparent height balances it: both walls then run off their edges.
+        let tiltBias: Double = switch mode {
+        case .fillWidth: metrics.wallHeight * sin(tilt) / (2 * cos(tilt))
+        case .fit, .fill: 0
+        }
+
+        let focus = WorldPoint(
+            x: center.x + control.pan.x,
+            y: 0,
+            z: center.z - tiltBias + control.pan.z
+        )
 
         // Orthographic scale is independent of distance, so the camera only has
         // to clear the geometry. A perspective camera has to stand exactly far
