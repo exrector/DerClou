@@ -13,10 +13,9 @@ public struct HeistSceneView: View {
     @Bindable private var session: GameSession
     @State private var camera = TacticalCamera()
     @State private var viewportSize: CGSize = .zero
-    @State private var lastDragTranslation: CGSize = .zero
     @State private var lastMagnification: CGFloat = 1
-    /// Peek angle and the world point under the fingers when the gesture began.
-    @State private var peekStart: (degrees: Double, anchor: WorldPoint, screen: CGPoint)?
+    /// Lean angles when the current drag began.
+    @State private var leanStart: (vertical: Double, horizontal: Double)?
 
     /// System safe-area insets, read by the caller *outside* `ignoresSafeArea`.
     private let safeAreaInsets: EdgeInsets
@@ -56,20 +55,8 @@ public struct HeistSceneView: View {
             }
             // Pan and pinch, but never rotation: the map is a puzzle, and it
             // only stays learnable if screen directions never move.
-            .gesture(panGesture)
+            .gesture(leanGesture)
             .simultaneousGesture(zoomGesture)
-            // Two fingers dragged vertically tilt the camera. Not a SwiftUI
-            // gesture because DragGesture cannot tell one finger from two.
-            .overlay {
-                #if canImport(UIKit)
-                TwoFingerDragView(
-                    onChange: { translation, midpoint in
-                        peek(verticalTranslation: translation, around: midpoint)
-                    },
-                    onEnd: { peekStart = nil }
-                )
-                #endif
-            }
             .onAppear { updateViewport(proxy.size) }
             .onChange(of: proxy.size) { _, size in updateViewport(size) }
             .onChange(of: session.level?.blueprint.id) { _, _ in updateViewport(proxy.size) }
@@ -120,6 +107,7 @@ public struct HeistSceneView: View {
 
     private func frameCamera(size: CGSize) {
         guard let blueprint = session.level?.blueprint, size.width > 0, size.height > 0 else { return }
+        applyWorldLean(blueprint: blueprint)
         camera.frame(
             bounds: blueprint.bounds,
             metrics: blueprint.metrics,
@@ -134,85 +122,53 @@ public struct HeistSceneView: View {
         )
     }
 
+    /// Tips the level itself, pivoting on its centre.
+    ///
+    /// The camera stays put; the world leans. That is what keeps the building
+    /// pinned to the display edges and stops the map appearing to rotate.
+    private func applyWorldLean(blueprint: LevelBlueprint) {
+        guard let root = session.rootEntity else { return }
+
+        let tilt = camera.control.worldTilt
+        let centre = blueprint.metrics.worldPoint(blueprint.bounds.center)
+        let pivot = SIMD3<Float>(Float(centre.x), 0, Float(centre.z))
+
+        let rotation = simd_quatf(angle: Float(tilt.aroundX), axis: SIMD3<Float>(1, 0, 0))
+            * simd_quatf(angle: Float(tilt.aroundZ), axis: SIMD3<Float>(0, 0, 1))
+
+        root.orientation = rotation
+        // Rotating about the origin would swing the building away from centre,
+        // so the pivot is put back by hand.
+        root.position = pivot - rotation.act(pivot)
+    }
+
     // MARK: - Camera gestures
 
-    private var panGesture: some Gesture {
-        DragGesture(minimumDistance: 12)
+    /// One finger leans the view; the floor slides the way the finger goes.
+    ///
+    /// Not a pan. The building stays pinned to the display edges — what changes
+    /// is the angle it is seen from, which is how the depth of a room becomes
+    /// visible without the map ever turning.
+    private var leanGesture: some Gesture {
+        DragGesture(minimumDistance: 6)
             .onChanged { value in
-                guard let blueprint = session.level?.blueprint,
-                      let framing = camera.framing,
-                      viewportSize.height > 0 else { return }
+                if leanStart == nil {
+                    leanStart = (camera.control.leanVertical, camera.control.leanHorizontal)
+                }
+                guard let start = leanStart else { return }
 
-                // Convert the drag into world meters at the current zoom, so a
-                // finger stays on the same spot on the floor.
-                let metersPerPoint = framing.verticalExtent / Double(viewportSize.height)
-                let delta = WorldPoint(
-                    x: -Double(value.translation.width - lastDragTranslation.width) * metersPerPoint,
-                    y: 0,
-                    z: -Double(value.translation.height - lastDragTranslation.height) * metersPerPoint
-                )
-                lastDragTranslation = value.translation
-
-                camera.control = camera.control.panned(
-                    by: delta,
-                    within: blueprint.bounds,
-                    metrics: blueprint.metrics
+                // Drag up, floor goes up: screen y grows downward, so the
+                // vertical translation is negated.
+                let degreesPerPoint = 0.06
+                camera.control = camera.control.leaned(
+                    vertical: start.vertical - Double(value.translation.height) * degreesPerPoint,
+                    horizontal: start.horizontal + Double(value.translation.width) * degreesPerPoint
                 )
                 frameCamera(size: viewportSize)
             }
             .onEnded { _ in
-                lastDragTranslation = .zero
+                leanStart = nil
             }
-    }
-
-    /// Tilts the camera while holding the point under the fingers in place.
-    ///
-    /// Without the anchor the whole map slides out from under the hand and the
-    /// gesture reads as the camera lurching rather than as leaning in to look.
-    private func peek(verticalTranslation: CGFloat, around midpoint: CGPoint) {
-        guard let blueprint = session.level?.blueprint,
-              let framing = camera.framing,
-              viewportSize.height > 0 else { return }
-
-        let viewport = (width: Double(viewportSize.width), height: Double(viewportSize.height))
-
-        if peekStart == nil {
-            guard let ray = ScreenProjection.ray(
-                screenPoint: (x: Double(midpoint.x), y: Double(midpoint.y)),
-                viewportSize: viewport,
-                framing: framing
-            ), let anchor = ScreenProjection.hit(ray) else { return }
-            peekStart = (camera.control.peekDegrees, anchor, midpoint)
-        }
-        guard let start = peekStart else { return }
-
-        // Dragging up leans in; the range is small by design.
-        let degreesPerPoint = 0.06
-        camera.control = camera.control.peeked(
-            to: start.degrees - Double(verticalTranslation) * degreesPerPoint
-        )
-        frameCamera(size: viewportSize)
-
-        // Re-pan so the anchor lands back where the fingers are.
-        guard let tilted = camera.framing,
-              let now = ScreenProjection.screenPoint(
-                of: start.anchor,
-                viewportSize: viewport,
-                framing: tilted
-              ) else { return }
-
-        let metersPerPoint = tilted.verticalExtent / viewport.height
-        let correction = WorldPoint(
-            x: (now.x - Double(start.screen.x)) * metersPerPoint,
-            y: 0,
-            z: (now.y - Double(start.screen.y)) * metersPerPoint
-        )
-        camera.control = camera.control.panned(
-            by: correction,
-            within: blueprint.bounds,
-            metrics: blueprint.metrics
-        )
-        frameCamera(size: viewportSize)
     }
 
     private var zoomGesture: some Gesture {
@@ -244,7 +200,15 @@ public struct HeistSceneView: View {
             screenPoint: (x: Double(location.x), y: Double(location.y)),
             viewportSize: (width: Double(viewportSize.width), height: Double(viewportSize.height)),
             framing: framing
-        ), let floorPoint = ScreenProjection.hit(ray) else {
+        ) else {
+            Self.log.error("Tap did not resolve to a ray")
+            return
+        }
+
+        // The world may be leaning, so the ray is taken into the level's own
+        // frame before meeting the floor. Without this a tap lands where the
+        // floor *would* be if it were flat, which drifts as the view leans.
+        guard let floorPoint = ScreenProjection.hit(levelSpaceRay(ray)) else {
             Self.log.error("Tap did not resolve to the floor plane")
             return
         }
@@ -262,5 +226,32 @@ public struct HeistSceneView: View {
             """)
 
         session.handleTap(at: destination, entity: hit)
+    }
+
+    /// Converts a world-space ray into the level's own space, undoing the lean.
+    ///
+    /// Without this a tap lands where the floor *would* be if it were flat, and
+    /// the error grows with the lean.
+    private func levelSpaceRay(_ ray: WorldRay) -> WorldRay {
+        guard let blueprint = session.level?.blueprint else { return ray }
+
+        let tilt = camera.control.worldTilt
+        guard abs(tilt.aroundX) > 1e-6 || abs(tilt.aroundZ) > 1e-6 else { return ray }
+
+        let centre = blueprint.metrics.worldPoint(blueprint.bounds.center)
+        let pivot = SIMD3<Float>(Float(centre.x), 0, Float(centre.z))
+        let rotation = simd_quatf(angle: Float(tilt.aroundX), axis: SIMD3<Float>(1, 0, 0))
+            * simd_quatf(angle: Float(tilt.aroundZ), axis: SIMD3<Float>(0, 0, 1))
+        let inverse = rotation.inverse
+
+        func toLevel(_ point: WorldPoint) -> WorldPoint {
+            let simd = SIMD3<Float>(Float(point.x), Float(point.y), Float(point.z))
+            let local = inverse.act(simd - pivot) + pivot
+            return WorldPoint(x: Double(local.x), y: Double(local.y), z: Double(local.z))
+        }
+
+        let origin = toLevel(ray.origin)
+        let ahead = toLevel(ray.origin + ray.direction)
+        return WorldRay(origin: origin, direction: (ahead - origin).normalized)
     }
 }

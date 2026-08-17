@@ -34,10 +34,7 @@ public enum ScreenProjection {
     ) -> WorldRay? {
         guard viewportSize.width > 0, viewportSize.height > 0 else { return nil }
 
-        let forward = (framing.focus - framing.position).normalized
-        // Screen-right is world +x for a camera that only ever tilts.
-        let right = WorldPoint(x: 1, y: 0, z: 0)
-        let up = right.cross(forward)
+        let (right, up, forward) = framing.basis
 
         // Normalised device coordinates: x right, y up, both in -1...1.
         let ndcX = (screenPoint.x / viewportSize.width) * 2 - 1
@@ -77,10 +74,7 @@ public enum ScreenProjection {
     ) -> (x: Double, y: Double)? {
         guard viewportSize.width > 0, viewportSize.height > 0 else { return nil }
 
-        let forward = (framing.focus - framing.position).normalized
-        let right = WorldPoint(x: 1, y: 0, z: 0)
-        let up = right.cross(forward)
-
+        let (right, up, forward) = framing.basis
         let offset = world - framing.position
         let aspect = viewportSize.width / viewportSize.height
 

@@ -56,6 +56,21 @@ public struct CameraFraming: Sendable, Equatable {
         return (dx * dx + dy * dy + dz * dz).squareRoot()
     }
 
+    /// Camera basis: screen right, screen up, and the view direction.
+    ///
+    /// Derived rather than assumed, because the camera can now swing sideways as
+    /// well as tilt. The world's up is used as the reference, which is what keeps
+    /// the map from rotating on screen when the view leans.
+    public var basis: (right: WorldPoint, up: WorldPoint, forward: WorldPoint) {
+        let forward = (focus - position).normalized
+        let worldUp = WorldPoint(x: 0, y: 1, z: 0)
+        var right = forward.cross(worldUp).normalized
+        if right.planarLength < 1e-6 && abs(right.y) < 1e-6 {
+            right = WorldPoint(x: 1, y: 0, z: 0)
+        }
+        return (right, right.cross(forward), forward)
+    }
+
     /// True when the whole level is on screen.
     public var showsWholeLevel: Bool {
         croppedDepth <= 0.001 && croppedWidth <= 0.001
@@ -91,81 +106,128 @@ public enum FramingMode: String, Sendable, Codable, CaseIterable {
 /// screen directions must stay put so tap-to-move never fights the view, and a
 /// level designer has to know what the player will see. The original game let
 /// the camera swing freely; that freedom costs more than it gives here.
+/// What the player can do to the camera: lean the view and zoom in.
+///
+/// Leaning is expressed as two angles away from straight down — one toward the
+/// screen's vertical axis, one toward its horizontal axis. Dragging a finger up
+/// slides the floor up and shows the depth of the far side of the room; dragging
+/// right slides it right and shows the depth of the left side. The map itself
+/// never turns: north stays at the top of the screen.
+///
+/// There is no free panning. The building is meant to stay pinned to the display
+/// edges, so what moves is the angle you look from, not the piece of the world
+/// you look at.
 public struct CameraControl: Sendable, Equatable {
-    /// Pan offset from the level centre, in meters.
-    public var pan: WorldPoint
-    /// Zoom multiplier. 1 frames the level; above 1 moves closer.
+    /// Positive slides the floor **up** the screen, showing the depth of the far
+    /// side of the room.
+    public var leanVertical: Double
+    /// Positive slides the floor **right**, showing the depth of the left side.
+    public var leanHorizontal: Double
+    /// Zoom multiplier. 1 frames the whole building; above 1 moves closer.
     public var zoom: Double
-    /// Extra tilt beyond the tactical angle, in degrees — the "peek".
-    ///
-    /// Small on purpose. Enough to see the inner face of a wall, a doorway, a
-    /// wall-mounted camera or the height of furniture, and no more. The map's
-    /// orientation never changes: this is looking under an angle, not flying
-    /// around the scene.
-    public var peekDegrees: Double
+    /// Where the view is centred while zoomed in, in meters from the building's
+    /// centre. Only meaningful above zoom 1, and always clamped so the frame
+    /// stays inside the building.
+    public var focusOffset: WorldPoint
 
-    public init(pan: WorldPoint = .zero, zoom: Double = 1, peekDegrees: Double = 0) {
-        self.pan = pan
+    public init(
+        leanVertical: Double = 0,
+        leanHorizontal: Double = 0,
+        zoom: Double = 1,
+        focusOffset: WorldPoint = .zero
+    ) {
+        self.leanVertical = leanVertical
+        self.leanHorizontal = leanHorizontal
         self.zoom = zoom
-        self.peekDegrees = peekDegrees
+        self.focusOffset = focusOffset
     }
-
-    /// How far the tactical angle may be pushed. Determined by eye on device;
-    /// this is a starting range, not a final one.
-    public static let peekRange: ClosedRange<Double> = 0...14
-
-    public func peeked(to degrees: Double) -> CameraControl {
-        CameraControl(
-            pan: pan,
-            zoom: zoom,
-            peekDegrees: min(max(degrees, Self.peekRange.lowerBound), Self.peekRange.upperBound)
-        )
-    }
-
-    /// True while the player is looking under an angle rather than at the
-    /// guaranteed tactical framing.
-    public var isPeeking: Bool { peekDegrees > 0.01 }
 
     public static let neutral = CameraControl()
 
     public var isNeutral: Bool { self == .neutral }
 
-    /// Zoom limits. The lower bound keeps the level from shrinking into the
-    /// middle of the screen; the upper one stops the player losing all context.
+    /// How far the view may lean vertically. Past this the floor plan stops
+    /// reading as a plan and the far wall starts hiding the room behind it.
+    public static let leanRange: ClosedRange<Double> = -14...14
+
+    /// Sideways lean is held tighter. Swinging the camera around the building
+    /// rotates screen-right away from world +x, and past about 8° that starts to
+    /// read as the map itself turning — which it must never do.
+    public static let sidewaysLeanRange: ClosedRange<Double> = -8...8
+
+    /// Zoom limits.
     public static let zoomRange: ClosedRange<Double> = 1.0...3.0
 
-    public func zoomed(by factor: Double) -> CameraControl {
+    public func leaned(vertical: Double, horizontal: Double) -> CameraControl {
         CameraControl(
-            pan: pan,
-            zoom: min(max(zoom * factor, Self.zoomRange.lowerBound), Self.zoomRange.upperBound),
-            peekDegrees: peekDegrees
+            leanVertical: min(max(vertical, Self.leanRange.lowerBound), Self.leanRange.upperBound),
+            leanHorizontal: min(
+                max(horizontal, Self.sidewaysLeanRange.lowerBound),
+                Self.sidewaysLeanRange.upperBound
+            ),
+            zoom: zoom,
+            focusOffset: focusOffset
         )
     }
 
-    /// Pans by a world-space delta, clamped so the view cannot leave the level.
-    public func panned(by delta: WorldPoint, within bounds: CellRect, metrics: LevelMetrics) -> CameraControl {
-        // Peeking is a local inspection: panning is unrestricted there, because
-        // part of the level leaving the frame is expected rather than a fault.
-        guard zoom > 1 || isPeeking else {
-            return CameraControl(pan: .zero, zoom: zoom, peekDegrees: peekDegrees)
-        }
-
-        // How far the centre may stray: the part of the level currently off
-        // screen, halved.
-        let slackX = metrics.meters(fromCells: bounds.size.width) * (1 - 1 / zoom) / 2
-        let slackZ = metrics.meters(fromCells: bounds.size.depth) * (1 - 1 / zoom) / 2
-
-        // A peek is allowed to push a little past the level's own edge.
-        let allowance = isPeeking ? metrics.wallHeight : 0
-        return CameraControl(
-            pan: WorldPoint(
-                x: min(max(pan.x + delta.x, -slackX - allowance), slackX + allowance),
-                y: 0,
-                z: min(max(pan.z + delta.z, -slackZ - allowance), slackZ + allowance)
-            ),
-            zoom: zoom,
-            peekDegrees: peekDegrees
+    public func zoomed(by factor: Double) -> CameraControl {
+        CameraControl(
+            leanVertical: leanVertical,
+            leanHorizontal: leanHorizontal,
+            zoom: min(max(zoom * factor, Self.zoomRange.lowerBound), Self.zoomRange.upperBound),
+            focusOffset: focusOffset
         )
+    }
+
+    public func focused(at offset: WorldPoint) -> CameraControl {
+        CameraControl(
+            leanVertical: leanVertical,
+            leanHorizontal: leanHorizontal,
+            zoom: zoom,
+            focusOffset: offset
+        )
+    }
+
+    /// How much the world is rotated to lean the view, in radians.
+    ///
+    /// Applied to the level rather than to the camera. The camera stays exactly
+    /// where the tactical framing puts it, so the building keeps filling the
+    /// display and the map never appears to turn — the floor simply tips toward
+    /// the finger, revealing the depth of the far side of a room.
+    public var worldTilt: (aroundX: Double, aroundZ: Double) {
+        (aroundX: -leanVertical * .pi / 180, aroundZ: leanHorizontal * .pi / 180)
+    }
+
+    /// Zoom factor that keeps a leaned building covering the frame.
+    ///
+    /// Foreshortening alone (`cos`) is nowhere near enough: tipping the level
+    /// also swings its far corners across the frame, which opens a wedge of
+    /// empty space at one edge. Measured on device, a 14°/8° lean left about a
+    /// tenth of the display bare, so the closing-in is linear in the total lean
+    /// and tuned to cover it.
+    public var leanCompensation: Double {
+        let total = abs(leanVertical) + abs(leanHorizontal)
+        return max(1 - total / 170, 0.5)
+    }
+
+    /// Clamps the centre so the visible rectangle never leaves the floor.
+    ///
+    /// This is what stops a zoomed or leaned view from showing anything that is
+    /// not the building.
+    public func clampedToLevel(
+        bounds: CellRect,
+        metrics: LevelMetrics,
+        visibleWidth: Double,
+        visibleDepth: Double
+    ) -> CameraControl {
+        let halfWidth = max(0, metrics.meters(fromCells: bounds.size.width) / 2 - visibleWidth / 2)
+        let halfDepth = max(0, metrics.meters(fromCells: bounds.size.depth) / 2 - visibleDepth / 2)
+
+        return focused(at: WorldPoint(
+            x: min(max(focusOffset.x, -halfWidth), halfWidth),
+            y: 0,
+            z: min(max(focusOffset.z, -halfDepth), halfDepth)
+        ))
     }
 }
 
@@ -223,10 +285,12 @@ public enum CameraFramingSolver {
             }
         }
 
-        // Peeking lowers the camera; the framing guarantee applies to the
-        // tactical angle only, so a peek may legitimately push part of the level
-        // off screen rather than zooming out to compensate.
-        let tilt = (tiltDegrees + control.peekDegrees) * .pi / 180
+        // The camera never moves off the level's centre line. Leaning is applied
+        // to the world instead — see `CameraControl.worldTilt`. Orbiting the
+        // camera was tried first and was wrong twice over: screen-right swung
+        // away from world +x, so the map appeared to rotate, and the building
+        // slid off its own frame leaving empty corners.
+        let tilt = tiltDegrees * .pi / 180
         // Tilting compresses the ground plane on screen but adds the wall
         // height back as apparent depth.
         let projectedDepth = depth * cos(tilt) + metrics.wallHeight * sin(tilt)
@@ -242,8 +306,12 @@ public enum CameraFramingSolver {
         case .fillWidth: verticalFromWidth
         }
 
-        // Zoom shrinks the covered extent; pan slides the focus.
-        let verticalExtent = verticalExtentBeforeZoom / max(control.zoom, 0.01)
+        // Leaning foreshortens the building, which would open gaps at the edges.
+        // Closing in by the same factor keeps it filling the frame: the display
+        // must never show anything that is not the building.
+        let verticalExtent = verticalExtentBeforeZoom
+            * control.leanCompensation
+            / max(control.zoom, 0.01)
 
         let center = metrics.worldPoint(bounds.center)
 
@@ -259,10 +327,21 @@ public enum CameraFramingSolver {
         case .fit, .fill: 0
         }
 
+        // Keep the frame inside the floor: at zoom 1 the centre cannot move at
+        // all, and beyond that only as far as the off-screen remainder allows.
+        let visibleWidth = verticalExtent * aspectRatio
+        let visibleDepth = verticalExtent / max(cos(tilt), 0.2)
+        let clamped = control.clampedToLevel(
+            bounds: bounds,
+            metrics: metrics,
+            visibleWidth: visibleWidth,
+            visibleDepth: visibleDepth
+        )
+
         let focus = WorldPoint(
-            x: center.x + control.pan.x,
+            x: center.x + clamped.focusOffset.x,
             y: 0,
-            z: center.z - tiltBias + control.pan.z
+            z: center.z - tiltBias + clamped.focusOffset.z
         )
 
         // Orthographic scale is independent of distance, so the camera only has
@@ -278,7 +357,6 @@ public enum CameraFramingSolver {
         // What the framing costs, measured against the level itself rather than
         // the margin, so trimming empty padding does not count as cropping.
         let visibleGroundDepth = (verticalExtent - metrics.wallHeight * sin(tilt)) / cos(tilt)
-        let visibleWidth = verticalExtent * aspectRatio
         let croppedDepth = max(0, levelDepth - visibleGroundDepth)
         let croppedWidth = max(0, levelWidth - visibleWidth)
 
