@@ -13,7 +13,8 @@ Before changing architecture or gameplay, read:
 5. `docs/ORIGINAL_GAMES_RESEARCH.md`
 6. `docs/IP_AND_LEGAL_BOUNDARIES.md`
 7. `docs/CAMPAIGN_PLAN.md`
-8. `docs/ROADMAP.md`
+8. `docs/PLATFORM_COMPATIBILITY.md`
+9. `docs/ROADMAP.md`
 
 Do not ask the owner to re-explain facts already written there.
 
@@ -24,20 +25,21 @@ Build a polished native iPhone top-down/2.5D heist-planning puzzle game inspired
 ## Hard decisions already made
 
 - Target Apple ecosystem first.
-- Target **iOS 27+** unless the owner explicitly changes it.
+- Current deployment target: **iOS 18+**. This is the lowest target that preserves the intended modern RealityKit architecture with `RealityView` and a true `OrthographicCameraComponent` without falling back to a perspective-camera approximation. **(Старый вариант: target iOS 27+.)**
 - Native technology stack only: **Swift, SwiftUI, RealityKit, Reality Composer Pro 3, Xcode**.
 - Claude works inside the Xcode/native project. Codex will later work on the same codebase.
 - Do not migrate to Unity, Godot, SpriteKit, SceneKit or a web stack.
 - This is a **real 3D scene viewed from above**, not a sprite game.
-- Prefer `OrthographicCameraComponent` for the main tactical camera.
+- Main tactical rendering path: **SwiftUI `RealityView` + virtual RealityKit camera + `OrthographicCameraComponent`**. **(Старый вариант: iOS 27 was selected partly to use the newest RealityKit navigation stack.)**
 - No virtual joystick.
 - Player interaction: tap floor/room/corridor to move; tap world objects to interact.
-- Use RealityKit navigation on iOS 27 for pathfinding where suitable.
+- Pathfinding must be independent of iOS 27 Navigation Mesh APIs. Use a project-owned navigation abstraction backed by GameplayKit (`GKGraph`, `GKGridGraph`, `GKObstacleGraph`, `GKMeshGraph`) or a custom deterministic A* implementation after testing which representation fits the level geometry best. **(Старый вариант: use RealityKit Navigation Mesh / `NavigationController` on iOS 27.)**
 - Player-character walking speed is intentionally constant in the first implementation.
 - Differences between crew members should primarily be skills, permitted actions, carrying capacity and action duration.
 - Guards/patrols are deterministic and learnable. Randomness must not invalidate careful planning.
 - The planning/commit/execution loop is central. Do not turn the game into a reflex stealth/action game.
 - Production visual quality matters from the first playable mission. A grey-box is acceptable internally only while implementing a feature, never as the target art direction.
+- **Supporting iOS 18 must not simplify the intended art direction, level complexity, animation quality, lighting, materials or gameplay.** The deployment floor is an API-compatibility decision, not a visual-quality target. If weaker devices require scaling, use capability/performance tiers rather than lowering the production design.
 
 ## What the game is NOT
 
@@ -68,9 +70,9 @@ A good mission can be solved through understanding, timing and coordination.
 
 ## Critical gameplay systems to implement incrementally
 
-1. Top-down RealityKit scene and camera.
+1. Top-down RealityKit scene and orthographic camera.
 2. Tap/raycast from screen to floor.
-3. Navigation mesh and selected-character movement.
+3. Deterministic navigation graph/pathfinding and selected-character movement. **(Старый вариант: RealityKit navigation mesh.)**
 4. Interactable component + contextual interaction dispatch.
 5. Door component/state/animation.
 6. Guard deterministic patrol.
@@ -95,15 +97,17 @@ Use it for:
 - building mission scenes;
 - placing reusable 3D assets;
 - materials, lights, shadows;
-- navigation mesh authoring;
-- animation graphs;
+- authoring level geometry and navigation metadata/anchors consumed by our navigation layer;
+- animation graphs where their runtime availability matches the iOS 18 deployment floor;
 - skeletal animation blending;
-- selected Behavior Trees / Script Graph workflows if they make level authoring simpler;
-- visual effects via Shader/Compute Graph where useful.
+- selected Behavior Trees / Script Graph workflows only when their generated/runtime dependencies remain compatible with iOS 18;
+- visual effects via Shader/Compute Graph only after checking the deployment requirement of the exact generated feature.
+
+**(Старый вариант: RCP3 Navigation Mesh and other newest RCP3 runtime graphs could be used directly because the whole game targeted iOS 27.)**
 
 Keep durable game rules and data models accessible from Swift. Avoid burying core game logic in opaque one-off visual graphs that coding agents cannot reason about efficiently.
 
-RCP3 supports extension through custom Swift components/systems and custom Script Graph nodes. Prefer reusable components over duplicated per-level behavior.
+RCP3 supports extension through custom Swift components/systems and custom Script Graph nodes. Prefer reusable components over duplicated per-level behavior, but every runtime dependency must respect the iOS 18 floor.
 
 ## Swift / RealityKit architectural guidance
 
@@ -252,16 +256,17 @@ When inspired by a specific original mission, extract the abstract mechanic firs
 - When a technical uncertainty exists, verify against current Apple documentation and/or build a minimal experiment.
 - State blockers early. Do not spend a long response celebrating an approach and only later reveal that it cannot work.
 - Do not silently change already-selected technologies.
+- If supporting an older deployment target appears to require reducing art/gameplay quality, stop and report the concrete API or performance blocker. Do not silently simplify the game.
 
 ## First implementation target
 
 Create a polished vertical slice, not a disposable demo:
 
-- full-screen game view;
-- top-down orthographic 3D scene;
+- full-screen game view using `RealityView`;
+- top-down orthographic 3D scene using `OrthographicCameraComponent`;
 - floor/walls/rooms with real materials and lighting;
 - one selectable thief;
-- tap-to-move using navigation mesh;
+- tap-to-move using the project navigation abstraction (GameplayKit graph or validated custom A*); **(Старый вариант: RealityKit Navigation Mesh.)**
 - one deterministic guard;
 - one rotating camera;
 - door interaction;
