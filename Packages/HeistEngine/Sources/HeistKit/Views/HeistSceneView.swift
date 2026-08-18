@@ -14,8 +14,8 @@ public struct HeistSceneView: View {
     @State private var camera = TacticalCamera()
     @State private var viewportSize: CGSize = .zero
     @State private var lastMagnification: CGFloat = 1
-    /// Where the peek was when the current drag began.
-    @State private var peekAtDragStart: (pitch: Double, yaw: Double)?
+    /// Where the tilt was when the current drag began.
+    @State private var tiltAtDragStart: (vertical: Double, horizontal: Double)?
 
     /// System safe-area insets, read by the caller *outside* `ignoresSafeArea`.
     private let safeAreaInsets: EdgeInsets
@@ -53,9 +53,9 @@ public struct HeistSceneView: View {
             .onTapGesture { location in
                 handleTap(at: location)
             }
-            // Peek and pinch, but never yaw: the map is a puzzle, and it only
-            // stays learnable if screen directions never move.
-            .gesture(peekGesture)
+            // Tilt and pinch. The map itself never turns — every exterior wall
+            // stays parallel to the screen — but the view can lean freely.
+            .gesture(tiltGesture)
             .simultaneousGesture(zoomGesture)
             .onAppear { updateViewport(proxy.size) }
             .onChange(of: proxy.size) { _, size in updateViewport(size) }
@@ -72,14 +72,7 @@ public struct HeistSceneView: View {
                 while !Task.isCancelled {
                     try? await Task.sleep(for: .milliseconds(16))
                     let now = Date()
-                    let delta = now.timeIntervalSince(last)
-                    session.tick(realTimeDelta: delta)
-                    if let projection = camera.projection {
-                        session.fadeWallsInTheWay(
-                            viewDirection: projection.basis.forward,
-                            deltaTime: delta
-                        )
-                    }
+                    session.tick(realTimeDelta: now.timeIntervalSince(last))
                     last = now
                 }
             }
@@ -123,28 +116,35 @@ public struct HeistSceneView: View {
 
     // MARK: - Camera gestures
 
-    /// One finger tilts and turns the view, and it stays where it is left.
+    /// One finger tilts the view, and it stays where it is left.
     ///
-    /// No spring back: the owner tried it and found it got in the way. The view
-    /// starts as a plan looking straight down; tilting it is a decision the
-    /// player makes and keeps, and the focus button is what returns it.
-    private var peekGesture: some Gesture {
+    /// Two independent axes: dragging up or down tilts around world X, dragging
+    /// left or right tilts around world Z, and neither depends on the other —
+    /// both work from a dead-flat rest, and both are symmetric, so the far side
+    /// of a room is exactly as reachable as the near one. The frame itself does
+    /// not move or resize while this happens; only the camera orbits it, which
+    /// is what keeps the motion smooth rather than pulsing.
+    ///
+    /// No spring back: tried and rejected earlier as something that fought the
+    /// player's hand. The view stays exactly where it is left; the focus button
+    /// is the separate, deliberate way back to flat.
+    private var tiltGesture: some Gesture {
         DragGesture(minimumDistance: 6)
             .onChanged { value in
-                if peekAtDragStart == nil {
-                    peekAtDragStart = (camera.control.pitch, camera.control.yaw)
+                if tiltAtDragStart == nil {
+                    tiltAtDragStart = (camera.control.leanVertical, camera.control.leanHorizontal)
                 }
-                guard let start = peekAtDragStart else { return }
+                guard let start = tiltAtDragStart else { return }
 
-                let degreesPerPoint = 0.09
-                camera.control = camera.control.peeked(
-                    pitch: start.pitch + Double(value.translation.height) * degreesPerPoint,
-                    yaw: start.yaw + Double(value.translation.width) * degreesPerPoint
+                let degreesPerPoint = 0.15
+                camera.control = camera.control.tilted(
+                    vertical: start.vertical + Double(value.translation.height) * degreesPerPoint,
+                    horizontal: start.horizontal + Double(value.translation.width) * degreesPerPoint
                 )
                 frameCamera(size: viewportSize)
             }
             .onEnded { _ in
-                peekAtDragStart = nil
+                tiltAtDragStart = nil
             }
     }
 
@@ -182,8 +182,8 @@ public struct HeistSceneView: View {
         }
 
         // No conversion anywhere: the world the ray travels through is the same
-        // world the navigation grid is built from. The peek lives entirely in the
-        // projection.
+        // world the navigation grid is built from. The tilt lives entirely in
+        // the projection.
         guard let floorPoint = ray.hit() else {
             Self.log.error("Tap did not resolve to the floor plane")
             return

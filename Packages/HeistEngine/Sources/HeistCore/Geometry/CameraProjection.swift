@@ -1,48 +1,55 @@
 import Foundation
 
-/// The tactical camera: a narrow-angle perspective view of the level, tilted.
+/// The tactical camera: a narrow-angle perspective view of the level, freely
+/// tilted by the player.
 ///
-/// Settled 2026-08-18, revised the same day after a real, verified constraint:
-/// RealityKit's directional-light shadows do not render behind an
-/// `OrthographicCameraComponent` in this build. Confirmed by an isolated
-/// scene — one floor, one block, one light — switched between an orthographic
-/// and a perspective camera with every other number held identical. Perspective
-/// throws a clean shadow; orthographic throws none, at any shadow distance.
+/// Settled 2026-08-18, revised twice the same day.
 ///
-/// The fix keeps what orthographic was for — equal distances reading equal, a
-/// rectangular building staying a rectangle — without giving up real shadows.
-/// A **narrow field of view held far back** is a perspective camera in every
-/// way RealityKit is concerned with, so it shadows correctly; and the narrower
-/// the angle, the closer its projection sits to a parallel one. `fieldOfView`
-/// is chosen tight enough that the keystone it leaves is under the threshold
-/// `CameraProjectionTests` checks for — not zero, but not something a player
-/// looking at a tactical map notices either.
+/// **Perspective, not orthographic.** `OrthographicCameraComponent` does not
+/// receive `DirectionalLightComponent` shadows in this build — confirmed with
+/// an isolated scene, one floor, one block, one light, switched between an
+/// orthographic and a perspective camera with every other number held
+/// identical. Perspective throws a clean shadow; orthographic throws none, at
+/// any shadow distance. A **narrow field of view held far back** is a
+/// perspective camera in every way RealityKit is concerned with, so it shadows
+/// correctly, while reading close enough to parallel that equal distances still
+/// look equal and a rectangular building still looks rectangular.
 ///
-/// Standard `PerspectiveCameraComponent`, built from the projection's own axes.
-/// Two earlier cameras are recorded in `docs/UI_AND_CAMERA.md` and not tried
-/// again: a custom off-axis projection matrix (worked, but rested on an
-/// undocumented depth convention), and a true orthographic camera (worked
-/// visually, but cannot be shadowed here).
+/// **A free two-axis tilt, not a spherical orbit.** The first attempt at "let
+/// the player look around freely" used one polar angle (tilt) and one
+/// azimuthal angle (yaw around it) — spherical coordinates. That has a
+/// property that reads as broken: at rest the two axes are not independent, so
+/// a sideways drag does nothing until a vertical drag has tilted the view away
+/// from straight down first, and tilting only ever went one way, so dragging
+/// the "wrong" direction hit a wall immediately. The fix composes two
+/// independent rotations, one around world X and one around world Z, applied
+/// to the straight-down direction. Both are symmetric, both work from rest,
+/// and they do not interact.
+///
+/// **The frame's size is fixed at rest, independent of the live tilt.** An
+/// earlier version recomputed how much of the level had to fit on screen from
+/// the *current* tilt on every touch move, so panning and zooming happened at
+/// once — the picture visibly pulsed while the player was only trying to look
+/// around. Framing is solved once, for the flat resting view; tilting only
+/// moves the camera around that fixed frame, which is what makes it smooth.
 public struct CameraProjection: Sendable, Equatable {
     /// Viewport width divided by height.
     public var aspectRatio: Double
-    /// World meters spanned by the height of the screen, **at the focus
-    /// plane**. Perspective, so this is exact there and only approximately true
-    /// elsewhere — by design: the field of view is narrow enough that the
-    /// approximation holds over a level's depth.
+    /// World meters spanned by the height of the screen, at the focus plane.
+    /// Fixed for a given framing — tilting does not change it.
     public var verticalExtent: Double
-    /// Point on the floor the camera looks at.
+    /// Point on the floor the camera looks at. Fixed for a given framing.
     public var focus: WorldPoint
     /// Vertical field of view, in degrees. Narrow: this is the whole knob that
     /// trades shadow support against how close to parallel the projection is.
     public var fieldOfViewDegrees: Double
 
-    /// Degrees away from straight down. Zero is a plan drawing; the game's view
-    /// is well off vertical, so rooms have depth.
-    public var tiltDegrees: Double
-    /// Degrees the view is turned about the vertical, for the peek. Zero at rest,
-    /// and it springs back there.
-    public var yawDegrees: Double
+    /// Degrees tilted around world X — drag up or down. Symmetric: positive and
+    /// negative reveal opposite sides of a room.
+    public var leanVertical: Double
+    /// Degrees tilted around world Z — drag left or right. Symmetric and
+    /// independent of `leanVertical`.
+    public var leanHorizontal: Double
 
     /// How much of the level's own width falls outside the view, in meters.
     public var croppedWidth: Double
@@ -54,8 +61,8 @@ public struct CameraProjection: Sendable, Equatable {
         verticalExtent: Double,
         focus: WorldPoint,
         fieldOfViewDegrees: Double,
-        tiltDegrees: Double,
-        yawDegrees: Double = 0,
+        leanVertical: Double = 0,
+        leanHorizontal: Double = 0,
         croppedWidth: Double = 0,
         croppedDepth: Double = 0
     ) {
@@ -63,29 +70,27 @@ public struct CameraProjection: Sendable, Equatable {
         self.verticalExtent = verticalExtent
         self.focus = focus
         self.fieldOfViewDegrees = fieldOfViewDegrees
-        self.tiltDegrees = tiltDegrees
-        self.yawDegrees = yawDegrees
+        self.leanVertical = leanVertical
+        self.leanHorizontal = leanHorizontal
         self.croppedWidth = croppedWidth
         self.croppedDepth = croppedDepth
     }
-
-    private var tilt: Double { tiltDegrees * .pi / 180 }
-    private var yaw: Double { yawDegrees * .pi / 180 }
 
     /// Half the vertical field of view, as a tangent.
     private var halfFovTangent: Double { tan(fieldOfViewDegrees * .pi / 360) }
 
     /// How far back the camera stands, so the frustum spans `verticalExtent`
-    /// exactly at the focus plane.
+    /// exactly at the focus plane. A pure function of the fixed framing, so it
+    /// does not change while the player tilts the view.
     public var distance: Double { (verticalExtent / 2) / halfFovTangent }
 
-    /// Direction from the focus out to the camera.
+    /// Direction from the focus out to the camera: two independent rotations of
+    /// straight-up, one around world X and one around world Z. Order is fixed
+    /// so the same control values always land on the same direction.
     public var offsetDirection: WorldPoint {
-        WorldPoint(
-            x: sin(yaw) * sin(tilt),
-            y: cos(tilt),
-            z: cos(yaw) * sin(tilt)
-        )
+        WorldPoint(x: 0, y: 1, z: 0)
+            .rotatedAboutX(leanVertical * .pi / 180)
+            .rotatedAboutZ(leanHorizontal * .pi / 180)
     }
 
     /// Where the camera stands.
@@ -95,7 +100,8 @@ public struct CameraProjection: Sendable, Equatable {
     public var basis: (right: WorldPoint, up: WorldPoint, forward: WorldPoint) {
         let forward = offsetDirection * -1
         var right = forward.cross(WorldPoint(x: 0, y: 1, z: 0))
-        // Straight down is the degenerate case, and it is a legal tilt.
+        // Straight down is the degenerate case — both leans at zero — and it
+        // is the resting view.
         if right.length < 1e-9 {
             right = WorldPoint(x: 1, y: 0, z: 0)
         } else {
@@ -161,30 +167,29 @@ public enum FramingMode: String, Sendable, Codable, CaseIterable {
     case fill
 }
 
-/// What the player can do to the camera: peek around it, and zoom.
+/// What the player can do to the camera: tilt it, and zoom.
 ///
-/// Peeking turns and lifts the view a little and then lets go of it — the view
-/// springs back to the framing the level was authored for. A look around, not a
-/// free camera: the map is a puzzle, and it is only learnable if the player's
-/// picture of it survives from one glance to the next.
+/// Tilting stays where the player leaves it — no spring back, tried and
+/// rejected earlier as something that fought the player's hand rather than
+/// helping it. `focusButton`-style reset is a deliberate, separate action.
 public struct CameraControl: Sendable, Equatable {
-    /// Degrees added to the tilt. Positive lowers the view toward the horizon.
-    public var pitch: Double
-    /// Degrees the view is turned about the vertical.
-    public var yaw: Double
+    /// Degrees tilted around world X, from dragging a finger up or down.
+    public var leanVertical: Double
+    /// Degrees tilted around world Z, from dragging a finger left or right.
+    public var leanHorizontal: Double
     /// Zoom multiplier. 1 frames the whole building; above 1 moves closer.
     public var zoom: Double
     /// Where the view is centred while zoomed in, in meters from the centre.
     public var focusOffset: WorldPoint
 
     public init(
-        pitch: Double = 0,
-        yaw: Double = 0,
+        leanVertical: Double = 0,
+        leanHorizontal: Double = 0,
         zoom: Double = 1,
         focusOffset: WorldPoint = .zero
     ) {
-        self.pitch = pitch
-        self.yaw = yaw
+        self.leanVertical = leanVertical
+        self.leanHorizontal = leanHorizontal
         self.zoom = zoom
         self.focusOffset = focusOffset
     }
@@ -193,19 +198,20 @@ public struct CameraControl: Sendable, Equatable {
 
     public var isNeutral: Bool { self == .neutral }
 
-    /// How far the view may be tilted over. It starts at straight down, so this
-    /// only goes one way, and it stays where the player leaves it.
-    public static let pitchRange: ClosedRange<Double> = 0...48
-    /// How far it may be turned. Deliberately small: past this the player has to
-    /// re-learn which way is which.
-    public static let yawRange: ClosedRange<Double> = -30...30
+    /// How far the view may tilt on either axis, in either direction.
+    ///
+    /// Wide and symmetric on purpose: dragging up and dragging down are meant
+    /// to feel like mirror images of each other, not like one direction works
+    /// and the other hits a wall. Stops short of 90°, which would put the
+    /// camera on the horizon and the level edge-on.
+    public static let leanRange: ClosedRange<Double> = -70...70
     /// Zoom limits.
     public static let zoomRange: ClosedRange<Double> = 1.0...3.0
 
-    public func peeked(pitch: Double, yaw: Double) -> CameraControl {
+    public func tilted(vertical: Double, horizontal: Double) -> CameraControl {
         CameraControl(
-            pitch: min(max(pitch, Self.pitchRange.lowerBound), Self.pitchRange.upperBound),
-            yaw: min(max(yaw, Self.yawRange.lowerBound), Self.yawRange.upperBound),
+            leanVertical: min(max(vertical, Self.leanRange.lowerBound), Self.leanRange.upperBound),
+            leanHorizontal: min(max(horizontal, Self.leanRange.lowerBound), Self.leanRange.upperBound),
             zoom: zoom,
             focusOffset: focusOffset
         )
@@ -213,15 +219,17 @@ public struct CameraControl: Sendable, Equatable {
 
     public func zoomed(by factor: Double) -> CameraControl {
         CameraControl(
-            pitch: pitch,
-            yaw: yaw,
+            leanVertical: leanVertical,
+            leanHorizontal: leanHorizontal,
             zoom: min(max(zoom * factor, Self.zoomRange.lowerBound), Self.zoomRange.upperBound),
             focusOffset: focusOffset
         )
     }
 
     public func focused(at offset: WorldPoint) -> CameraControl {
-        CameraControl(pitch: pitch, yaw: yaw, zoom: zoom, focusOffset: offset)
+        CameraControl(
+            leanVertical: leanVertical, leanHorizontal: leanHorizontal, zoom: zoom, focusOffset: offset
+        )
     }
 
     /// Clamps the centre so the framed rectangle never leaves the building.
@@ -244,19 +252,12 @@ public struct CameraControl: Sendable, Equatable {
 
 /// Builds the camera for a level and a viewport.
 public enum CameraProjectionSolver {
-    /// The resting tilt, in degrees from straight down.
-    ///
-    /// Zero, and stated by the owner from the first day: at rest the camera
-    /// looks straight down and the level is a plan. Depth is something the
-    /// player asks for by dragging, not something the view imposes.
-    public static let defaultTiltDegrees = 0.0
-
     /// Vertical field of view, in degrees.
     ///
     /// Narrow enough that the level's own depth is a small fraction of the
     /// camera's distance, which is what keeps the projection reading as
-    /// parallel. See the type's own documentation for why this exists instead
-    /// of a true orthographic camera.
+    /// parallel. See `CameraProjection`'s own documentation for why this
+    /// exists instead of a true orthographic camera.
     public static let defaultFieldOfViewDegrees = 4.0
 
     /// - Parameters:
@@ -264,17 +265,16 @@ public enum CameraProjectionSolver {
     ///   - metrics: cell-to-meter conversion.
     ///   - aspectRatio: viewport width divided by height.
     ///   - mode: whether the level is fitted inside the screen or fills it.
-    ///   - tiltDegrees: resting tilt away from straight down.
     ///   - fieldOfViewDegrees: vertical field of view.
     ///   - margin: padding around the level, in meters. Enough for the rim of
     ///     ground around the building, and no more.
-    ///   - control: the player's peek and zoom.
+    ///   - control: the player's tilt and zoom. Tilt moves the camera around
+    ///     the frame solved below; it does not change the frame's size.
     public static func solve(
         bounds: CellRect,
         metrics: LevelMetrics,
         aspectRatio: Double,
         mode: FramingMode = .fit,
-        tiltDegrees: Double = defaultTiltDegrees,
         fieldOfViewDegrees: Double = defaultFieldOfViewDegrees,
         margin: Double = 0,
         control: CameraControl = .neutral
@@ -282,58 +282,46 @@ public enum CameraProjectionSolver {
         let aspect = max(aspectRatio, 0.01)
         let zoom = max(control.zoom, 0.01)
 
+        // Solved once, flat: the frame the player sees at rest, looking
+        // straight down. Tilting orbits the camera around this; it is never
+        // recomputed for the live tilt, which is what keeps tilting from also
+        // zooming.
         let levelWidth = metrics.meters(fromCells: bounds.size.width)
         let levelDepth = metrics.meters(fromCells: bounds.size.depth)
         let width = levelWidth + margin * 2
         let depth = levelDepth + margin * 2
-
-        let tiltTotal = tiltDegrees + control.pitch
-        let tilt = tiltTotal * .pi / 180
-
-        // Tilting foreshortens the floor and stands the walls up into the frame,
-        // so what the screen has to cover vertically is the sum of the two.
-        let projectedDepth = depth * cos(tilt) + metrics.wallHeight * sin(tilt)
         let fromWidth = width / aspect
 
         let extent = switch mode {
-        case .fit: max(projectedDepth, fromWidth)
-        case .fill: min(projectedDepth, fromWidth)
+        case .fit: max(depth, fromWidth)
+        case .fill: min(depth, fromWidth)
         }
         let verticalExtent = extent / zoom
         let visibleWidth = verticalExtent * aspect
-
-        // What of the floor lands on screen, once the walls have taken a share.
-        let visibleDepth = max(
-            0,
-            (verticalExtent - metrics.wallHeight * sin(tilt)) / max(cos(tilt), 0.01)
-        )
 
         let clamped = control.clampedToLevel(
             bounds: bounds,
             metrics: metrics,
             visibleWidth: visibleWidth,
-            visibleDepth: visibleDepth
+            visibleDepth: verticalExtent
         )
 
         let centre = metrics.worldPoint(bounds.center)
-        // Aim a little past the middle, by half of what the walls take: the far
-        // wall leans up into frame while the near one simply ends at the floor,
-        // so aiming at the floor's centre wastes as much again at the bottom.
-        let bias = metrics.wallHeight * sin(tilt) / 2
+        let focus = WorldPoint(
+            x: centre.x + clamped.focusOffset.x,
+            y: 0,
+            z: centre.z + clamped.focusOffset.z
+        )
 
         return CameraProjection(
             aspectRatio: aspect,
             verticalExtent: verticalExtent,
-            focus: WorldPoint(
-                x: centre.x + clamped.focusOffset.x,
-                y: 0,
-                z: centre.z - bias + clamped.focusOffset.z
-            ),
+            focus: focus,
             fieldOfViewDegrees: fieldOfViewDegrees,
-            tiltDegrees: tiltTotal,
-            yawDegrees: control.yaw,
+            leanVertical: clamped.leanVertical,
+            leanHorizontal: clamped.leanHorizontal,
             croppedWidth: max(0, levelWidth - visibleWidth),
-            croppedDepth: max(0, levelDepth - visibleDepth)
+            croppedDepth: max(0, levelDepth - verticalExtent)
         )
     }
 }

@@ -111,7 +111,7 @@ struct CameraProjectionTests {
 
     @Test("Tilting gives height its own place on screen")
     func tiltShowsHeight() throws {
-        let projection = projection(CameraControl(pitch: 40))
+        let projection = projection(CameraControl(leanVertical: 40))
         let foot = WorldPoint(x: 12, y: 0, z: 5)
         let head = WorldPoint(x: 12, y: level.metrics.wallHeight, z: 5)
 
@@ -134,34 +134,91 @@ struct CameraProjectionTests {
         #expect(forward.y < 0)
     }
 
-    // MARK: - Peeking
+    // MARK: - Tilting: free, symmetric, independent
 
-    @Test("Peeking turns the view and lifts it, within a small range")
-    func peekIsBounded() {
-        let peeked = CameraControl().peeked(pitch: 90, yaw: -90)
+    @Test("Tilt is bounded, the same in every direction on both axes")
+    func tiltIsBoundedSymmetrically() {
+        let tilted = CameraControl().tilted(vertical: 200, horizontal: -200)
 
-        #expect(peeked.pitch == CameraControl.pitchRange.upperBound)
-        #expect(peeked.yaw == CameraControl.yawRange.lowerBound)
+        #expect(tilted.leanVertical == CameraControl.leanRange.upperBound)
+        #expect(tilted.leanHorizontal == CameraControl.leanRange.lowerBound)
+
+        let opposite = CameraControl().tilted(vertical: -200, horizontal: 200)
+        #expect(opposite.leanVertical == CameraControl.leanRange.lowerBound)
+        #expect(opposite.leanHorizontal == CameraControl.leanRange.upperBound)
     }
 
-    @Test("Turning a tilted view moves the camera off the level's centre line")
-    func yawMovesTheCamera() {
-        // Only meaningful once the view is tilted: from straight overhead there
-        // is nothing to turn around.
-        let rest = projection(CameraControl(pitch: 35))
-        let turned = projection(CameraControl(pitch: 35, yaw: 20))
+    @Test("Dragging up and dragging down are mirror images of each other")
+    func verticalTiltIsSymmetric() {
+        // This is the bug the owner hit: tilt used to only go one way, so
+        // dragging "up" hit a wall at rest and did nothing while dragging
+        // "down" worked. Both directions now move the camera by the same
+        // amount, in opposite directions.
+        let rest = projection()
+        let down = projection(CameraControl(leanVertical: 30))
+        let up = projection(CameraControl(leanVertical: -30))
 
-        #expect(abs(turned.position.x - rest.position.x) > 1)
-        // And it is the same level, framed the same way: peeking is a look
-        // around, not a different shot.
-        #expect(abs(turned.verticalExtent - rest.verticalExtent) < 0.001)
+        #expect(abs(down.position.z - rest.position.z) > 0.5)
+        #expect(abs(up.position.z - rest.position.z) > 0.5)
+        #expect(abs((down.position.z - rest.position.z) + (up.position.z - rest.position.z)) < 1e-9)
+    }
+
+    @Test("Dragging left and dragging right are mirror images of each other")
+    func horizontalTiltIsSymmetric() {
+        let rest = projection()
+        let right = projection(CameraControl(leanHorizontal: 30))
+        let left = projection(CameraControl(leanHorizontal: -30))
+
+        #expect(abs(right.position.x - rest.position.x) > 0.5)
+        #expect(abs(left.position.x - rest.position.x) > 0.5)
+        #expect(abs((right.position.x - rest.position.x) + (left.position.x - rest.position.x)) < 1e-9)
+    }
+
+    @Test("Horizontal tilt works from a dead-flat rest, with no vertical tilt needed first")
+    func horizontalTiltNeedsNoVerticalTiltFirst() {
+        // The bug behind "непонятно куда пальцем водить": an earlier version
+        // expressed tilt as one polar angle plus an azimuth around it, so a
+        // sideways drag did nothing until a vertical drag had tilted the view
+        // away from straight down. The two axes are independent now.
+        let rest = projection()
+        let turned = projection(CameraControl(leanHorizontal: 15))
+
+        #expect(abs(turned.position.x - rest.position.x) > 0.5)
+    }
+
+    @Test("The two tilt axes do not interact")
+    func tiltAxesAreIndependent() {
+        let vertical = projection(CameraControl(leanVertical: 20))
+        let both = projection(CameraControl(leanVertical: 20, leanHorizontal: 15))
+
+        // Adding a horizontal tilt does not change how far the vertical one
+        // moved the camera on its own axis.
+        #expect(abs(both.position.z - vertical.position.z) < 1e-9)
+    }
+
+    @Test("Tilting does not change the frame's size — only zoom does")
+    func tiltingDoesNotResize() {
+        // What made the earlier camera feel jerky: it recomputed how much of
+        // the level had to fit on screen from the *live* tilt, so panning and
+        // zooming happened at once while the player was only trying to look
+        // around. The frame is solved once, at rest, now.
+        let rest = projection()
+        for control in [
+            CameraControl(leanVertical: 45),
+            CameraControl(leanHorizontal: -45),
+            CameraControl(leanVertical: 60, leanHorizontal: 60)
+        ] {
+            let tilted = projection(control)
+            #expect(tilted.verticalExtent == rest.verticalExtent)
+            #expect(tilted.focus == rest.focus)
+        }
     }
 
     @Test("A tap projects back to the pixel it came from")
     func projectionRoundTrip() throws {
         for control in [
             CameraControl.neutral,
-            CameraControl(pitch: -10, yaw: 18, zoom: 1.8)
+            CameraControl(leanVertical: -10, leanHorizontal: 18, zoom: 1.8)
         ] {
             let projection = projection(control)
             let screen = (x: 300.0, y: 210.0)
@@ -227,7 +284,7 @@ struct CameraProjectionTests {
         #expect(abs(rest.position.z - rest.focus.z) < 1e-9)
 
         // Tilting is what stands it off toward +z.
-        #expect(projection(CameraControl(pitch: 35)).position.z > rest.focus.z)
+        #expect(projection(CameraControl(leanVertical: 35)).position.z > rest.focus.z)
     }
 
     @Test("Zooming in shows less")
@@ -266,11 +323,11 @@ struct CameraProjectionTests {
         #expect(abs(control.focusOffset.z - levelDepth / 4) < 0.001)
     }
 
-    @Test("Zoom is clamped and leaves the peek alone")
-    func zoomIndependentOfPeek() {
-        let control = CameraControl(pitch: 8).zoomed(by: 10)
+    @Test("Zoom is clamped and leaves the tilt alone")
+    func zoomIndependentOfTilt() {
+        let control = CameraControl(leanVertical: 8).zoomed(by: 10)
 
         #expect(control.zoom == CameraControl.zoomRange.upperBound)
-        #expect(control.pitch == 8)
+        #expect(control.leanVertical == 8)
     }
 }
