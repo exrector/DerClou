@@ -3,6 +3,10 @@ import OSLog
 import RealityKit
 import HeistCore
 
+#if canImport(UIKit)
+import UIKit
+#endif
+
 /// The 3D tactical view: orthographic camera, level scene, tap-to-move.
 ///
 /// Owns nothing but presentation and input translation — game state lives in
@@ -19,9 +23,13 @@ public struct HeistSceneView: View {
     /// fingers as the pinch continues, instead of always zooming toward the
     /// level's centre.
     @State private var zoomAnchor: (screen: CGPoint, world: WorldPoint)?
+    #if !canImport(UIKit)
     /// How far the current orbit drag has moved since its last callback was
-    /// read — see `orbitGesture`.
+    /// read — see `orbitGestureFallback`.
     @State private var lastOrbitTranslation: CGSize = .zero
+    #endif
+    /// A light exponential average of recent orbit deltas — see `orbit(by:)`.
+    @State private var smoothedOrbitDelta: CGSize = .zero
     /// Keeps `SceneEvents.Update` alive for the life of the view.
     @State private var updateSubscription: EventSubscription?
 
@@ -70,9 +78,16 @@ public struct HeistSceneView: View {
                 handleTap(at: location)
             }
             // One finger orbits the view — sideways drag spins all the way
-            // around the building, up/down drag climbs to reveal more of it —
-            // and pinch zooms, anchored to wherever the fingers landed.
-            .gesture(orbitGesture)
+            // around the building, up/down drag climbs to reveal more of it.
+            // Two fingers pan instead, which is what lets the player recentre
+            // once already zoomed in, without touching the zoom level. Pinch
+            // zooms, anchored to wherever the fingers landed.
+            #if canImport(UIKit)
+            .gesture(TouchDragGesture(touches: 1, onChanged: { _, delta in orbit(by: delta) }))
+            .gesture(TouchDragGesture(touches: 2, onChanged: pan))
+            #else
+            .gesture(orbitGestureFallback)
+            #endif
             .simultaneousGesture(zoomGesture)
             .onAppear { updateViewport(proxy.size) }
             .onChange(of: proxy.size) { _, size in updateViewport(size) }
@@ -132,37 +147,66 @@ public struct HeistSceneView: View {
     /// the player's hand. The view stays exactly where it is left; the focus
     /// button is the separate, deliberate way back to flat.
     ///
-    /// Reported as the delta since the last callback, not the total
-    /// accumulated since the finger first touched down (`DragGesture`'s own
-    /// `translation`). That distinction matters once a value is clamped —
-    /// `elevation` stops at its ceiling — because comparing against a frozen
-    /// drag-start baseline lets the raw translation keep growing past the
-    /// clamp with no visible effect, and reversing direction then has to
-    /// "unwind" that invisible backlog before the view responds again, which
-    /// is what read as the camera snapping once it finally caught up.
-    /// Subtracting the last-seen translation every step removes the backlog
-    /// entirely: there is nothing left to unwind.
-    private var orbitGesture: some Gesture {
-        DragGesture(minimumDistance: 6)
-            .onChanged { value in
-                let delta = CGSize(
-                    width: value.translation.width - lastOrbitTranslation.width,
-                    height: value.translation.height - lastOrbitTranslation.height
-                )
-                lastOrbitTranslation = value.translation
-                orbit(by: delta)
-            }
-            .onEnded { _ in lastOrbitTranslation = .zero }
-    }
-
+    /// A light exponential average of the incoming deltas takes the edge off
+    /// per-callback touch jitter — a real finger is never perfectly steady —
+    /// without adding perceptible lag: at `smoothing = 0.4` each step is
+    /// already 84% converged to a sustained motion within three callbacks.
     private func orbit(by delta: CGSize) {
+        let smoothing = 0.4
+        smoothedOrbitDelta = CGSize(
+            width: smoothedOrbitDelta.width * smoothing + delta.width * (1 - smoothing),
+            height: smoothedOrbitDelta.height * smoothing + delta.height * (1 - smoothing)
+        )
+
         let degreesPerPoint = 0.12
         camera.control = camera.control.oriented(
-            elevation: camera.control.elevation + Double(delta.height) * degreesPerPoint,
-            azimuth: camera.control.azimuth + Double(delta.width) * degreesPerPoint
+            elevation: camera.control.elevation + Double(smoothedOrbitDelta.height) * degreesPerPoint,
+            azimuth: camera.control.azimuth + Double(smoothedOrbitDelta.width) * degreesPerPoint
         )
         frameCamera(size: viewportSize)
     }
+
+    /// Two fingers drag the ground itself: the world point under the fingers
+    /// follows them exactly, the way scrolling any map or photo works. This
+    /// is how the player recentres once already zoomed in — orbiting alone
+    /// only ever looks around a fixed point, never moves it — without
+    /// touching the zoom level the way pinching back out and back in would.
+    ///
+    /// Kept exact rather than smoothed, unlike `orbit(by:)`: the whole point
+    /// is that the ground stays glued to the fingers, and averaging in past
+    /// samples would introduce a small lag between the two.
+    private func pan(location: CGPoint, delta: CGSize) {
+        let previous = CGPoint(x: location.x - delta.width, y: location.y - delta.height)
+        guard let worldAtPrevious = worldPoint(at: previous),
+              let worldAtCurrent = worldPoint(at: location) else { return }
+
+        let shift = WorldPoint(
+            x: worldAtPrevious.x - worldAtCurrent.x,
+            y: 0,
+            z: worldAtPrevious.z - worldAtCurrent.z
+        )
+        camera.control = camera.control.focused(at: camera.control.focusOffset + shift)
+        frameCamera(size: viewportSize)
+    }
+
+    #if !canImport(UIKit)
+    /// Degraded stand-in for platforms without `UIGestureRecognizerRepresentable`
+    /// (this package also declares macOS as a target so its pure-logic tests can
+    /// run on the host Mac — the game itself only ships on iOS). Orbits only;
+    /// there is no touch-count-based gesture here to add two-finger pan on top
+    /// of it. Not the shipping experience.
+    private var orbitGestureFallback: some Gesture {
+        DragGesture(minimumDistance: 6)
+            .onChanged { value in
+                orbit(by: CGSize(
+                    width: value.translation.width - lastOrbitTranslation.width,
+                    height: value.translation.height - lastOrbitTranslation.height
+                ))
+                lastOrbitTranslation = value.translation
+            }
+            .onEnded { _ in lastOrbitTranslation = .zero }
+    }
+    #endif
 
     /// Pinch zooms toward wherever the fingers landed, not the level's
     /// centre — the point first touched stays under the fingers for the rest
@@ -259,3 +303,42 @@ public struct HeistSceneView: View {
         session.handleTap(at: destination, entity: hit)
     }
 }
+
+#if canImport(UIKit)
+/// A drag requiring an exact number of touches, reported as the delta since
+/// the last callback rather than accumulated from wherever the gesture began.
+///
+/// Touch count is what separates orbiting the view (one finger) from panning
+/// the ground under it (two) — there is no SwiftUI-native way to require an
+/// exact number of touches, so this wraps `UIPanGestureRecognizer`'s
+/// `minimumNumberOfTouches`/`maximumNumberOfTouches` directly. Two instances
+/// with different counts can sit on the same view at once: the moment a
+/// second finger lands, the one-touch recognizer exceeds its own
+/// `maximumNumberOfTouches` and cedes cleanly to the two-touch one, rather
+/// than the two fighting over the same touches.
+///
+/// Reporting deltas via `setTranslation(.zero, in:)` after every callback,
+/// rather than `DragGesture`'s own start-accumulated `translation`, is what
+/// keeps a clamped value like `elevation` from building an invisible
+/// overshoot past its ceiling that would otherwise have to be "unwound"
+/// before the view responds to a reversed drag again — see `orbit(by:)`.
+private struct TouchDragGesture: UIGestureRecognizerRepresentable {
+    var touches: Int
+    var onChanged: (_ location: CGPoint, _ delta: CGSize) -> Void
+
+    func makeUIGestureRecognizer(context: Context) -> UIPanGestureRecognizer {
+        let recognizer = UIPanGestureRecognizer()
+        recognizer.minimumNumberOfTouches = touches
+        recognizer.maximumNumberOfTouches = touches
+        return recognizer
+    }
+
+    func handleUIGestureRecognizerAction(_ recognizer: UIPanGestureRecognizer, context: Context) {
+        guard recognizer.state == .changed else { return }
+        let translation = recognizer.translation(in: recognizer.view)
+        guard translation != .zero else { return }
+        recognizer.setTranslation(.zero, in: recognizer.view)
+        onChanged(recognizer.location(in: recognizer.view), CGSize(width: translation.x, height: translation.y))
+    }
+}
+#endif
