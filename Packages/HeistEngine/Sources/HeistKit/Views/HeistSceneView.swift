@@ -16,6 +16,13 @@ public struct HeistSceneView: View {
     @State private var lastMagnification: CGFloat = 1
     /// Where the tilt was when the current drag began.
     @State private var tiltAtDragStart: (vertical: Double, horizontal: Double)?
+    /// The world point under the fingers when the current pinch began, and
+    /// where on screen it started — so that point can be held fixed under the
+    /// fingers as the pinch continues, instead of always zooming toward the
+    /// level's centre.
+    @State private var zoomAnchor: (screen: CGPoint, world: WorldPoint)?
+    /// Keeps `SceneEvents.Update` alive for the life of the view.
+    @State private var updateSubscription: EventSubscription?
 
     /// System safe-area insets, read by the caller *outside* `ignoresSafeArea`.
     private let safeAreaInsets: EdgeInsets
@@ -32,6 +39,14 @@ public struct HeistSceneView: View {
                 content.entities.append(camera.entity)
                 if let root = session.rootEntity {
                     content.entities.append(root)
+                }
+                // Mission time advances here, and only here: this is the
+                // single point where render time is allowed to touch
+                // gameplay. Driven by RealityKit's own per-frame event
+                // rather than a hand-rolled timer, so it is exactly in step
+                // with what is actually being rendered.
+                updateSubscription = content.subscribe(to: SceneEvents.Update.self) { event in
+                    session.tick(realTimeDelta: event.deltaTime)
                 }
             } update: { content in
                 // The level loads asynchronously, so the root usually appears
@@ -64,17 +79,6 @@ public struct HeistSceneView: View {
             .onChange(of: session.cameraResetToken) { _, _ in
                 camera.control = .neutral
                 frameCamera(size: viewportSize)
-            }
-            // Mission time advances here, and only here: this is the single
-            // point where render time is allowed to touch gameplay.
-            .task {
-                var last = Date()
-                while !Task.isCancelled {
-                    try? await Task.sleep(for: .milliseconds(16))
-                    let now = Date()
-                    session.tick(realTimeDelta: now.timeIntervalSince(last))
-                    last = now
-                }
             }
         }
         // The world fills the display; only gameplay-critical placement and the
@@ -148,17 +152,54 @@ public struct HeistSceneView: View {
             }
     }
 
+    /// Pinch zooms toward wherever the fingers landed, not the level's
+    /// centre — the point first touched stays under the fingers for the rest
+    /// of the gesture, the same convention as Photos and Maps.
+    ///
+    /// `MagnifyGesture` only ever reports where the pinch *started*
+    /// (`startLocation`), not a live midpoint, so that is what is held fixed.
+    /// Each step re-solves how far the anchor's world point has drifted under
+    /// the new zoom and pulls the focus back by exactly that much.
     private var zoomGesture: some Gesture {
         MagnifyGesture()
             .onChanged { value in
+                if zoomAnchor == nil {
+                    zoomAnchor = anchor(at: value.startLocation)
+                }
+
                 let factor = value.magnification / max(lastMagnification, 0.01)
                 lastMagnification = value.magnification
                 camera.control = camera.control.zoomed(by: factor)
                 frameCamera(size: viewportSize)
+
+                if let zoomAnchor, let drifted = worldPoint(at: zoomAnchor.screen) {
+                    let correction = WorldPoint(
+                        x: zoomAnchor.world.x - drifted.x,
+                        y: 0,
+                        z: zoomAnchor.world.z - drifted.z
+                    )
+                    camera.control = camera.control.focused(at: camera.control.focusOffset + correction)
+                    frameCamera(size: viewportSize)
+                }
             }
             .onEnded { _ in
                 lastMagnification = 1
+                zoomAnchor = nil
             }
+    }
+
+    /// The world point a screen location resolves to right now, plus the
+    /// location itself, for later re-resolving as the camera changes.
+    private func anchor(at screen: CGPoint) -> (screen: CGPoint, world: WorldPoint)? {
+        worldPoint(at: screen).map { (screen, $0) }
+    }
+
+    private func worldPoint(at screen: CGPoint) -> WorldPoint? {
+        guard let projection = camera.projection, viewportSize.width > 0 else { return nil }
+        return projection.ray(
+            screenPoint: (x: Double(screen.x), y: Double(screen.y)),
+            viewportSize: (width: Double(viewportSize.width), height: Double(viewportSize.height))
+        )?.hit()
     }
 
     /// Turns a screen tap into a world point on the floor plane, plus whatever
