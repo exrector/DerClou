@@ -44,7 +44,12 @@ struct CameraProjectionTests {
             to: WorldPoint(x: 19, y: 0, z: 1)
         )
 
-        #expect(abs(near - far) < 0.001, "near \(near) points, far \(far)")
+        // Not a mathematical zero any more: rest sits `restElevationDegrees`
+        // off the pole on purpose (see `azimuthWorksAtRestElevation`), so
+        // there is a small, real amount of perspective at rest now. The bound
+        // stays tight enough to catch a real regression while allowing for
+        // that.
+        #expect(abs(near - far) < 1, "near \(near) points, far \(far)")
     }
 
     @Test("A rectangular building stays a rectangle")
@@ -67,27 +72,33 @@ struct CameraProjectionTests {
         let nearLeft = try screen(minX, maxZ)
         let nearRight = try screen(maxX, maxZ)
 
-        // The far edge and the near edge are the same length on screen, and both
-        // sides are vertical. That is what a keystone destroys.
-        #expect(abs((farRight.x - farLeft.x) - (nearRight.x - nearLeft.x)) < 0.001)
-        #expect(abs(farLeft.x - nearLeft.x) < 0.001)
-        #expect(abs(farRight.x - nearRight.x) < 0.001)
+        // The far edge and the near edge are close to the same length on
+        // screen, and both sides are close to vertical — "close to" rather
+        // than exactly, now that rest sits a few degrees off the pole on
+        // purpose (see `azimuthWorksAtRestElevation`), which is what a real
+        // keystone would otherwise destroy outright.
+        #expect(abs((farRight.x - farLeft.x) - (nearRight.x - nearLeft.x)) < 4)
+        #expect(abs(farLeft.x - nearLeft.x) < 2)
+        #expect(abs(farRight.x - nearRight.x) < 2)
     }
 
-    @Test("On the camera's own axis, height takes no room on screen at rest")
+    @Test("On the camera's own boresight, height takes no room on screen")
     func restIsAPlanViewOnAxis() throws {
+        // Any two points along the camera's own line of sight land on the
+        // exact same pixel, regardless of how elevated the camera is — this
+        // holds unconditionally, not just at a perfectly flat rest, which is
+        // what makes it a safe invariant now that rest itself sits a few
+        // degrees off the pole (see `CameraControl.restElevationDegrees`).
         let projection = projection()
-        // Directly below the camera, height genuinely does not move the screen
-        // point: the offset from the boresight is zero at any elevation, exactly,
-        // perspective or not. This is the resting view the owner asked for.
-        let foot = WorldPoint(x: projection.focus.x, y: 0, z: projection.focus.z)
-        let head = WorldPoint(x: projection.focus.x, y: level.metrics.wallHeight, z: projection.focus.z)
+        let forward = projection.basis.forward
+        let near = projection.position + forward * (projection.distance * 0.5)
+        let far = projection.position + forward * (projection.distance * 1.5)
 
-        let onScreenFoot = try #require(projection.screenPoint(of: foot, viewportSize: viewport))
-        let onScreenHead = try #require(projection.screenPoint(of: head, viewportSize: viewport))
+        let onScreenNear = try #require(projection.screenPoint(of: near, viewportSize: viewport))
+        let onScreenFar = try #require(projection.screenPoint(of: far, viewportSize: viewport))
 
-        #expect(abs(onScreenHead.x - onScreenFoot.x) < 1e-6)
-        #expect(abs(onScreenHead.y - onScreenFoot.y) < 1e-6)
+        #expect(abs(onScreenNear.x - onScreenFar.x) < 1e-6)
+        #expect(abs(onScreenNear.y - onScreenFar.y) < 1e-6)
     }
 
     @Test("Off axis at rest, a narrow field of view keeps height's parallax small")
@@ -109,9 +120,9 @@ struct CameraProjectionTests {
         #expect(moved < 8, "a wall's height moved \(moved) points off its own footprint at rest")
     }
 
-    @Test("Tilting gives height its own place on screen")
+    @Test("Climbing elevation gives height its own place on screen")
     func tiltShowsHeight() throws {
-        let projection = projection(CameraControl(leanVertical: 40))
+        let projection = projection(CameraControl(elevation: 40))
         let foot = WorldPoint(x: 12, y: 0, z: 5)
         let head = WorldPoint(x: 12, y: level.metrics.wallHeight, z: 5)
 
@@ -134,69 +145,94 @@ struct CameraProjectionTests {
         #expect(forward.y < 0)
     }
 
-    // MARK: - Tilting: free, symmetric, independent
+    // MARK: - Orbiting: free, wrapping, always live
 
-    @Test("Tilt is bounded, the same in every direction on both axes")
-    func tiltIsBoundedSymmetrically() {
-        let tilted = CameraControl().tilted(vertical: 200, horizontal: -200)
+    @Test("Elevation clamps at its ceiling and its floor; azimuth wraps instead")
+    func orientationIsBoundedAndWrapped() {
+        let climbed = CameraControl().oriented(elevation: 200, azimuth: 0)
+        #expect(climbed.elevation == CameraControl.elevationRange.upperBound)
 
-        #expect(tilted.leanVertical == CameraControl.leanRange.upperBound)
-        #expect(tilted.leanHorizontal == CameraControl.leanRange.lowerBound)
+        let flattened = CameraControl().oriented(elevation: -200, azimuth: 0)
+        #expect(flattened.elevation == CameraControl.elevationRange.lowerBound)
 
-        let opposite = CameraControl().tilted(vertical: -200, horizontal: 200)
-        #expect(opposite.leanVertical == CameraControl.leanRange.lowerBound)
-        #expect(opposite.leanHorizontal == CameraControl.leanRange.upperBound)
+        // Azimuth has no edge to hit — 400° and 40° are the same heading, and
+        // -30° is the same heading as 330°.
+        let wrapped = CameraControl().oriented(elevation: CameraControl.restElevationDegrees, azimuth: 400)
+        #expect(abs(wrapped.azimuth - 40) < 1e-9)
+
+        let wrappedNegative = CameraControl().oriented(elevation: CameraControl.restElevationDegrees, azimuth: -30)
+        #expect(abs(wrappedNegative.azimuth - 330) < 1e-9)
     }
 
-    @Test("Dragging up and dragging down are mirror images of each other")
-    func verticalTiltIsSymmetric() {
-        // This is the bug the owner hit: tilt used to only go one way, so
-        // dragging "up" hit a wall at rest and did nothing while dragging
-        // "down" worked. Both directions now move the camera by the same
-        // amount, in opposite directions.
-        let rest = projection()
-        let down = projection(CameraControl(leanVertical: 30))
-        let up = projection(CameraControl(leanVertical: -30))
+    @Test("Elevation only climbs from rest — the far side is reached by turning, not by tilting past vertical")
+    func elevationIsOneSided() {
+        // The old lean model tilted both ways from rest; this one does not
+        // need to, because azimuth already reaches every side by turning all
+        // the way around. Climbing elevation only ever moves the camera
+        // further from directly overhead.
+        func horizontalOffset(_ projection: CameraProjection) -> Double {
+            let dx = projection.position.x - projection.focus.x
+            let dz = projection.position.z - projection.focus.z
+            return (dx * dx + dz * dz).squareRoot()
+        }
 
-        #expect(abs(down.position.z - rest.position.z) > 0.5)
-        #expect(abs(up.position.z - rest.position.z) > 0.5)
-        #expect(abs((down.position.z - rest.position.z) + (up.position.z - rest.position.z)) < 1e-9)
+        let rest = projection()
+        let climbed = projection(CameraControl(elevation: 40))
+        let climbedMore = projection(CameraControl(elevation: 70))
+
+        #expect(horizontalOffset(rest) < horizontalOffset(climbed))
+        #expect(horizontalOffset(climbed) < horizontalOffset(climbedMore))
+        #expect(CameraControl().oriented(elevation: -500, azimuth: 0).elevation == CameraControl.elevationRange.lowerBound)
     }
 
-    @Test("Dragging left and dragging right are mirror images of each other")
-    func horizontalTiltIsSymmetric() {
+    @Test("Turning left and turning right are mirror images of each other")
+    func azimuthIsSymmetric() {
         let rest = projection()
-        let right = projection(CameraControl(leanHorizontal: 30))
-        let left = projection(CameraControl(leanHorizontal: -30))
+        let right = projection(CameraControl(azimuth: 30))
+        let left = projection(CameraControl(azimuth: -30)) // wraps to 330
 
-        #expect(abs(right.position.x - rest.position.x) > 0.5)
-        #expect(abs(left.position.x - rest.position.x) > 0.5)
+        #expect(abs(right.position.x - rest.position.x) > 0.01)
+        #expect(abs(left.position.x - rest.position.x) > 0.01)
         #expect(abs((right.position.x - rest.position.x) + (left.position.x - rest.position.x)) < 1e-9)
     }
 
-    @Test("Horizontal tilt works from a dead-flat rest, with no vertical tilt needed first")
-    func horizontalTiltNeedsNoVerticalTiltFirst() {
-        // The bug behind "непонятно куда пальцем водить": an earlier version
-        // expressed tilt as one polar angle plus an azimuth around it, so a
-        // sideways drag did nothing until a vertical drag had tilted the view
-        // away from straight down. The two axes are independent now.
+    @Test("Azimuth has a real effect even at rest elevation — no dead zone at the pole")
+    func azimuthWorksAtRestElevation() {
+        // The reason elevation cannot rest at exactly zero. Looking straight
+        // down, every compass heading looks identical — a sideways drag would
+        // do nothing, which is the exact "непонятно куда водить пальцем"
+        // complaint the old coupled tilt+yaw model had, just for a genuine
+        // geometric reason this time rather than a coding mistake.
+        // `restElevationDegrees` keeps this — and the first pixel of any real
+        // drag — off that dead point.
         let rest = projection()
-        let turned = projection(CameraControl(leanHorizontal: 15))
+        let turned = projection(CameraControl(azimuth: 15))
 
-        #expect(abs(turned.position.x - rest.position.x) > 0.5)
+        #expect(abs(turned.position.x - rest.position.x) > 0.01)
     }
 
-    @Test("The two tilt axes do not interact")
-    func tiltAxesAreIndependent() {
-        let vertical = projection(CameraControl(leanVertical: 20))
-        let both = projection(CameraControl(leanVertical: 20, leanHorizontal: 15))
+    @Test("Azimuth's effect grows with elevation, but is never suppressed to nothing")
+    func azimuthScalesWithElevation() {
+        // Elevation and azimuth are a genuine spherical pair, unlike the old
+        // independent lean axes: azimuth sweeps a circle whose radius is
+        // distance × sin(elevation), so the same turn moves the camera
+        // further once elevation has climbed. That coupling is expected —
+        // it is what "turn to face the tall side of the room" should feel
+        // like. What must still hold is that the effect is never zero once
+        // elevation is at least at its resting floor.
+        let lowRest = projection(CameraControl(elevation: CameraControl.restElevationDegrees))
+        let low = projection(CameraControl(elevation: CameraControl.restElevationDegrees, azimuth: 20))
+        let highRest = projection(CameraControl(elevation: 50))
+        let high = projection(CameraControl(elevation: 50, azimuth: 20))
 
-        // Adding a horizontal tilt does not change how far the vertical one
-        // moved the camera on its own axis.
-        #expect(abs(both.position.z - vertical.position.z) < 1e-9)
+        let lowEffect = abs(low.position.x - lowRest.position.x)
+        let highEffect = abs(high.position.x - highRest.position.x)
+
+        #expect(lowEffect > 0.01)
+        #expect(highEffect > lowEffect)
     }
 
-    @Test("Tilting does not change the frame's size — only zoom does")
+    @Test("Orbiting does not change the frame's size — only zoom does")
     func tiltingDoesNotResize() {
         // What made the earlier camera feel jerky: it recomputed how much of
         // the level had to fit on screen from the *live* tilt, so panning and
@@ -204,9 +240,9 @@ struct CameraProjectionTests {
         // around. The frame is solved once, at rest, now.
         let rest = projection()
         for control in [
-            CameraControl(leanVertical: 45),
-            CameraControl(leanHorizontal: -45),
-            CameraControl(leanVertical: 60, leanHorizontal: 60)
+            CameraControl(elevation: 45),
+            CameraControl(azimuth: -45),
+            CameraControl(elevation: 60, azimuth: 60)
         ] {
             let tilted = projection(control)
             #expect(tilted.verticalExtent == rest.verticalExtent)
@@ -218,7 +254,7 @@ struct CameraProjectionTests {
     func projectionRoundTrip() throws {
         for control in [
             CameraControl.neutral,
-            CameraControl(leanVertical: -10, leanHorizontal: 18, zoom: 1.8)
+            CameraControl(elevation: 40, azimuth: 18, zoom: 1.8)
         ] {
             let projection = projection(control)
             let screen = (x: 300.0, y: 210.0)
@@ -274,17 +310,21 @@ struct CameraProjectionTests {
         }
     }
 
-    @Test("At rest the camera hangs straight above the level's centre")
+    @Test("At rest the camera sits almost straight above the level's centre")
     func cameraPlacement() {
         let rest = projection()
 
         #expect(rest.focus.x == 12)
         #expect(rest.position.y > 10)
+        // Not exactly overhead any more: `restElevationDegrees` holds a few
+        // degrees off the pole on purpose (see `azimuthWorksAtRestElevation`),
+        // and at azimuth 0 that lift shows up entirely in z, not x.
         #expect(abs(rest.position.x - rest.focus.x) < 1e-9)
-        #expect(abs(rest.position.z - rest.focus.z) < 1e-9)
+        let expectedRestOffset = rest.distance * sin(CameraControl.restElevationDegrees * .pi / 180)
+        #expect(abs((rest.position.z - rest.focus.z) - expectedRestOffset) < 1e-6)
 
-        // Tilting is what stands it off toward +z.
-        #expect(projection(CameraControl(leanVertical: 35)).position.z > rest.focus.z)
+        // Climbing elevation stands it off further.
+        #expect(projection(CameraControl(elevation: 35)).position.z > rest.position.z)
     }
 
     @Test("Zooming in shows less")
@@ -323,12 +363,13 @@ struct CameraProjectionTests {
         #expect(abs(control.focusOffset.z - levelDepth / 4) < 0.001)
     }
 
-    @Test("Zoom is clamped and leaves the tilt alone")
-    func zoomIndependentOfTilt() {
-        let control = CameraControl(leanVertical: 8).zoomed(by: 10)
+    @Test("Zoom is clamped and leaves elevation and azimuth alone")
+    func zoomIndependentOfOrbit() {
+        let control = CameraControl(elevation: 30, azimuth: 8).zoomed(by: 10)
 
         #expect(control.zoom == CameraControl.zoomRange.upperBound)
-        #expect(control.leanVertical == 8)
+        #expect(control.elevation == 30)
+        #expect(control.azimuth == 8)
     }
 
     @Test("Pinching holds the point under the fingers in place, not just the level's centre")

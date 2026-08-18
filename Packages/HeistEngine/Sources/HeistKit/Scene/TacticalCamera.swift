@@ -105,7 +105,7 @@ public final class TacticalCamera {
         log.debug("""
             Camera: \(projection.verticalExtent, privacy: .public) m across the screen, \
             \(projection.distance, privacy: .public) m back, \
-            lean \(projection.leanVertical, privacy: .public)/\(projection.leanHorizontal, privacy: .public)
+            elevation \(projection.elevation, privacy: .public) azimuth \(projection.azimuth, privacy: .public)
             """)
     }
 }
