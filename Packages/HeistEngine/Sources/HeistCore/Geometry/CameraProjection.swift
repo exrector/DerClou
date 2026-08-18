@@ -260,32 +260,21 @@ public enum CameraProjectionSolver {
     /// exists instead of a true orthographic camera.
     public static let defaultFieldOfViewDegrees = 4.0
 
-    /// - Parameters:
-    ///   - bounds: level bounds, in cells.
-    ///   - metrics: cell-to-meter conversion.
-    ///   - aspectRatio: viewport width divided by height.
-    ///   - mode: whether the level is fitted inside the screen or fills it.
-    ///   - fieldOfViewDegrees: vertical field of view.
-    ///   - margin: padding around the level, in meters. Enough for the rim of
-    ///     ground around the building, and no more.
-    ///   - control: the player's tilt and zoom. Tilt moves the camera around
-    ///     the frame solved below; it does not change the frame's size.
-    public static func solve(
+    /// How much of the level fills the screen at the current zoom, before any
+    /// panning is applied. A pure function of level size, viewport, framing
+    /// and zoom — not of focus, so it is shared by both clamping and solving
+    /// rather than computed twice and risking the two falling out of step.
+    private static func frameSize(
         bounds: CellRect,
         metrics: LevelMetrics,
         aspectRatio: Double,
-        mode: FramingMode = .fit,
-        fieldOfViewDegrees: Double = defaultFieldOfViewDegrees,
-        margin: Double = 0,
-        control: CameraControl = .neutral
-    ) -> CameraProjection {
+        mode: FramingMode,
+        margin: Double,
+        zoom: Double
+    ) -> (verticalExtent: Double, visibleWidth: Double) {
         let aspect = max(aspectRatio, 0.01)
-        let zoom = max(control.zoom, 0.01)
+        let z = max(zoom, 0.01)
 
-        // Solved once, flat: the frame the player sees at rest, looking
-        // straight down. Tilting orbits the camera around this; it is never
-        // recomputed for the live tilt, which is what keeps tilting from also
-        // zooming.
         let levelWidth = metrics.meters(fromCells: bounds.size.width)
         let levelDepth = metrics.meters(fromCells: bounds.size.depth)
         let width = levelWidth + margin * 2
@@ -296,8 +285,71 @@ public enum CameraProjectionSolver {
         case .fit: max(depth, fromWidth)
         case .fill: min(depth, fromWidth)
         }
-        let verticalExtent = extent / zoom
-        let visibleWidth = verticalExtent * aspect
+        let verticalExtent = extent / z
+        return (verticalExtent, verticalExtent * aspect)
+    }
+
+    /// Clamps a control to what this level and viewport can actually show.
+    ///
+    /// Meant to be applied to the camera's *stored* control immediately after
+    /// every pan, tilt or zoom — not just to the projection built for display.
+    /// Tilt already clamps itself the moment it changes (`tilted(_:_:)`), but
+    /// `focusOffset` did not, which let it drift arbitrarily far past the
+    /// building's edge while the player kept dragging. The overshoot was
+    /// invisible — the rendered frame was clamped — but it had to be dragged
+    /// back through before the view moved again, which is what read as the
+    /// camera snapping or jerking once it finally caught up. Clamping the
+    /// stored value at write time closes that gap: there is nothing left to
+    /// unwind.
+    public static func clamp(
+        _ control: CameraControl,
+        bounds: CellRect,
+        metrics: LevelMetrics,
+        aspectRatio: Double,
+        mode: FramingMode = .fit,
+        margin: Double = 0
+    ) -> CameraControl {
+        let (verticalExtent, visibleWidth) = frameSize(
+            bounds: bounds, metrics: metrics, aspectRatio: aspectRatio,
+            mode: mode, margin: margin, zoom: control.zoom
+        )
+        return control.clampedToLevel(
+            bounds: bounds, metrics: metrics,
+            visibleWidth: visibleWidth, visibleDepth: verticalExtent
+        )
+    }
+
+    /// - Parameters:
+    ///   - bounds: level bounds, in cells.
+    ///   - metrics: cell-to-meter conversion.
+    ///   - aspectRatio: viewport width divided by height.
+    ///   - mode: whether the level is fitted inside the screen or fills it.
+    ///   - fieldOfViewDegrees: vertical field of view.
+    ///   - margin: padding around the level, in meters. Enough for the rim of
+    ///     ground around the building, and no more.
+    ///   - control: the player's tilt, pan and zoom, expected to already be
+    ///     clamped (see `clamp(_:bounds:metrics:aspectRatio:mode:margin:)`).
+    ///     Clamped again here regardless, so an un-clamped control is still
+    ///     safe to pass in — just not idempotent with what gets stored.
+    public static func solve(
+        bounds: CellRect,
+        metrics: LevelMetrics,
+        aspectRatio: Double,
+        mode: FramingMode = .fit,
+        fieldOfViewDegrees: Double = defaultFieldOfViewDegrees,
+        margin: Double = 0,
+        control: CameraControl = .neutral
+    ) -> CameraProjection {
+        // Solved once, flat: the frame the player sees at rest, looking
+        // straight down. Tilting orbits the camera around this; it is never
+        // recomputed for the live tilt, which is what keeps tilting from also
+        // zooming.
+        let (verticalExtent, visibleWidth) = frameSize(
+            bounds: bounds, metrics: metrics, aspectRatio: aspectRatio,
+            mode: mode, margin: margin, zoom: control.zoom
+        )
+        let levelWidth = metrics.meters(fromCells: bounds.size.width)
+        let levelDepth = metrics.meters(fromCells: bounds.size.depth)
 
         let clamped = control.clampedToLevel(
             bounds: bounds,
@@ -314,7 +366,7 @@ public enum CameraProjectionSolver {
         )
 
         return CameraProjection(
-            aspectRatio: aspect,
+            aspectRatio: max(aspectRatio, 0.01),
             verticalExtent: verticalExtent,
             focus: focus,
             fieldOfViewDegrees: fieldOfViewDegrees,

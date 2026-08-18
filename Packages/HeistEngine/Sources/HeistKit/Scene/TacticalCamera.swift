@@ -59,7 +59,13 @@ public final class TacticalCamera {
     public var control: CameraControl = .neutral
 
     /// Frames the given level for a viewport of `aspectRatio`.
+    ///
+    /// Clamps `control` itself first, not just the projection built from it —
+    /// see `CameraProjectionSolver.clamp` for why that distinction matters.
     public func frame(bounds: CellRect, metrics: LevelMetrics, aspectRatio: Double) {
+        control = CameraProjectionSolver.clamp(
+            control, bounds: bounds, metrics: metrics, aspectRatio: aspectRatio, mode: mode, margin: margin
+        )
         apply(CameraProjectionSolver.solve(
             bounds: bounds,
             metrics: metrics,
