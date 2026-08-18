@@ -92,7 +92,7 @@ public struct HeistSceneView: View {
         frameCamera(size: size)
 
         // The safe region is derived from the framing, so it follows it.
-        guard let framing = camera.framing, size.width > 0, size.height > 0 else { return }
+        guard let projection = camera.projection, size.width > 0, size.height > 0 else { return }
         session.updateSafeArea(
             viewportSize: (width: Double(size.width), height: Double(size.height)),
             insets: ScreenInsets(
@@ -101,7 +101,7 @@ public struct HeistSceneView: View {
                 bottom: Double(safeAreaInsets.bottom),
                 trailing: Double(safeAreaInsets.trailing)
             ),
-            framing: framing
+            projection: projection
         )
     }
 
@@ -112,10 +112,6 @@ public struct HeistSceneView: View {
             metrics: blueprint.metrics,
             aspectRatio: Double(size.width / size.height)
         )
-        // The camera itself carries no lean; the scene does.
-        if let shear = camera.framing?.shear {
-            session.setViewShear(shear)
-        }
     }
 
     // MARK: - Camera gestures
@@ -169,27 +165,23 @@ public struct HeistSceneView: View {
             Tap at \(location.x, privacy: .public), \(location.y, privacy: .public)
             """)
 
-        guard let framing = camera.framing, viewportSize.width > 0 else {
+        guard let projection = camera.projection, viewportSize.width > 0 else {
             Self.log.error("Tap ignored: camera not framed yet")
             return
         }
 
-        guard let ray = ScreenProjection.ray(
+        guard let ray = projection.ray(
             screenPoint: (x: Double(location.x), y: Double(location.y)),
-            viewportSize: (width: Double(viewportSize.width), height: Double(viewportSize.height)),
-            framing: framing
+            viewportSize: (width: Double(viewportSize.width), height: Double(viewportSize.height))
         ) else {
             Self.log.error("Tap did not resolve to a ray")
             return
         }
 
-        // The ray comes out in world space, which is the leaning scene. The game
-        // is authored flat, so the lean is undone before the ray meets the floor
-        // — otherwise a tap lands where the floor is drawn rather than where it
-        // is, and the error grows with the lean.
-        let levelRay = framing.shear.undo(ray)
-
-        guard let floorPoint = ScreenProjection.hit(levelRay) else {
+        // No conversion anywhere: the world the ray travels through is the same
+        // world the navigation grid is built from. The peek lives entirely in the
+        // projection.
+        guard let floorPoint = ray.hit() else {
             Self.log.error("Tap did not resolve to the floor plane")
             return
         }

@@ -30,7 +30,7 @@ public struct ScreenInsets: Sendable, Equatable {
 /// Dynamic Island or a rounded corner. What may *not* end up there is anything
 /// the player has to see, tap or reason about.
 ///
-/// Axis-aligned because the tactical camera only ever tilts, never yaws: a
+/// Axis-aligned because the tactical camera never rotates at all: a
 /// screen-aligned rectangle projects to a world-aligned one.
 public struct SafeGameplayBounds: Sendable, Equatable {
     public var minX: Double
@@ -65,13 +65,13 @@ public enum SafeAreaSolver {
     /// - Parameters:
     ///   - viewportSize: full view size in points.
     ///   - insets: system safe-area insets for the current device and orientation.
-    ///   - framing: the framing currently applied to the tactical camera.
+    ///   - projection: the camera currently in use.
     /// - Returns: the world-space region that stays clear of system-reserved
     ///   screen areas, or nil if the viewport is degenerate.
     public static func gameplayBounds(
         viewportSize: (width: Double, height: Double),
         insets: ScreenInsets,
-        framing: CameraFraming
+        projection: CameraProjection
     ) -> SafeGameplayBounds? {
         guard viewportSize.width > 0, viewportSize.height > 0 else { return nil }
 
@@ -92,11 +92,10 @@ public enum SafeAreaSolver {
 
         var points: [WorldPoint] = []
         for corner in corners {
-            guard let ray = ScreenProjection.ray(
+            guard let ray = projection.ray(
                 screenPoint: (x: corner.x, y: corner.y),
-                viewportSize: viewportSize,
-                framing: framing
-            ), let hit = ScreenProjection.hit(ray) else { return nil }
+                viewportSize: viewportSize
+            ), let hit = ray.hit() else { return nil }
             points.append(hit)
         }
 
