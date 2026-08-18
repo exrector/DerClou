@@ -330,4 +330,39 @@ struct CameraProjectionTests {
         #expect(control.zoom == CameraControl.zoomRange.upperBound)
         #expect(control.leanVertical == 8)
     }
+
+    @Test("Pinching holds the point under the fingers in place, not just the level's centre")
+    func zoomCanAnchorAwayFromCentre() throws {
+        // The bug: `zoomed(by:)` alone always scales toward the level's own
+        // centre, because it never touches `focusOffset`. This reproduces what
+        // the view does with a pinch that starts off-centre — resolve the
+        // world point under the fingers, zoom, then correct the focus by
+        // exactly how far that point drifted — and checks the point lands
+        // back where the fingers are, not somewhere toward the middle.
+        let start = projection()
+        let anchorScreen = (x: 700.0, y: 120.0) // well off from the screen's centre
+        let anchorWorld = try #require(
+            start.ray(screenPoint: anchorScreen, viewportSize: viewport)?.hit()
+        )
+
+        var control = CameraControl.neutral.zoomed(by: 2.2)
+        var after = projection(control)
+        let drifted = try #require(
+            after.ray(screenPoint: anchorScreen, viewportSize: viewport)?.hit()
+        )
+
+        control = control.focused(at: WorldPoint(
+            x: control.focusOffset.x + (anchorWorld.x - drifted.x),
+            y: 0,
+            z: control.focusOffset.z + (anchorWorld.z - drifted.z)
+        ))
+        after = projection(control)
+
+        let landedAt = try #require(after.screenPoint(of: anchorWorld, viewportSize: viewport))
+        #expect(abs(landedAt.x - anchorScreen.x) < 0.5)
+        #expect(abs(landedAt.y - anchorScreen.y) < 0.5)
+
+        // And it actually zoomed, rather than just re-centring at zoom 1.
+        #expect(after.verticalExtent < start.verticalExtent)
+    }
 }
