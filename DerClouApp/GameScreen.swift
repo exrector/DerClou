@@ -82,6 +82,73 @@ struct GameScreen: View {
         .buttonStyle(.plain)
     }
 
+    /// Live camera settings, while the anchor plane and the resting angle are
+    /// being chosen by eye on the real level. Temporary; see `CameraTuning`.
+    private var cameraTuning: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Picker("", selection: Binding(
+                get: { session.cameraTuning.anchor },
+                set: { session.cameraTuning.anchor = $0 }
+            )) {
+                ForEach(CameraTuning.Anchor.allCases) { anchor in
+                    Text(anchor.label).tag(anchor)
+                }
+            }
+            .pickerStyle(.segmented)
+
+            Text(session.cameraTuning.anchor == .wallTops
+                ? "неподвижен контур здания"
+                : "неподвижна игровая плоскость")
+                .font(.caption2)
+                .foregroundStyle(.white.opacity(0.5))
+
+            tuningDial(
+                "вниз",
+                value: Binding(
+                    get: { session.cameraTuning.restingVertical },
+                    set: { session.cameraTuning.restingVertical = $0 }
+                ),
+                range: 0...40
+            )
+            tuningDial(
+                "вбок",
+                value: Binding(
+                    get: { session.cameraTuning.restingHorizontal },
+                    set: { session.cameraTuning.restingHorizontal = $0 }
+                ),
+                range: -40...40
+            )
+
+            if session.cameraTuning.anchor == .wallTops {
+                Toggle("стены ниже на треть", isOn: Binding(
+                    get: { session.cameraTuning.lowerWalls },
+                    set: { session.cameraTuning.lowerWalls = $0 }
+                ))
+                .toggleStyle(.switch)
+                .font(.caption2)
+                .tint(.orange)
+            }
+        }
+    }
+
+    private func tuningDial(
+        _ title: String,
+        value: Binding<Double>,
+        range: ClosedRange<Double>
+    ) -> some View {
+        HStack(spacing: 8) {
+            Text(title)
+                .font(.caption2)
+                .foregroundStyle(.white.opacity(0.6))
+                .frame(width: 34, alignment: .leading)
+            Slider(value: value, in: range)
+            Text(String(format: "%.0f°", value.wrappedValue))
+                .font(.caption2.monospacedDigit())
+                .foregroundStyle(.white.opacity(0.6))
+                .frame(width: 30, alignment: .trailing)
+        }
+    }
+
     private var debugPanel: some View {
         VStack(alignment: .leading, spacing: 5) {
             Text(session.level?.blueprint.title ?? "Loading")
@@ -122,9 +189,13 @@ struct GameScreen: View {
             .toggleStyle(.switch)
             .font(.caption2)
             .tint(.orange)
+
+            Divider().overlay(.white.opacity(0.2))
+
+            cameraTuning
         }
         .multilineTextAlignment(.leading)
-        .frame(maxWidth: 260, alignment: .leading)
+        .frame(maxWidth: 300, alignment: .leading)
         .padding(10)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
         .foregroundStyle(.white)

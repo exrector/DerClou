@@ -19,7 +19,7 @@ import HeistKit
 struct FloorAnchoredLab: View {
     // Fit rather than fill: the labs exist to be compared, and a comparison
     // wants the whole board in shot. The game itself fills the screen.
-    @State private var camera = TacticalCamera(margin: 0.7, mode: .fit, anchorHeight: 0)
+    @State private var camera = TacticalCamera(margin: 0.7, mode: .fit, anchorHeight: 0, restingLean: .flat)
     @State private var peek = (across: 0.0, up: 0.0)
     @State private var peekAtDragStart: (across: Double, up: Double)?
 
