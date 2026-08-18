@@ -80,28 +80,6 @@ public final class GameSession {
         cameraResetToken += 1
     }
 
-    /// Leans the scene into the building.
-    ///
-    /// Presentation only. The shear is applied to the level's root entity, so
-    /// the tops of the walls stay pinned to the display while everything below
-    /// them slides; nothing the rules care about moves, because navigation,
-    /// patrols and every stored position live in the level's own space and this
-    /// only changes how that space is drawn.
-    public func setViewShear(_ shear: ViewShear) {
-        guard let root = level?.root else { return }
-
-        let columns = shear.columns
-        root.setTransformMatrix(
-            simd_float4x4(
-                SIMD4<Float>(columns[0].map(Float.init)),
-                SIMD4<Float>(columns[1].map(Float.init)),
-                SIMD4<Float>(columns[2].map(Float.init)),
-                SIMD4<Float>(columns[3].map(Float.init))
-            ),
-            relativeTo: nil
-        )
-    }
-
     // MARK: - Mission time
 
     /// Advances mission time and poses every guard for the new moment.
@@ -149,14 +127,14 @@ public final class GameSession {
     public func updateSafeArea(
         viewportSize: (width: Double, height: Double),
         insets: ScreenInsets,
-        framing: CameraFraming
+        projection: CameraProjection
     ) {
         guard let level else { return }
 
         guard let bounds = SafeAreaSolver.gameplayBounds(
             viewportSize: viewportSize,
             insets: insets,
-            framing: framing
+            projection: projection
         ) else { return }
 
         guard bounds != safeBounds else { return }

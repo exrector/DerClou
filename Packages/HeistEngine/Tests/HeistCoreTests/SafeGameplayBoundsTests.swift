@@ -10,8 +10,8 @@ struct SafeGameplayBoundsTests {
     let viewport = (width: 852.0, height: 393.0)
     let insets = ScreenInsets(top: 0, leading: 59, bottom: 21, trailing: 59)
 
-    var framing: CameraFraming {
-        CameraFramingSolver.solve(
+    var projection: CameraProjection {
+        CameraProjectionSolver.solve(
             bounds: level.bounds,
             metrics: level.metrics,
             aspectRatio: viewport.width / viewport.height,
@@ -20,7 +20,7 @@ struct SafeGameplayBoundsTests {
     }
 
     func bounds(_ insets: ScreenInsets) -> SafeGameplayBounds? {
-        SafeAreaSolver.gameplayBounds(viewportSize: viewport, insets: insets, framing: framing)
+        SafeAreaSolver.gameplayBounds(viewportSize: viewport, insets: insets, projection: projection)
     }
 
     @Test("With no insets the safe area is the whole view")
@@ -108,14 +108,14 @@ struct SafeGameplayBoundsTests {
         #expect(SafeAreaSolver.gameplayBounds(
             viewportSize: (width: 0, height: 0),
             insets: .zero,
-            framing: framing
+            projection: projection
         ) == nil)
 
         // Insets larger than the view itself.
         #expect(SafeAreaSolver.gameplayBounds(
             viewportSize: viewport,
             insets: ScreenInsets(leading: 900, trailing: 900),
-            framing: framing
+            projection: projection
         ) == nil)
     }
 }
