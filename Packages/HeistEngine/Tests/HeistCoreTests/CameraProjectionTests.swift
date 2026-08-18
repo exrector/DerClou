@@ -365,4 +365,33 @@ struct CameraProjectionTests {
         // And it actually zoomed, rather than just re-centring at zoom 1.
         #expect(after.verticalExtent < start.verticalExtent)
     }
+
+    @Test("Clamping the stored control matches what solving would have clamped anyway")
+    func clampAgreesWithSolve() {
+        // The point of exposing `clamp` separately: the *stored* control has
+        // to carry the same limit the projection enforces, or a drag that
+        // keeps pushing past an edge accumulates an invisible overshoot that
+        // has to be dragged back through before the view moves again — the
+        // camera "catching up" all at once reads as a jerk. This checks the
+        // two paths agree, not just that clamping does something.
+        let control = CameraControl(zoom: 2, focusOffset: WorldPoint(x: 200, y: 0, z: 200))
+        let clamped = CameraProjectionSolver.clamp(
+            control, bounds: level.bounds, metrics: level.metrics, aspectRatio: viewport.width / viewport.height
+        )
+
+        let viaClamp = CameraProjectionSolver.solve(
+            bounds: level.bounds, metrics: level.metrics,
+            aspectRatio: viewport.width / viewport.height, control: clamped
+        )
+        let viaSolveDirectly = CameraProjectionSolver.solve(
+            bounds: level.bounds, metrics: level.metrics,
+            aspectRatio: viewport.width / viewport.height, control: control
+        )
+
+        #expect(viaClamp.focus == viaSolveDirectly.focus)
+        // And a control already inside the building passes through untouched.
+        #expect(CameraProjectionSolver.clamp(
+            .neutral, bounds: level.bounds, metrics: level.metrics, aspectRatio: viewport.width / viewport.height
+        ) == .neutral)
+    }
 }

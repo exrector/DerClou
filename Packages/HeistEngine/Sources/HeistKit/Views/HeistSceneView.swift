@@ -3,6 +3,10 @@ import OSLog
 import RealityKit
 import HeistCore
 
+#if canImport(UIKit)
+import UIKit
+#endif
+
 /// The 3D tactical view: orthographic camera, level scene, tap-to-move.
 ///
 /// Owns nothing but presentation and input translation — game state lives in
@@ -14,8 +18,6 @@ public struct HeistSceneView: View {
     @State private var camera = TacticalCamera()
     @State private var viewportSize: CGSize = .zero
     @State private var lastMagnification: CGFloat = 1
-    /// Where the tilt was when the current drag began.
-    @State private var tiltAtDragStart: (vertical: Double, horizontal: Double)?
     /// The world point under the fingers when the current pinch began, and
     /// where on screen it started — so that point can be held fixed under the
     /// fingers as the pinch continues, instead of always zooming toward the
@@ -23,6 +25,9 @@ public struct HeistSceneView: View {
     @State private var zoomAnchor: (screen: CGPoint, world: WorldPoint)?
     /// Keeps `SceneEvents.Update` alive for the life of the view.
     @State private var updateSubscription: EventSubscription?
+    #if !canImport(UIKit)
+    @State private var lastFallbackTranslation: CGSize = .zero
+    #endif
 
     /// System safe-area insets, read by the caller *outside* `ignoresSafeArea`.
     private let safeAreaInsets: EdgeInsets
@@ -68,9 +73,21 @@ public struct HeistSceneView: View {
             .onTapGesture { location in
                 handleTap(at: location)
             }
-            // Tilt and pinch. The map itself never turns — every exterior wall
-            // stays parallel to the screen — but the view can lean freely.
-            .gesture(tiltGesture)
+            // Pan, tilt and pinch, split by touch count the way Maps splits
+            // them: one finger drags the ground itself — the point under the
+            // finger is what moves, so centring on a room is exactly
+            // "drag it to where you want it," the same gesture as scrolling
+            // any other view. Two fingers tilt the view instead of the
+            // ground, which is what keeps the two from fighting over a single
+            // touch. Pinch zooms, anchored the same way. The map itself never
+            // turns — every exterior wall stays parallel to the screen — but
+            // the view can lean freely.
+            #if canImport(UIKit)
+            .gesture(TouchDragGesture(touches: 1, onChanged: pan))
+            .gesture(TouchDragGesture(touches: 2, onChanged: { _, delta in tilt(by: delta) }))
+            #else
+            .gesture(tiltGestureFallback)
+            #endif
             .simultaneousGesture(zoomGesture)
             .onAppear { updateViewport(proxy.size) }
             .onChange(of: proxy.size) { _, size in updateViewport(size) }
@@ -120,7 +137,29 @@ public struct HeistSceneView: View {
 
     // MARK: - Camera gestures
 
-    /// One finger tilts the view, and it stays where it is left.
+    /// One finger drags the ground itself: the world point under the finger
+    /// follows it exactly, the way scrolling any map or photo works. That
+    /// makes "centre on this room" a single direct gesture instead of
+    /// something the player has to reach by zooming out, re-centring and
+    /// zooming back in.
+    ///
+    /// Reported as the delta since the last callback, not accumulated from
+    /// where the finger first touched down — see `TouchDragGesture`.
+    private func pan(location: CGPoint, delta: CGSize) {
+        let previous = CGPoint(x: location.x - delta.width, y: location.y - delta.height)
+        guard let worldAtPrevious = worldPoint(at: previous),
+              let worldAtCurrent = worldPoint(at: location) else { return }
+
+        let shift = WorldPoint(
+            x: worldAtPrevious.x - worldAtCurrent.x,
+            y: 0,
+            z: worldAtPrevious.z - worldAtCurrent.z
+        )
+        camera.control = camera.control.focused(at: camera.control.focusOffset + shift)
+        frameCamera(size: viewportSize)
+    }
+
+    /// Two fingers tilt the view, and it stays where it is left.
     ///
     /// Two independent axes: dragging up or down tilts around world X, dragging
     /// left or right tilts around world Z, and neither depends on the other —
@@ -132,25 +171,33 @@ public struct HeistSceneView: View {
     /// No spring back: tried and rejected earlier as something that fought the
     /// player's hand. The view stays exactly where it is left; the focus button
     /// is the separate, deliberate way back to flat.
-    private var tiltGesture: some Gesture {
+    private func tilt(by delta: CGSize) {
+        let degreesPerPoint = 0.12
+        camera.control = camera.control.tilted(
+            vertical: camera.control.leanVertical + Double(delta.height) * degreesPerPoint,
+            horizontal: camera.control.leanHorizontal + Double(delta.width) * degreesPerPoint
+        )
+        frameCamera(size: viewportSize)
+    }
+
+    #if !canImport(UIKit)
+    /// Degraded stand-in for platforms without `UIGestureRecognizerRepresentable`
+    /// (this package also declares macOS as a target so its pure-logic tests can
+    /// run on the host Mac — the game itself only ships on iOS). One finger
+    /// tilts rather than pans, since there is no touch-count-based gesture to
+    /// tell one from two fingers here. Not the shipping experience.
+    private var tiltGestureFallback: some Gesture {
         DragGesture(minimumDistance: 6)
             .onChanged { value in
-                if tiltAtDragStart == nil {
-                    tiltAtDragStart = (camera.control.leanVertical, camera.control.leanHorizontal)
-                }
-                guard let start = tiltAtDragStart else { return }
-
-                let degreesPerPoint = 0.15
-                camera.control = camera.control.tilted(
-                    vertical: start.vertical + Double(value.translation.height) * degreesPerPoint,
-                    horizontal: start.horizontal + Double(value.translation.width) * degreesPerPoint
-                )
-                frameCamera(size: viewportSize)
+                tilt(by: CGSize(
+                    width: value.translation.width - lastFallbackTranslation.width,
+                    height: value.translation.height - lastFallbackTranslation.height
+                ))
+                lastFallbackTranslation = value.translation
             }
-            .onEnded { _ in
-                tiltAtDragStart = nil
-            }
+            .onEnded { _ in lastFallbackTranslation = .zero }
     }
+    #endif
 
     /// Pinch zooms toward wherever the fingers landed, not the level's
     /// centre — the point first touched stays under the fingers for the rest
@@ -245,3 +292,46 @@ public struct HeistSceneView: View {
         session.handleTap(at: destination, entity: hit)
     }
 }
+
+#if canImport(UIKit)
+/// A drag requiring an exact number of touches, reported as the delta since
+/// the last callback rather than accumulated from wherever the gesture began.
+///
+/// Two things SwiftUI's own `DragGesture` cannot do, and both matter here.
+///
+/// First, touch count: there is no SwiftUI-native way to require two fingers
+/// specifically, which is what separates panning the ground (one finger) from
+/// tilting the view (two) — the same split Maps uses between panning and
+/// tilting/rotating. `UIPanGestureRecognizer`'s `minimumNumberOfTouches` and
+/// `maximumNumberOfTouches` do it directly.
+///
+/// Second, and less obvious: `DragGesture.translation` accumulates from
+/// wherever the finger first touched down, for as long as the gesture lasts.
+/// That reads fine on its own, but combined with a clamped value — the tilt
+/// limit, or the edge of the building — it means a drag that keeps pushing
+/// past the clamp keeps growing a translation that has no visible effect,
+/// and reversing direction has to "unwind" that invisible backlog before the
+/// view responds again. That unwind is what read as the camera snapping or
+/// jerking at the extremes. `setTranslation(.zero, in:)` after every callback
+/// removes the backlog entirely — each callback only ever reports what
+/// changed since the last one, so there is nothing left to unwind.
+private struct TouchDragGesture: UIGestureRecognizerRepresentable {
+    var touches: Int
+    var onChanged: (_ location: CGPoint, _ delta: CGSize) -> Void
+
+    func makeUIGestureRecognizer(context: Context) -> UIPanGestureRecognizer {
+        let recognizer = UIPanGestureRecognizer()
+        recognizer.minimumNumberOfTouches = touches
+        recognizer.maximumNumberOfTouches = touches
+        return recognizer
+    }
+
+    func handleUIGestureRecognizerAction(_ recognizer: UIPanGestureRecognizer, context: Context) {
+        guard recognizer.state == .changed else { return }
+        let translation = recognizer.translation(in: recognizer.view)
+        guard translation != .zero else { return }
+        recognizer.setTranslation(.zero, in: recognizer.view)
+        onChanged(recognizer.location(in: recognizer.view), CGSize(width: translation.x, height: translation.y))
+    }
+}
+#endif
