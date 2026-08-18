@@ -359,3 +359,41 @@ SwiftUI should handle most HUD elements.
 ## 15. Visual acceptance criterion for Level 1
 
 A screenshot of the first mission without explanation should already look like a commercially released premium tactical/heist game, even before the player understands the mechanics.
+
+## Prototype look, settled 2026-08-18
+
+The reference is a tabletop diorama — light, airy, made of real materials — and
+**not** the original grey-box, which the owner rightly called a prison cell: a
+sealed dark box with nothing outside it.
+
+What that means in practice, all of it already in `GreyboxKit`:
+
+- **Pale warm surfaces.** Plaster walls near white, floors a warm off-white,
+  painted wood for furniture. The palette is light; contrast comes from shadow
+  and from the few saturated pieces, not from a dark base.
+- **The building stands somewhere.** Grass around it, a paved apron where it
+  meets the ground, a path leading off the near edge with hedging along it,
+  shrubs against the outside walls and a couple of trees taller than the roof
+  line. None of it is walkable and none of it reaches the navigation grid — it
+  is there so the level reads as a place rather than as a box.
+- **One warm key with shadows, one cool sky fill, a weak bounce.** The key is
+  angled, never overhead: a tilted view lives on the shadows walls and furniture
+  throw across the floor. The fill is blue because the light that is not the sun
+  comes from the sky, and that is most of what keeps the scene from looking
+  sealed.
+- **People are pawns.** A base, a tapered body, a head, and a wedge on the base
+  for facing. It reads from above and from the tactical angle both, which a
+  cylinder does not, and it is the shape a board game would use.
+- **Walls get out of the way.** Anything standing between the camera and the
+  person being watched fades out — see `WallFadeSystem`. This is what allows the
+  view to be tilted far enough to have depth at all.
+
+### Open
+
+**Shadows do not render in the simulator.** The shadow's reach was the first
+suspect and is now set correctly — it defaults to five metres, and a level is
+twenty-four across, so with the default nothing was ever shadowed. Setting it
+did not bring shadows back in the simulator, which points at the simulator's own
+Metal support rather than at the scene. To be confirmed on a device before any
+further lighting work: the art direction above assumes shadows, and judging it
+without them is judging a different picture.

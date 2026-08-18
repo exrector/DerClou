@@ -2,318 +2,158 @@ import Foundation
 import Testing
 @testable import HeistCore
 
-/// The contract of the tactical camera, tested where it is actually defined:
-/// on the projection of world points, not on rendered pixels.
-///
-/// A screenshot comparison would also pass today and would also be a reasonable
-/// integration check, but it is not the contract — Apple can change
-/// anti-aliasing or rasterisation without changing the camera maths, and a test
-/// that fails for that reason teaches nothing. The debug scene in `CameraLab`
-/// covers the rendered side by eye.
+/// The contract of the tactical camera, tested where it is defined: on the
+/// projection of world points, not on rendered pixels.
 @Suite("Camera projection")
 struct CameraProjectionTests {
     let level = LevelBlueprint.office01
     /// iPhone 16 in landscape.
     let viewport = (width: 852.0, height: 393.0)
 
-    func projection(_ control: CameraControl) -> CameraProjection {
+    func projection(_ control: CameraControl = .neutral, mode: FramingMode = .fit) -> CameraProjection {
         CameraProjectionSolver.solve(
             bounds: level.bounds,
             metrics: level.metrics,
             aspectRatio: viewport.width / viewport.height,
+            mode: mode,
             control: control
         )
     }
 
-    /// Peeks worth checking, including the corners of the range.
-    var peeks: [CameraControl] {
-        var controls: [CameraControl] = []
-        for vertical in [-20.0, -11, 0, 11, 20] {
-            for horizontal in [-20.0, -11, 0, 11, 20] {
-                controls.append(CameraControl(leanVertical: vertical, leanHorizontal: horizontal))
-            }
+    // MARK: - Parallel projection
+
+    @Test("Equal distances are equal wherever they are on screen")
+    func scaleIsUniform() throws {
+        // The whole reason for a parallel projection. A perspective camera would
+        // draw the far pair smaller than the near one, and a planning game is
+        // one where the player compares two routes by eye.
+        let projection = projection()
+
+        func span(from: WorldPoint, to: WorldPoint) throws -> Double {
+            let a = try #require(projection.screenPoint(of: from, viewportSize: viewport))
+            let b = try #require(projection.screenPoint(of: to, viewportSize: viewport))
+            return ((a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y)).squareRoot()
         }
-        return controls
+
+        let near = try span(
+            from: WorldPoint(x: 3, y: 0, z: 9),
+            to: WorldPoint(x: 7, y: 0, z: 9)
+        )
+        let far = try span(
+            from: WorldPoint(x: 15, y: 0, z: 1),
+            to: WorldPoint(x: 19, y: 0, z: 1)
+        )
+
+        #expect(abs(near - far) < 0.001, "near \(near) points, far \(far)")
     }
 
-    /// The four corners of the level's outline at the height of the wall tops:
-    /// the frame that must not move.
-    var frameCorners: [WorldPoint] {
+    @Test("A rectangular building stays a rectangle")
+    func noKeystone() throws {
         let metrics = level.metrics
         let minX = metrics.meters(fromCells: level.bounds.minX)
         let maxX = metrics.meters(fromCells: level.bounds.maxX)
         let minZ = metrics.meters(fromCells: level.bounds.minY)
         let maxZ = metrics.meters(fromCells: level.bounds.maxY)
 
-        return [
-            WorldPoint(x: minX, y: metrics.wallHeight, z: minZ),
-            WorldPoint(x: maxX, y: metrics.wallHeight, z: minZ),
-            WorldPoint(x: minX, y: metrics.wallHeight, z: maxZ),
-            WorldPoint(x: maxX, y: metrics.wallHeight, z: maxZ)
-        ]
+        let projection = projection()
+        func screen(_ x: Double, _ z: Double) throws -> (x: Double, y: Double) {
+            try #require(projection.screenPoint(
+                of: WorldPoint(x: x, y: 0, z: z), viewportSize: viewport
+            ))
+        }
+
+        let farLeft = try screen(minX, minZ)
+        let farRight = try screen(maxX, minZ)
+        let nearLeft = try screen(minX, maxZ)
+        let nearRight = try screen(maxX, maxZ)
+
+        // The far edge and the near edge are the same length on screen, and both
+        // sides are vertical. That is what a keystone destroys.
+        #expect(abs((farRight.x - farLeft.x) - (nearRight.x - nearLeft.x)) < 0.001)
+        #expect(abs(farLeft.x - nearLeft.x) < 0.001)
+        #expect(abs(farRight.x - nearRight.x) < 0.001)
     }
 
-    // MARK: - The frame holds, the floor does not
+    @Test("The tilt gives height its own place on screen")
+    func tiltShowsHeight() throws {
+        let projection = projection()
+        let foot = WorldPoint(x: 12, y: 0, z: 5)
+        let head = WorldPoint(x: 12, y: level.metrics.wallHeight, z: 5)
 
-    @Test("A wall top and the floor beneath it: one is fixed, the other is not")
-    func theFrameHoldsAndTheFloorMoves() throws {
-        // The pair the whole camera is about, checked at one corner of the frame.
-        let onTheWall = try #require(frameCorners.first)
-        let onTheFloor = WorldPoint(x: onTheWall.x, y: 0, z: onTheWall.z)
+        let onScreenFoot = try #require(projection.screenPoint(of: foot, viewportSize: viewport))
+        let onScreenHead = try #require(projection.screenPoint(of: head, viewportSize: viewport))
 
-        func screen(_ point: WorldPoint, _ control: CameraControl) throws -> (x: Double, y: Double) {
-            try #require(projection(control).screenPoint(of: point, viewportSize: viewport))
-        }
-
-        let restWall = try screen(onTheWall, .neutral)
-        let restFloor = try screen(onTheFloor, .neutral)
-
-        for peek in [
-            CameraControl(leanHorizontal: 20),
-            CameraControl(leanHorizontal: -20),
-            CameraControl(leanVertical: 20),
-            CameraControl(leanVertical: -20)
-        ] {
-            let wall = try screen(onTheWall, peek)
-            let floor = try screen(onTheFloor, peek)
-
-            #expect(abs(wall.x - restWall.x) < 0.001, "wall top moved sideways at \(peek)")
-            #expect(abs(wall.y - restWall.y) < 0.001, "wall top moved vertically at \(peek)")
-
-            let travelled = ((floor.x - restFloor.x) * (floor.x - restFloor.x)
-                + (floor.y - restFloor.y) * (floor.y - restFloor.y)).squareRoot()
-            #expect(travelled > 20, "the floor barely moved at \(peek): \(travelled) points")
-        }
+        // Straight up in the world is straight up the screen, and it covers real
+        // distance — otherwise the view is a plan drawing.
+        #expect(abs(onScreenHead.x - onScreenFoot.x) < 0.001)
+        #expect(onScreenFoot.y - onScreenHead.y > 20)
     }
 
-    @Test("Every corner of the frame holds, at every peek")
-    func theWholeFrameIsPinned() throws {
-        let atRest = try frameCorners.map {
-            try #require(projection(.neutral).screenPoint(of: $0, viewportSize: viewport))
-        }
+    @Test("Screen up is world -z, screen right is world +x")
+    func screenAxes() {
+        let (right, up, forward) = projection().basis
 
-        for control in peeks {
-            let projection = projection(control)
-            for (corner, rest) in zip(frameCorners, atRest) {
-                let moved = try #require(projection.screenPoint(of: corner, viewportSize: viewport))
-
-                // Not "roughly", and not "the middle of it": every corner, at
-                // every peek. The level is a box the player looks into, and the
-                // rim of that box is fixed to the display.
-                #expect(abs(moved.x - rest.x) < 0.001, "corner \(corner) moved at \(control)")
-                #expect(abs(moved.y - rest.y) < 0.001, "corner \(corner) moved at \(control)")
-            }
-        }
+        #expect(right.x > 0.999)
+        #expect(abs(right.z) < 1e-9)
+        #expect(up.z < 0)
+        #expect(forward.y < 0)
     }
 
-    @Test("The floor slides by the anchor height times the tangent of the peek")
-    func theFloorSlidesByThePredictedAmount() throws {
-        let metrics = level.metrics
-        let centreOfFloor = WorldPoint(x: 12, y: 0, z: 5.5)
+    // MARK: - Peeking
 
-        let rest = try #require(
-            projection(.neutral).screenPoint(of: centreOfFloor, viewportSize: viewport)
-        )
+    @Test("Peeking turns the view and lifts it, within a small range")
+    func peekIsBounded() {
+        let peeked = CameraControl().peeked(pitch: 90, yaw: -90)
 
-        for degrees in [8.0, 14, 20] {
-            let projection = projection(CameraControl(leanVertical: degrees))
-            let moved = try #require(
-                projection.screenPoint(of: centreOfFloor, viewportSize: viewport)
-            )
-
-            // Predicted from the geometry alone, with nothing measured: a point
-            // `h` below the anchor plane shifts by `h * tan(peek)`.
-            let expected = metrics.wallHeight * tan(degrees * .pi / 180)
-            let metresPerPoint = projection.verticalExtent / viewport.height
-            let travelled = (moved.y - rest.y) * metresPerPoint
-
-            #expect(travelled > 0, "the floor must follow the finger")
-            #expect(abs(travelled - expected) < 0.02, "moved \(travelled) m, expected \(expected) m")
-        }
+        #expect(peeked.pitch == CameraControl.pitchRange.upperBound)
+        #expect(peeked.yaw == CameraControl.yawRange.lowerBound)
     }
 
-    @Test("The floor follows the finger in all four directions, symmetrically")
-    func theFloorFollowsTheFinger() throws {
-        let centreOfFloor = WorldPoint(x: 12, y: 0, z: 5.5)
+    @Test("Turning the view moves the camera off the level's centre line")
+    func yawMovesTheCamera() {
+        let rest = projection()
+        let turned = projection(CameraControl(yaw: 20))
 
-        func screen(_ control: CameraControl) throws -> (x: Double, y: Double) {
-            try #require(projection(control).screenPoint(of: centreOfFloor, viewportSize: viewport))
-        }
-
-        let rest = try screen(.neutral)
-        let down = try screen(CameraControl(leanVertical: 15))
-        let up = try screen(CameraControl(leanVertical: -15))
-        let right = try screen(CameraControl(leanHorizontal: 15))
-        let left = try screen(CameraControl(leanHorizontal: -15))
-
-        #expect(down.y > rest.y)
-        #expect(up.y < rest.y)
-        #expect(right.x > rest.x)
-        #expect(left.x < rest.x)
-
-        #expect(abs((down.y - rest.y) + (up.y - rest.y)) < 0.001)
-        #expect(abs((right.x - rest.x) + (left.x - rest.x)) < 0.001)
-    }
-
-    // MARK: - The matrix agrees with the projection
-
-    @Test("At rest the matrix is an ordinary symmetric frustum")
-    func restingMatrixIsSymmetric() {
-        let columns = projection(.neutral).matrixColumns
-
-        // The off-axis terms are the only difference from a standard camera, so
-        // at rest they must be exactly zero.
-        #expect(columns[2][0] == 0)
-        #expect(columns[2][1] == 0)
-
-        // And the rest is the textbook reverse-depth perspective matrix, built
-        // here independently of the implementation.
-        let projection = projection(.neutral)
-        let halfHeight = tan(projection.fieldOfViewDegrees * .pi / 360)
-        let near = projection.near, far = projection.far
-
-        #expect(abs(columns[0][0] - 1 / (halfHeight * projection.aspectRatio)) < 1e-12)
-        #expect(abs(columns[1][1] - 1 / halfHeight) < 1e-12)
-        #expect(abs(columns[2][2] - near / (far - near)) < 1e-12)
-        #expect(columns[2][3] == -1)
-        #expect(abs(columns[3][2] - far * near / (far - near)) < 1e-12)
-    }
-
-    @Test("The matrix puts world points where the projection says they go")
-    func matrixAgreesWithScreenPoint() throws {
-        // Two implementations of one projection would drift, and the symptom
-        // would be taps landing away from the finger. This is the test that
-        // catches that: the matrix the renderer uses, applied by hand, has to
-        // agree with the maths tap handling uses.
-        for control in [
-            CameraControl.neutral,
-            CameraControl(leanVertical: 17, leanHorizontal: -13),
-            CameraControl(leanVertical: -20, leanHorizontal: 20, zoom: 2)
-        ] {
-            let projection = projection(control)
-            let columns = projection.matrixColumns
-            let camera = projection.position
-
-            for world in frameCorners + [WorldPoint(x: 4, y: 0, z: 2), WorldPoint(x: 19, y: 1.1, z: 8)] {
-                // Camera space: right is +x, up is -z, and the camera looks down
-                // its own -z.
-                let view = [
-                    world.x - camera.x,
-                    -(world.z - camera.z),
-                    -(camera.y - world.y),
-                    1.0
-                ]
-                var clip = [0.0, 0.0, 0.0, 0.0]
-                for row in 0..<4 {
-                    for column in 0..<4 {
-                        clip[row] += columns[column][row] * view[column]
-                    }
-                }
-                guard clip[3] > 0.0001 else { continue }
-
-                let expected = try #require(
-                    projection.screenPoint(of: world, viewportSize: viewport)
-                )
-                let byMatrix = (
-                    x: (clip[0] / clip[3] + 1) / 2 * viewport.width,
-                    y: (1 - clip[1] / clip[3]) / 2 * viewport.height
-                )
-
-                #expect(abs(byMatrix.x - expected.x) < 0.001, "at \(control), point \(world)")
-                #expect(abs(byMatrix.y - expected.y) < 0.001, "at \(control), point \(world)")
-            }
-        }
+        #expect(abs(turned.position.x - rest.position.x) > 1)
+        // And it is the same level, framed the same way: peeking is a look
+        // around, not a different shot.
+        #expect(abs(turned.verticalExtent - rest.verticalExtent) < 0.001)
     }
 
     @Test("A tap projects back to the pixel it came from")
     func projectionRoundTrip() throws {
         for control in [
             CameraControl.neutral,
-            CameraControl(leanVertical: 16, leanHorizontal: -14, zoom: 1.8)
+            CameraControl(pitch: -10, yaw: 18, zoom: 1.8)
         ] {
             let projection = projection(control)
             let screen = (x: 300.0, y: 210.0)
 
             let ray = try #require(projection.ray(screenPoint: screen, viewportSize: viewport))
             let onTheFloor = try #require(ray.hit())
-            let back = try #require(
-                projection.screenPoint(of: onTheFloor, viewportSize: viewport)
-            )
+            let back = try #require(projection.screenPoint(of: onTheFloor, viewportSize: viewport))
 
             #expect(abs(back.x - screen.x) < 0.5)
             #expect(abs(back.y - screen.y) < 0.5)
         }
     }
 
+    @Test("Rays run parallel, as a parallel projection requires")
+    func raysAreParallel() throws {
+        let projection = projection()
+        let left = try #require(projection.ray(
+            screenPoint: (x: 40, y: 200), viewportSize: viewport
+        ))
+        let right = try #require(projection.ray(
+            screenPoint: (x: 800, y: 100), viewportSize: viewport
+        ))
+
+        #expect(abs(left.direction.x - right.direction.x) < 1e-9)
+        #expect(abs(left.direction.y - right.direction.y) < 1e-9)
+        #expect(abs(left.direction.z - right.direction.z) < 1e-9)
+    }
+
     // MARK: - Framing
-
-    @Test("At rest the camera hangs straight above the middle of the level")
-    func hangsAboveTheCentre() {
-        let projection = projection(.neutral)
-
-        #expect(projection.anchor.centre.x == 12)
-        #expect(projection.anchor.centre.z == 5.5)
-        #expect(projection.anchor.height == level.metrics.wallHeight)
-
-        #expect(abs(projection.position.x - projection.anchor.centre.x) < 1e-12)
-        #expect(abs(projection.position.z - projection.anchor.centre.z) < 1e-12)
-        #expect(projection.position.y > level.metrics.wallHeight)
-    }
-
-    @Test("The camera never rotates")
-    func neverRotates() {
-        for control in peeks {
-            let (right, up, forward) = projection(control).basis
-            #expect(right == WorldPoint(x: 1, y: 0, z: 0))
-            #expect(up == WorldPoint(x: 0, y: 0, z: -1))
-            #expect(forward == WorldPoint(x: 0, y: -1, z: 0))
-        }
-    }
-
-    @Test("Nothing outside the building can come into frame")
-    func nothingOutsideShows() throws {
-        let metrics = level.metrics
-        let minX = metrics.meters(fromCells: level.bounds.minX)
-        let maxX = metrics.meters(fromCells: level.bounds.maxX)
-        let minZ = metrics.meters(fromCells: level.bounds.minY)
-        let maxZ = metrics.meters(fromCells: level.bounds.maxY)
-
-        for control in peeks {
-            let projection = projection(control)
-
-            for corner in [
-                (x: 0.0, y: 0.0),
-                (x: viewport.width, y: 0.0),
-                (x: 0.0, y: viewport.height),
-                (x: viewport.width, y: viewport.height)
-            ] {
-                let ray = try #require(
-                    projection.ray(screenPoint: corner, viewportSize: viewport)
-                )
-                // Where the corner of the display meets the anchor plane. The
-                // walls are the outermost thing in the level, so if this lands
-                // inside the outline, anything beyond the building is either
-                // behind a wall or off screen.
-                let hit = try #require(ray.hit(planeY: metrics.wallHeight))
-
-                #expect(hit.x >= minX - 0.001, "\(control) at \(corner)")
-                #expect(hit.x <= maxX + 0.001, "\(control) at \(corner)")
-                #expect(hit.z >= minZ - 0.001, "\(control) at \(corner)")
-                #expect(hit.z <= maxZ + 0.001, "\(control) at \(corner)")
-            }
-        }
-    }
-
-    @Test("office01 is shaped so that filling costs no playfield")
-    func officeSurvivesFill() {
-        let projection = projection(.neutral)
-
-        // Losing the outer face of an exterior wall is free; losing more than
-        // that is the level shape and the camera disagreeing.
-        let free = level.metrics.wallThickness
-        #expect(projection.croppedWidth < free, "cropped \(projection.croppedWidth) m of width")
-        #expect(projection.croppedDepth < free, "cropped \(projection.croppedDepth) m of depth")
-    }
 
     @Test("Fitting never crops, whatever the aspect ratio")
     func fitNeverCrops() {
@@ -328,24 +168,19 @@ struct CameraProjectionTests {
         }
     }
 
-    @Test("Zooming in moves the camera closer and shows less")
-    func zoomMovesIn() {
-        let rest = projection(.neutral)
-        let close = projection(CameraControl(zoom: 2))
+    @Test("The camera looks at the level from above and behind")
+    func cameraPlacement() {
+        let projection = projection()
 
-        #expect(close.position.y < rest.position.y)
-        #expect(close.anchorDistance < rest.anchorDistance)
+        #expect(projection.focus.x == 12)
+        #expect(projection.position.y > 10)
+        // Tilted, so it stands off toward +z rather than straight overhead.
+        #expect(projection.position.z > projection.focus.z)
     }
 
-    @Test("Peek and zoom are clamped and independent")
-    func controlsAreClamped() {
-        let peeked = CameraControl().leaned(vertical: 90, horizontal: -90)
-        #expect(peeked.leanVertical == CameraControl.leanRange.upperBound)
-        #expect(peeked.leanHorizontal == CameraControl.leanRange.lowerBound)
-
-        let zoomed = CameraControl(leanVertical: 8).zoomed(by: 10)
-        #expect(zoomed.zoom == CameraControl.zoomRange.upperBound)
-        #expect(zoomed.leanVertical == 8)
+    @Test("Zooming in shows less")
+    func zoomShowsLess() {
+        #expect(projection(CameraControl(zoom: 2)).verticalExtent < projection().verticalExtent)
     }
 
     @Test("At neutral zoom the view cannot be moved off centre")
@@ -377,5 +212,13 @@ struct CameraProjectionTests {
 
         #expect(abs(control.focusOffset.x - levelWidth / 4) < 0.001)
         #expect(abs(control.focusOffset.z - levelDepth / 4) < 0.001)
+    }
+
+    @Test("Zoom is clamped and leaves the peek alone")
+    func zoomIndependentOfPeek() {
+        let control = CameraControl(pitch: 8).zoomed(by: 10)
+
+        #expect(control.zoom == CameraControl.zoomRange.upperBound)
+        #expect(control.pitch == 8)
     }
 }
