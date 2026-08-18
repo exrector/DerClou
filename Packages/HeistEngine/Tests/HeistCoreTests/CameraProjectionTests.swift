@@ -435,4 +435,37 @@ struct CameraProjectionTests {
             .neutral, bounds: level.bounds, metrics: level.metrics, aspectRatio: viewport.width / viewport.height
         ) == .neutral)
     }
+
+    @Test("Once zoomed in, panning actually has somewhere to go, on both axes")
+    func panHasRealRangeOnceZoomedIn() {
+        // A live worry while chasing the pan gesture bug: is the frame itself
+        // hard-clamped shut, with no gesture able to move it regardless of
+        // how correct the touch handling is? Checked directly rather than
+        // assumed. office01 is 24×11 m, wider than it is deep, and this
+        // project's viewport is landscape and fixed there (see
+        // DerClouApp/Info.plist) — close to the level's own aspect, so unlike
+        // a portrait viewport this does not force one axis to stay pinned at
+        // zero range for the entire zoom scale.
+        let clamped = CameraProjectionSolver.clamp(
+            CameraControl(zoom: 1.5), bounds: level.bounds, metrics: level.metrics,
+            aspectRatio: viewport.width / viewport.height
+        )
+
+        // A focus offset pushed absurdly far in one direction, then clamped,
+        // lands exactly on that axis's ceiling — reading the ceiling this way
+        // avoids duplicating clampedToLevel's own visibleWidth/visibleDepth
+        // math by hand.
+        let widthRange = CameraProjectionSolver.clamp(
+            CameraControl(zoom: 1.5, focusOffset: WorldPoint(x: 1_000, y: 0, z: 0)),
+            bounds: level.bounds, metrics: level.metrics, aspectRatio: viewport.width / viewport.height
+        ).focusOffset.x
+        let depthRange = CameraProjectionSolver.clamp(
+            CameraControl(zoom: 1.5, focusOffset: WorldPoint(x: 0, y: 0, z: 1_000)),
+            bounds: level.bounds, metrics: level.metrics, aspectRatio: viewport.width / viewport.height
+        ).focusOffset.z
+
+        #expect(widthRange > 0.5, "no room to pan sideways at zoom 1.5 — widthRange \(widthRange)")
+        #expect(depthRange > 0.1, "no room to pan up/down at zoom 1.5 — depthRange \(depthRange)")
+        #expect(clamped.focusOffset == .zero, "zoom alone should not have moved the focus")
+    }
 }
