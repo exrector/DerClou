@@ -40,12 +40,17 @@ public enum LevelSceneBuilder {
 
         // The land first: grass, a path, planting, a couple of trees. Scenery
         // only, but it is what stops the level reading as a sealed box.
-        root.addChild(GreyboxKit.surroundings(around: geometry))
+        let surroundings = GreyboxKit.surroundings(around: geometry)
+        for child in surroundings.children where child.name == "environment.shrub" {
+            GreyboxKit.castsShadow(child)
+        }
+        root.addChild(surroundings)
 
         for box in geometry.floors {
             let entity = GreyboxKit.entity(for: box)
             entity.components.set(LevelEntityComponent(id: box.sourceID, kind: .architecture))
             entity.collision = CollisionComponent(shapes: [collisionShape(for: box)])
+            entity.components.set(GroundingShadowComponent(castsShadow: false, receivesShadow: true))
             root.addChild(entity)
         }
 
@@ -55,7 +60,7 @@ public enum LevelSceneBuilder {
             // Walls carry collision for line-of-sight queries later, but they
             // are not input targets: tapping a wall should not steal the tap.
             entity.collision = CollisionComponent(shapes: [collisionShape(for: box)])
-            root.addChild(GreyboxKit.contactShadow(under: box))
+            GreyboxKit.castsShadow(entity)
             entity.components.set(OccludingWallComponent(
                 height: box.height,
                 centre: WorldPoint(x: box.center.x, y: box.center.y, z: box.center.z),
@@ -69,7 +74,7 @@ public enum LevelSceneBuilder {
             let entity = GreyboxKit.entity(for: prop.box, name: prop.id)
             entity.components.set(LevelEntityComponent(id: prop.id, kind: prop.prototype.kind))
             entity.collision = CollisionComponent(shapes: [collisionShape(for: prop.box)])
-            root.addChild(GreyboxKit.contactShadow(under: prop.box))
+            GreyboxKit.castsShadow(entity)
             if !prop.prototype.interactions.isEmpty {
                 entity.components.set(
                     InteractableComponent(id: prop.id, interactions: prop.prototype.interactions)
@@ -87,6 +92,7 @@ public enum LevelSceneBuilder {
                 PatrolRoute(actor: $0, metrics: blueprint.metrics, character: actor.character)
             }
             let entity = actorEntity(for: actor, route: route)
+            GreyboxKit.castsShadow(entity)
             root.addChild(entity)
             actorEntities[actor.id] = entity
         }
@@ -129,12 +135,6 @@ public enum LevelSceneBuilder {
         // above *and* from the tactical angle, which a cylinder does not, and it
         // is the shape a board game would use.
         let material = GreyboxKit.flat(bodyColor, roughness: 0.55)
-
-        container.addChild(GreyboxKit.contactShadow(
-            radius: Double(radius) * 1.15,
-            height: Double(height),
-            at: .zero
-        ))
 
         let base = ModelEntity(
             mesh: .generateCylinder(height: 0.06, radius: radius * 1.25),
@@ -193,13 +193,14 @@ public enum LevelSceneBuilder {
         return container
     }
 
-    /// One warm key with shadows, a cool sky fill, and practicals inside.
+    /// One warm key with shadows, and practicals inside.
     ///
-    /// The key is angled rather than overhead: a tilted view lives on the shadows
-    /// that walls and furniture cast across the floor, and straight-down light
-    /// gives none. The fill is blue because the light not coming from the sun
-    /// comes from the sky, and that is what keeps the shadow sides from going
-    /// muddy — it is most of what makes the scene read as airy rather than sealed.
+    /// One, because RealityKit supports a single directional light per scene —
+    /// an earlier version had three and the extra two did nothing. The key is
+    /// angled rather than overhead: seen from above, the whole depth of the
+    /// scene is in the shadows walls and furniture throw across the floor, and
+    /// an overhead sun throws none. Everything below the sun's own light comes
+    /// from the point lamps in the rooms.
     private static func addLighting(
         to root: Entity,
         geometry: LevelGeometry,
@@ -213,7 +214,7 @@ public enum LevelSceneBuilder {
         key.name = "light.key"
         key.components.set(DirectionalLightComponent(
             color: PlatformColor(red: 1.0, green: 0.95, blue: 0.86, alpha: 1),
-            intensity: 8000
+            intensity: 2200
         ))
         // Two numbers decide whether a shadow exists at all, and both were
         // wrong. The reach defaults to five metres while a level is
@@ -225,6 +226,14 @@ public enum LevelSceneBuilder {
             shadowProjection: .automatic(maximumDistance: reach),
             depthBias: quality.shadowDepthBias
         ))
+        // The sun, aimed. A directional light with no orientation points along
+        // its own -z, which is horizontal, and a horizontal sun throws nothing
+        // onto a floor. Over the left shoulder at about thirty-five degrees.
+        key.look(
+            at: centre,
+            from: centre + SIMD3<Float>(-11, 9, -6),
+            relativeTo: nil
+        )
         root.addChild(key)
 
         // Practicals: one warm lamp per quadrant of the plan, so rooms read as
@@ -235,7 +244,7 @@ public enum LevelSceneBuilder {
             lamp.name = "light.practical.\(index)"
             lamp.components.set(PointLightComponent(
                 color: PlatformColor(red: 1.0, green: 0.92, blue: 0.80, alpha: 1),
-                intensity: 6000,
+                intensity: 1500,
                 attenuationRadius: 7
             ))
             lamp.setPosition(SIMD3<Float>(position.0, lampHeight, position.1), relativeTo: nil)

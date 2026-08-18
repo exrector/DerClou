@@ -163,87 +163,28 @@ public enum GreyboxKit {
         return container
     }
 
-    /// Where the sun is, expressed as what a shadow does.
+    /// Marks something as casting a shadow from the scene's light.
     ///
-    /// The direction it falls, and how far it runs per meter of height. The sun
-    /// sits over the left shoulder at about fifty-five degrees, so a two-metre
-    /// wall throws about a metre and a half — long enough to read from directly
-    /// above, short enough not to swamp the floor plan.
-    ///
-    /// This one constant is what makes the scene consistent: every shadow in the
-    /// level agrees about where the light is.
-    public static let sun = (
-        direction: (x: 0.88, z: 0.48),
-        runPerMeter: 0.70
-    )
-
-    /// The shadow something throws on the floor.
-    ///
-    /// Seen from straight above, a shadow tucked under its own object is
-    /// invisible, so it has to be offset by what the sun's angle actually gives:
-    /// height times the run. That is also what makes the height of a thing
-    /// legible in a plan view — the long shadow of a wall and the short one of a
-    /// crate are the depth cue.
-    ///
-    /// RealityKit's own dynamic shadows are configured and correct here — reach
-    /// set against the level's size, small bias, a single directional light,
-    /// which is all RealityKit supports — and they do not render in the
-    /// simulator, a known weak spot of simulated environments. These are not a
-    /// workaround for that: a stylised board-game look wants clean even shadows
-    /// anyway, and this is what such games ship.
+    /// **Required.** RealityKit does not shadow an entity because a light exists
+    /// and the light has a shadow: from iOS 18 the caster itself has to carry
+    /// `DynamicLightShadowComponent`, and without it the scene renders with no
+    /// shadows at all, however the light is configured. That is what was wrong
+    /// here, and it was wrong long enough to be worth this comment.
     @MainActor
-    public static func contactShadow(under box: WorldBox) -> ModelEntity {
-        let run = box.height * sun.runPerMeter
-        let offset = (x: run * sun.direction.x, z: run * sun.direction.z)
-
-        return shadowPatch(
-            width: box.width + abs(offset.x),
-            depth: box.depth + abs(offset.z),
-            at: (x: box.center.x + offset.x / 2, z: box.center.z + offset.z / 2),
-            cornerRadius: min(box.width, box.depth) * 0.2,
-            opacity: 0.22
-        )
+    public static func castsShadow(_ entity: Entity) {
+        // Both of RealityKit's shadow paths, because they are separate systems
+        // and either can be the one a given platform actually runs:
+        // `DynamicLightShadowComponent` for shadows thrown by the scene's own
+        // light, `GroundingShadowComponent` for the ones an object drops on the
+        // surface under it.
+        entity.components.set(DynamicLightShadowComponent(castsShadow: true))
+        entity.components.set(GroundingShadowComponent(castsShadow: true, receivesShadow: true))
+        for child in entity.children {
+            castsShadow(child)
+        }
     }
 
-    /// The same, for a person: a round footprint and a softer edge.
-    @MainActor
-    public static func contactShadow(radius: Double, height: Double, at point: WorldPoint) -> ModelEntity {
-        let run = height * sun.runPerMeter
-        let offset = (x: run * sun.direction.x, z: run * sun.direction.z)
-
-        return shadowPatch(
-            width: radius * 2 + abs(offset.x),
-            depth: radius * 2 + abs(offset.z),
-            at: (x: point.x + offset.x / 2, z: point.z + offset.z / 2),
-            cornerRadius: radius,
-            opacity: 0.26
-        )
-    }
-
-    @MainActor
-    private static func shadowPatch(
-        width: Double,
-        depth: Double,
-        at point: (x: Double, z: Double),
-        cornerRadius: Double,
-        opacity: Float
-    ) -> ModelEntity {
-        var material = UnlitMaterial(color: PlatformColor(white: 0.08, alpha: 1))
-        material.blending = .transparent(opacity: .init(floatLiteral: opacity))
-
-        let entity = ModelEntity(
-            mesh: .generateBox(
-                size: SIMD3<Float>(Float(width), 0.01, Float(depth)),
-                cornerRadius: Float(cornerRadius)
-            ),
-            materials: [material]
-        )
-        entity.name = "shadow"
-        entity.position = SIMD3<Float>(Float(point.x), 0.011, Float(point.z))
-        return entity
-    }
-
-    /// A plain matte material. Most of the scenery wants nothing else.
+    /// A plain matte material.    /// A plain matte material. Most of the scenery wants nothing else.
     static func flat(_ colour: PlatformColor, roughness: Float) -> PhysicallyBasedMaterial {
         var material = PhysicallyBasedMaterial()
         material.baseColor = .init(tint: colour)
