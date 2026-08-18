@@ -55,6 +55,7 @@ public enum LevelSceneBuilder {
             // Walls carry collision for line-of-sight queries later, but they
             // are not input targets: tapping a wall should not steal the tap.
             entity.collision = CollisionComponent(shapes: [collisionShape(for: box)])
+            root.addChild(GreyboxKit.contactShadow(under: box))
             entity.components.set(OccludingWallComponent(
                 height: box.height,
                 centre: WorldPoint(x: box.center.x, y: box.center.y, z: box.center.z),
@@ -68,6 +69,7 @@ public enum LevelSceneBuilder {
             let entity = GreyboxKit.entity(for: prop.box, name: prop.id)
             entity.components.set(LevelEntityComponent(id: prop.id, kind: prop.prototype.kind))
             entity.collision = CollisionComponent(shapes: [collisionShape(for: prop.box)])
+            root.addChild(GreyboxKit.contactShadow(under: prop.box))
             if !prop.prototype.interactions.isEmpty {
                 entity.components.set(
                     InteractableComponent(id: prop.id, interactions: prop.prototype.interactions)
@@ -127,6 +129,12 @@ public enum LevelSceneBuilder {
         // above *and* from the tactical angle, which a cylinder does not, and it
         // is the shape a board game would use.
         let material = GreyboxKit.flat(bodyColor, roughness: 0.55)
+
+        container.addChild(GreyboxKit.contactShadow(
+            radius: Double(radius) * 1.15,
+            height: Double(height),
+            at: .zero
+        ))
 
         let base = ModelEntity(
             mesh: .generateCylinder(height: 0.06, radius: radius * 1.25),
@@ -207,45 +215,17 @@ public enum LevelSceneBuilder {
             color: PlatformColor(red: 1.0, green: 0.95, blue: 0.86, alpha: 1),
             intensity: 8000
         ))
-        // The shadow's reach has to be stated: it defaults to five metres, and a
-        // level is twenty-four across, so with the default the scene renders
-        // completely unshadowed and reads as flat paper. Measured, not guessed.
-        let reach = Float(max(
-            bounds.maxX - bounds.minX,
-            bounds.maxZ - bounds.minZ
-        ) * 1.6 + 20)
+        // Two numbers decide whether a shadow exists at all, and both were
+        // wrong. The reach defaults to five metres while a level is
+        // twenty-four across, so nothing was ever in range; and the depth bias
+        // is measured against that reach, so a large bias over a large reach
+        // pushes every shadow clean off its own caster. Tight reach, small bias.
+        let reach = Float(max(bounds.maxX - bounds.minX, bounds.maxZ - bounds.minZ) + 40)
         key.components.set(DirectionalLightComponent.Shadow(
             shadowProjection: .automatic(maximumDistance: reach),
             depthBias: quality.shadowDepthBias
         ))
-        key.look(
-            at: centre,
-            from: centre + SIMD3<Float>(-11, 9, -6),
-            relativeTo: nil
-        )
         root.addChild(key)
-
-        let sky = Entity()
-        sky.name = "light.sky"
-        sky.components.set(DirectionalLightComponent(
-            color: PlatformColor(red: 0.66, green: 0.78, blue: 0.98, alpha: 1),
-            intensity: 1400
-        ))
-        sky.look(
-            at: centre,
-            from: centre + SIMD3<Float>(8, 11, 9),
-            relativeTo: nil
-        )
-        root.addChild(sky)
-
-        let bounce = Entity()
-        bounce.name = "light.bounce"
-        bounce.components.set(DirectionalLightComponent(
-            color: PlatformColor(red: 0.85, green: 0.82, blue: 0.74, alpha: 1),
-            intensity: 450
-        ))
-        bounce.look(at: centre, from: centre + SIMD3<Float>(2, 3, -12), relativeTo: nil)
-        root.addChild(bounce)
 
         // Practicals: one warm lamp per quadrant of the plan, so rooms read as
         // lit spaces rather than as a uniformly bright drawing.

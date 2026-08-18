@@ -181,11 +181,12 @@ public struct CameraControl: Sendable, Equatable {
 
     public var isNeutral: Bool { self == .neutral }
 
-    /// How far the view may be lifted or lowered while peeking.
-    public static let pitchRange: ClosedRange<Double> = -14...14
+    /// How far the view may be tilted over. It starts at straight down, so this
+    /// only goes one way, and it stays where the player leaves it.
+    public static let pitchRange: ClosedRange<Double> = 0...48
     /// How far it may be turned. Deliberately small: past this the player has to
     /// re-learn which way is which.
-    public static let yawRange: ClosedRange<Double> = -22...22
+    public static let yawRange: ClosedRange<Double> = -30...30
     /// Zoom limits.
     public static let zoomRange: ClosedRange<Double> = 1.0...3.0
 
@@ -233,12 +234,10 @@ public struct CameraControl: Sendable, Equatable {
 public enum CameraProjectionSolver {
     /// The resting tilt, in degrees from straight down.
     ///
-    /// Far enough over that a room has depth and a figure has a silhouette;
-    /// short of the angle at which the inside faces of the walls start eating
-    /// the frame. A wall covers `height x sin(tilt)` of the screen and a room
-    /// covers `depth x cos(tilt)`, so the tilt is really a bargain between the
-    /// two — past the mid forties the walls win and the floor plan disappears.
-    public static let defaultTiltDegrees = 40.0
+    /// Zero, and stated by the owner from the first day: at rest the camera
+    /// looks straight down and the level is a plan. Depth is something the
+    /// player asks for by dragging, not something the view imposes.
+    public static let defaultTiltDegrees = 0.0
 
     /// - Parameters:
     ///   - bounds: level bounds, in cells.
@@ -246,8 +245,8 @@ public enum CameraProjectionSolver {
     ///   - aspectRatio: viewport width divided by height.
     ///   - mode: whether the level is fitted inside the screen or fills it.
     ///   - tiltDegrees: resting tilt away from straight down.
-    ///   - margin: padding around the level, in meters. The building sits in a
-    ///     landscape rather than in a void, so a little of it should show.
+    ///   - margin: padding around the level, in meters. Enough for the rim of
+    ///     ground around the building, and no more.
     ///   - control: the player's peek and zoom.
     public static func solve(
         bounds: CellRect,
@@ -308,7 +307,11 @@ public enum CameraProjectionSolver {
                 y: 0,
                 z: centre.z - bias + clamped.focusOffset.z
             ),
-            distance: max(width, depth) * 2 + 20,
+            // Kept as short as the geometry allows. Orthographic scale does
+            // not depend on the distance, but the shadow cascade is built
+            // around the *camera*, so standing needlessly far back puts the
+            // level outside its own shadows.
+            distance: metrics.wallHeight + 12,
             tiltDegrees: tiltTotal,
             yawDegrees: control.yaw,
             croppedWidth: max(0, levelWidth - visibleWidth),
