@@ -30,6 +30,30 @@ public final class GameSession {
     /// Mission-critical objects currently sitting outside that region.
     public private(set) var placementIssues: [LevelIssue] = []
 
+    /// Camera settings being chosen by eye. Temporary; see `CameraTuning`.
+    public var cameraTuning = CameraTuning() {
+        didSet {
+            guard oldValue.wallHeightScale != cameraTuning.wallHeightScale,
+                  let blueprint = sourceBlueprint else { return }
+            // Wall height lives in the level's own metrics, so changing it means
+            // building the level again rather than scaling anything.
+            load(blueprint, catalog: sourceCatalog)
+        }
+    }
+
+    /// The level as authored, before any tuning was applied to it.
+    @ObservationIgnored private var sourceBlueprint: LevelBlueprint?
+    @ObservationIgnored private var sourceCatalog: PropCatalog = .standard
+
+    /// The height the view is anchored at: the level's own wall height, whatever
+    /// the walls are currently built to.
+    public var anchorHeight: Double? {
+        switch cameraTuning.anchor {
+        case .wallTops: sourceBlueprint?.metrics.wallHeight
+        case .floor: 0
+        }
+    }
+
     @ObservationIgnored private var destinationMarker: Entity?
     @ObservationIgnored private var safeBoundsMarker: Entity?
 
@@ -48,7 +72,13 @@ public final class GameSession {
     public func load(_ blueprint: LevelBlueprint, catalog: PropCatalog = .standard) {
         HeistComponents.registerAll()
 
-        let built = LevelSceneBuilder.build(blueprint, catalog: catalog)
+        sourceBlueprint = blueprint
+        sourceCatalog = catalog
+
+        var tuned = blueprint
+        tuned.metrics.wallHeight = blueprint.metrics.wallHeight * cameraTuning.wallHeightScale
+
+        let built = LevelSceneBuilder.build(tuned, catalog: catalog)
         level = built
 
         for issue in built.issues {

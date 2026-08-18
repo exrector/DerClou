@@ -215,6 +215,40 @@ public struct CameraProjection: Sendable, Equatable {
     }
 }
 
+/// The angle the view sits at when nobody is touching it.
+///
+/// The peek is one number, and nothing says it has to rest at zero. Held a
+/// little off vertical, every piece of furniture shows a side, every wall shows
+/// a face and the depth of a room is legible before the player does anything —
+/// while the level stays an exact rectangle filling the screen. It is a plan
+/// drawn with a shift lens rather than a photograph taken from a chair.
+///
+/// Settled 2026-08-18 by the owner, after comparing this against a tilted
+/// tabletop camera in the manner of Hitman GO. That camera reads well but turns
+/// the level into a trapezium, and this game is one where the player has to
+/// compare two routes by eye.
+///
+/// Art direction, not mechanics: the player's peek is a delta around it, and
+/// resetting the camera returns here rather than to flat.
+public struct RestingLean: Sendable, Equatable {
+    /// Degrees down the screen. Positive shows the far side of a room.
+    public var vertical: Double
+    /// Degrees across it.
+    public var horizontal: Double
+
+    public init(vertical: Double = 0, horizontal: Double = 0) {
+        self.vertical = vertical
+        self.horizontal = horizontal
+    }
+
+    /// Straight down, with no obliquity at all.
+    public static let flat = RestingLean()
+
+    /// The game's own. Enough to read height and depth at a glance; far short of
+    /// hiding anything behind anything.
+    public static let tactical = RestingLean(vertical: 11, horizontal: 7)
+}
+
 /// How the level is fitted to the viewport.
 public enum FramingMode: String, Sendable, Codable, CaseIterable {
     /// Show the whole anchor rectangle, letterboxing whichever axis does not
@@ -340,7 +374,8 @@ public enum CameraProjectionSolver {
     ///     floor instead — the gameplay plane stays put and everything standing
     ///     on it leans, which is the other way of reading the same scene and is
     ///     under comparison in the labs.
-    ///   - control: the player's peek and zoom.
+    ///   - restingLean: the angle the view sits at with no gesture in progress.
+    ///   - control: the player's peek and zoom, applied on top of that.
     public static func solve(
         bounds: CellRect,
         metrics: LevelMetrics,
@@ -349,6 +384,7 @@ public enum CameraProjectionSolver {
         fieldOfViewDegrees: Double = defaultFieldOfViewDegrees,
         margin: Double = 0,
         anchorHeight: Double? = nil,
+        restingLean: RestingLean = .flat,
         control: CameraControl = .neutral
     ) -> CameraProjection {
         let aspect = max(aspectRatio, 0.01)
@@ -397,8 +433,8 @@ public enum CameraProjectionSolver {
             fieldOfViewDegrees: fieldOfViewDegrees,
             anchor: anchor,
             anchorDistance: coveredHalfDepth / halfAngle,
-            peekAcross: tan(clamped.leanHorizontal * .pi / 180),
-            peekUp: tan(clamped.leanVertical * .pi / 180),
+            peekAcross: tan((restingLean.horizontal + clamped.leanHorizontal) * .pi / 180),
+            peekUp: tan((restingLean.vertical + clamped.leanVertical) * .pi / 180),
             croppedWidth: max(0, levelWidth - coveredHalfWidth * 2),
             croppedDepth: max(0, levelDepth - coveredHalfDepth * 2)
         )

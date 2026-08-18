@@ -20,7 +20,7 @@ struct CameraLab: View {
     private let bounds = CellRect(x: 0, y: 0, width: 10, depth: 6)
     private let metrics = LevelMetrics.standard
 
-    @State private var camera = TacticalCamera()
+    @State private var camera = TacticalCamera(restingLean: .flat)
     @State private var lean = (across: 0.0, up: 0.0)
     @State private var leanAtDragStart: (across: Double, up: Double)?
 

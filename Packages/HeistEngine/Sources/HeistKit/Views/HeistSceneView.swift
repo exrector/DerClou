@@ -61,6 +61,10 @@ public struct HeistSceneView: View {
             .onChange(of: proxy.size) { _, size in updateViewport(size) }
             .onChange(of: session.level?.blueprint.id) { _, _ in updateViewport(proxy.size) }
             .onChange(of: safeAreaInsets) { _, _ in updateViewport(proxy.size) }
+            .onChange(of: session.cameraTuning) { _, _ in
+                applyTuning()
+                frameCamera(size: viewportSize)
+            }
             .onChange(of: session.cameraResetToken) { _, _ in
                 camera.control = .neutral
                 frameCamera(size: viewportSize)
@@ -105,8 +109,15 @@ public struct HeistSceneView: View {
         )
     }
 
+    /// Hands the live tuning to the camera. Temporary; see `CameraTuning`.
+    private func applyTuning() {
+        camera.anchorHeight = session.anchorHeight
+        camera.restingLean = session.cameraTuning.restingLean
+    }
+
     private func frameCamera(size: CGSize) {
         guard let blueprint = session.level?.blueprint, size.width > 0, size.height > 0 else { return }
+        applyTuning()
         camera.frame(
             bounds: blueprint.bounds,
             metrics: blueprint.metrics,

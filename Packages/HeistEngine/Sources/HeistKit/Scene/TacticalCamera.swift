@@ -33,6 +33,9 @@ public final class TacticalCamera {
     /// walls, which is the game's camera.
     public var anchorHeight: Double?
 
+    /// The angle the view sits at with no gesture in progress.
+    public var restingLean: RestingLean
+
     public let entity: Entity
 
     /// The projection currently applied. The single source of truth for anything
@@ -43,12 +46,14 @@ public final class TacticalCamera {
         margin: Double = 0,
         mode: FramingMode = .fill,
         fieldOfViewDegrees: Double = CameraProjectionSolver.defaultFieldOfViewDegrees,
-        anchorHeight: Double? = nil
+        anchorHeight: Double? = nil,
+        restingLean: RestingLean = .tactical
     ) {
         self.margin = margin
         self.mode = mode
         self.fieldOfViewDegrees = fieldOfViewDegrees
         self.anchorHeight = anchorHeight
+        self.restingLean = restingLean
         self.entity = Entity()
         entity.name = "camera.tactical"
 
@@ -83,6 +88,7 @@ public final class TacticalCamera {
             fieldOfViewDegrees: fieldOfViewDegrees,
             margin: margin,
             anchorHeight: anchorHeight,
+            restingLean: restingLean,
             control: control
         )
         if !projection.showsWholeLevel {

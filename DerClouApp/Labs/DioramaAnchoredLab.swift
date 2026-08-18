@@ -32,7 +32,7 @@ struct DioramaAnchoredLab: View {
     @State private var restingPeekAcross = 9.0
     @State private var anchorToFrame = false
 
-    @State private var camera = TacticalCamera(margin: 0.55, mode: .fit, anchorHeight: 0)
+    @State private var camera = TacticalCamera(margin: 0.55, mode: .fit, anchorHeight: 0, restingLean: .flat)
     @State private var peek = (across: 0.0, up: 0.0)
     @State private var peekAtDragStart: (across: Double, up: Double)?
 
@@ -86,8 +86,8 @@ struct DioramaAnchoredLab: View {
 
     private var dials: some View {
         HStack(spacing: 14) {
-            dial("вниз", value: $restingPeek)
-            dial("вбок", value: $restingPeekAcross, range: -20...20)
+            dial("вниз", value: $restingPeek, range: 0...40)
+            dial("вбок", value: $restingPeekAcross, range: -40...40)
             Toggle("рама", isOn: $anchorToFrame)
                 .toggleStyle(.button)
                 .font(.caption2)
@@ -101,7 +101,7 @@ struct DioramaAnchoredLab: View {
     private func dial(
         _ title: String,
         value: Binding<Double>,
-        range: ClosedRange<Double> = 0...20
+        range: ClosedRange<Double> = 0...40
     ) -> some View {
         HStack(spacing: 6) {
             Text(title)
@@ -118,7 +118,10 @@ struct DioramaAnchoredLab: View {
         // The resting peek is simply where the peek starts from. It tips the
         // scene up the screen, which is the direction that shows the far side of
         // a room, and the finger works from there.
-        camera.control = camera.control.leaned(
+        // Set as the resting lean rather than through `CameraControl`, whose
+        // clamp is the game's comfort range and not a limit of the camera: the
+        // frame holds at any angle, so the lab must be able to go past it.
+        camera.restingLean = RestingLean(
             vertical: restingPeek + peek.up,
             horizontal: restingPeekAcross + peek.across
         )
