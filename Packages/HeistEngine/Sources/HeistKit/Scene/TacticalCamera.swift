@@ -30,7 +30,7 @@ public final class TacticalCamera {
     public private(set) var projection: CameraProjection?
 
     public init(
-        margin: Double = 3,
+        margin: Double = 1.4,
         mode: FramingMode = .fit,
         tiltDegrees: Double = CameraProjectionSolver.defaultTiltDegrees
     ) {

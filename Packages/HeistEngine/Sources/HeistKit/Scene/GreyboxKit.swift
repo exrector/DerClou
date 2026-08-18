@@ -83,11 +83,14 @@ public enum GreyboxKit {
         return entity
     }
 
-    /// The land the building stands on: grass, a path, and some planting.
+    /// A border of outside, run around the building like the rim of a diorama.
     ///
-    /// Scenery, and none of it is walkable or reaches the navigation grid. It
-    /// earns its place by what it does to the eye — a building with ground
-    /// around it reads as a place, and one without reads as a box.
+    /// Deliberately narrow. An earlier version put the building in a landscape
+    /// with a path and trees, and the owner's objection was exact: the outside
+    /// was eating the playfield. The job here is only to stop the level reading
+    /// as a sealed box — a strip of ground, a kerb, and a little planting is
+    /// enough to say "this has an outside", and everything past that is screen
+    /// the game is not using.
     @MainActor
     public static func surroundings(around geometry: LevelGeometry) -> Entity {
         var minX = 0.0, maxX = 0.0, minZ = 0.0, maxZ = 0.0
@@ -101,86 +104,143 @@ public enum GreyboxKit {
         let container = Entity()
         container.name = "environment"
 
-        // Generous, because the view can be turned and zoomed: the grass has to
-        // reach past the corners of the frame at any peek.
-        let padding = max(maxX - minX, maxZ - minZ)
-        let width = (maxX - minX) + padding * 2
-        let depth = (maxZ - minZ) + padding * 2
+        let width = Float(maxX - minX)
+        let depth = Float(maxZ - minZ)
         let centre = SIMD3<Float>(Float((minX + maxX) / 2), 0, Float((minZ + maxZ) / 2))
 
+        /// How far out the rim goes, in meters. One pace of paving and one of
+        /// grass, and that is the whole exterior.
+        let paving: Float = 1.0
+        let grassBand: Float = 1.6
+        let rim = paving + grassBand
+
         let grass = ModelEntity(
-            mesh: .generateBox(width: Float(width), height: 0.3, depth: Float(depth)),
-            materials: [flat(PlatformColor(red: 0.52, green: 0.63, blue: 0.40, alpha: 1), roughness: 0.95)]
+            mesh: .generateBox(
+                size: SIMD3<Float>(width + rim * 2, 0.24, depth + rim * 2),
+                cornerRadius: 0.12
+            ),
+            materials: [flat(PlatformColor(red: 0.55, green: 0.66, blue: 0.42, alpha: 1), roughness: 0.95)]
         )
         grass.name = "environment.grass"
-        grass.position = centre + SIMD3<Float>(0, -0.19, 0)
+        // Every layer of ground sits strictly below the level's own floor, whose
+        // top is at zero. Getting this wrong buries the floor and every shadow
+        // on it under the paving.
+        grass.position = centre + SIMD3<Float>(0, -0.26, 0)
         container.addChild(grass)
 
-        // A paved apron just outside the walls, so the building meets the ground
-        // through something rather than being planted in a lawn.
         let apron = ModelEntity(
-            mesh: .generateBox(
-                width: Float(maxX - minX) + 2.4,
-                height: 0.08,
-                depth: Float(maxZ - minZ) + 2.4
-            ),
-            materials: [flat(PlatformColor(red: 0.74, green: 0.72, blue: 0.67, alpha: 1), roughness: 0.9)]
+            mesh: .generateBox(width: width + paving * 2, height: 0.16, depth: depth + paving * 2),
+            materials: [flat(PlatformColor(red: 0.80, green: 0.78, blue: 0.72, alpha: 1), roughness: 0.9)]
         )
         apron.name = "environment.apron"
-        apron.position = centre + SIMD3<Float>(0, -0.05, 0)
+        apron.position = centre + SIMD3<Float>(0, -0.16, 0)
         container.addChild(apron)
 
-        // A path leading away from the near edge, with low hedging along it.
-        let path = ModelEntity(
-            mesh: .generateBox(width: 2.6, height: 0.06, depth: 7),
-            materials: [flat(PlatformColor(red: 0.83, green: 0.79, blue: 0.71, alpha: 1), roughness: 0.9)]
-        )
-        path.name = "environment.path"
-        path.position = SIMD3<Float>(centre.x, -0.03, Float(maxZ) + 4.6)
-        container.addChild(path)
-
+        // Planting on the grass band, spaced along the long sides. Small, and
+        // outside the walls, so they never argue with anything in the level.
         let hedge = flat(PlatformColor(red: 0.36, green: 0.50, blue: 0.31, alpha: 1), roughness: 0.95)
-        for side in [-1.0, 1.0] {
-            let run = ModelEntity(
-                mesh: .generateBox(size: SIMD3<Float>(0.55, 0.55, 6.4), cornerRadius: 0.22),
-                materials: [hedge]
-            )
-            run.name = "environment.hedge"
-            run.position = SIMD3<Float>(
-                centre.x + Float(side) * 1.9,
-                0.24,
-                Float(maxZ) + 4.6
-            )
-            container.addChild(run)
+        let stride = Double(width) / 6
+        for index in 0..<6 {
+            let x = Float(minX + stride * (Double(index) + 0.5))
+            for z in [centre.z - depth / 2 - rim * 0.6, centre.z + depth / 2 + rim * 0.6] {
+                let shrub = ModelEntity(mesh: .generateSphere(radius: 0.34), materials: [hedge])
+                shrub.name = "environment.shrub"
+                shrub.position = SIMD3<Float>(x, -0.06, z)
+                shrub.scale = SIMD3<Float>(1, 0.62, 1)
+                container.addChild(shrub)
+            }
         }
-
-        // Two trees, off to the sides, for something taller than the building to
-        // catch the light.
-        for side in [-1.0, 1.0] {
-            let tree = Entity()
-            tree.name = "environment.tree"
-            tree.position = SIMD3<Float>(
-                Float(side < 0 ? minX - 4.6 : maxX + 4.6),
-                0,
-                Float(minZ) + Float(maxZ - minZ) * 0.15
-            )
-            let trunk = ModelEntity(
-                mesh: .generateCylinder(height: 2.2, radius: 0.18),
-                materials: [flat(PlatformColor(red: 0.48, green: 0.38, blue: 0.28, alpha: 1), roughness: 0.9)]
-            )
-            trunk.position = SIMD3<Float>(0, 1.1, 0)
-            tree.addChild(trunk)
-            let crown = ModelEntity(
-                mesh: .generateSphere(radius: 1.5),
-                materials: [flat(PlatformColor(red: 0.38, green: 0.54, blue: 0.33, alpha: 1), roughness: 0.95)]
-            )
-            crown.position = SIMD3<Float>(0, 2.9, 0)
-            crown.scale = SIMD3<Float>(1, 0.85, 1)
-            tree.addChild(crown)
-            container.addChild(tree)
+        for z in [centre.z - depth / 4, centre.z + depth / 4] {
+            for x in [centre.x - width / 2 - rim * 0.6, centre.x + width / 2 + rim * 0.6] {
+                let shrub = ModelEntity(mesh: .generateSphere(radius: 0.34), materials: [hedge])
+                shrub.name = "environment.shrub"
+                shrub.position = SIMD3<Float>(x, -0.06, z)
+                shrub.scale = SIMD3<Float>(1, 0.62, 1)
+                container.addChild(shrub)
+            }
         }
 
         return container
+    }
+
+    /// Where the sun is, expressed as what a shadow does.
+    ///
+    /// The direction it falls, and how far it runs per meter of height. The sun
+    /// sits over the left shoulder at about fifty-five degrees, so a two-metre
+    /// wall throws about a metre and a half — long enough to read from directly
+    /// above, short enough not to swamp the floor plan.
+    ///
+    /// This one constant is what makes the scene consistent: every shadow in the
+    /// level agrees about where the light is.
+    public static let sun = (
+        direction: (x: 0.88, z: 0.48),
+        runPerMeter: 0.70
+    )
+
+    /// The shadow something throws on the floor.
+    ///
+    /// Seen from straight above, a shadow tucked under its own object is
+    /// invisible, so it has to be offset by what the sun's angle actually gives:
+    /// height times the run. That is also what makes the height of a thing
+    /// legible in a plan view — the long shadow of a wall and the short one of a
+    /// crate are the depth cue.
+    ///
+    /// RealityKit's own dynamic shadows are configured and correct here — reach
+    /// set against the level's size, small bias, a single directional light,
+    /// which is all RealityKit supports — and they do not render in the
+    /// simulator, a known weak spot of simulated environments. These are not a
+    /// workaround for that: a stylised board-game look wants clean even shadows
+    /// anyway, and this is what such games ship.
+    @MainActor
+    public static func contactShadow(under box: WorldBox) -> ModelEntity {
+        let run = box.height * sun.runPerMeter
+        let offset = (x: run * sun.direction.x, z: run * sun.direction.z)
+
+        return shadowPatch(
+            width: box.width + abs(offset.x),
+            depth: box.depth + abs(offset.z),
+            at: (x: box.center.x + offset.x / 2, z: box.center.z + offset.z / 2),
+            cornerRadius: min(box.width, box.depth) * 0.2,
+            opacity: 0.22
+        )
+    }
+
+    /// The same, for a person: a round footprint and a softer edge.
+    @MainActor
+    public static func contactShadow(radius: Double, height: Double, at point: WorldPoint) -> ModelEntity {
+        let run = height * sun.runPerMeter
+        let offset = (x: run * sun.direction.x, z: run * sun.direction.z)
+
+        return shadowPatch(
+            width: radius * 2 + abs(offset.x),
+            depth: radius * 2 + abs(offset.z),
+            at: (x: point.x + offset.x / 2, z: point.z + offset.z / 2),
+            cornerRadius: radius,
+            opacity: 0.26
+        )
+    }
+
+    @MainActor
+    private static func shadowPatch(
+        width: Double,
+        depth: Double,
+        at point: (x: Double, z: Double),
+        cornerRadius: Double,
+        opacity: Float
+    ) -> ModelEntity {
+        var material = UnlitMaterial(color: PlatformColor(white: 0.08, alpha: 1))
+        material.blending = .transparent(opacity: .init(floatLiteral: opacity))
+
+        let entity = ModelEntity(
+            mesh: .generateBox(
+                size: SIMD3<Float>(Float(width), 0.01, Float(depth)),
+                cornerRadius: Float(cornerRadius)
+            ),
+            materials: [material]
+        )
+        entity.name = "shadow"
+        entity.position = SIMD3<Float>(Float(point.x), 0.011, Float(point.z))
+        return entity
     }
 
     /// A plain matte material. Most of the scenery wants nothing else.

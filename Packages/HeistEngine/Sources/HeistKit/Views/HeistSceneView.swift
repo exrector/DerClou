@@ -16,7 +16,6 @@ public struct HeistSceneView: View {
     @State private var lastMagnification: CGFloat = 1
     /// Where the peek was when the current drag began.
     @State private var peekAtDragStart: (pitch: Double, yaw: Double)?
-    @State private var springBack = false
 
     /// System safe-area insets, read by the caller *outside* `ignoresSafeArea`.
     private let safeAreaInsets: EdgeInsets
@@ -124,12 +123,11 @@ public struct HeistSceneView: View {
 
     // MARK: - Camera gestures
 
-    /// One finger looks around the level, and lets go of it.
+    /// One finger tilts and turns the view, and it stays where it is left.
     ///
-    /// A peek, not a free camera: a narrow range, and the view springs back to
-    /// the framing the level was authored for as soon as the finger lifts. The
-    /// map is a puzzle, and it is only learnable if the player's picture of it
-    /// survives from one glance to the next.
+    /// No spring back: the owner tried it and found it got in the way. The view
+    /// starts as a plan looking straight down; tilting it is a decision the
+    /// player makes and keeps, and the focus button is what returns it.
     private var peekGesture: some Gesture {
         DragGesture(minimumDistance: 6)
             .onChanged { value in
@@ -138,7 +136,7 @@ public struct HeistSceneView: View {
                 }
                 guard let start = peekAtDragStart else { return }
 
-                let degreesPerPoint = 0.06
+                let degreesPerPoint = 0.09
                 camera.control = camera.control.peeked(
                     pitch: start.pitch + Double(value.translation.height) * degreesPerPoint,
                     yaw: start.yaw + Double(value.translation.width) * degreesPerPoint
@@ -147,11 +145,6 @@ public struct HeistSceneView: View {
             }
             .onEnded { _ in
                 peekAtDragStart = nil
-                withAnimation(.spring(response: 0.45, dampingFraction: 0.82)) {
-                    springBack = true
-                }
-                camera.control = camera.control.peeked(pitch: 0, yaw: 0)
-                frameCamera(size: viewportSize)
             }
     }
 
