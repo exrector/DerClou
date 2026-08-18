@@ -83,8 +83,7 @@ public struct HeistSceneView: View {
             // once already zoomed in, without touching the zoom level. Pinch
             // zooms, anchored to wherever the fingers landed.
             #if canImport(UIKit)
-            .gesture(TouchDragGesture(touches: 1, onChanged: { _, delta in orbit(by: delta) }))
-            .gesture(TouchDragGesture(touches: 2, onChanged: pan))
+            .gesture(TouchDragGesture(onOrbit: orbit, onPan: pan))
             #else
             .gesture(orbitGestureFallback)
             #endif
@@ -305,40 +304,78 @@ public struct HeistSceneView: View {
 }
 
 #if canImport(UIKit)
-/// A drag requiring an exact number of touches, reported as the delta since
-/// the last callback rather than accumulated from wherever the gesture began.
+/// One drag recognizer that reads live touch count on every callback to
+/// decide whether it is orbiting (one finger) or panning (two).
 ///
-/// Touch count is what separates orbiting the view (one finger) from panning
-/// the ground under it (two) — there is no SwiftUI-native way to require an
-/// exact number of touches, so this wraps `UIPanGestureRecognizer`'s
-/// `minimumNumberOfTouches`/`maximumNumberOfTouches` directly. Two instances
-/// with different counts can sit on the same view at once: the moment a
-/// second finger lands, the one-touch recognizer exceeds its own
-/// `maximumNumberOfTouches` and cedes cleanly to the two-touch one, rather
-/// than the two fighting over the same touches.
+/// The first version of this used two separate `UIPanGestureRecognizer`s —
+/// one pinned to 1 touch, one to 2 — on the theory that UIKit would hand off
+/// between them by touch count on its own. It didn't: gesture recognizers on
+/// the same view are exclusive by default (`shouldRecognizeSimultaneously`
+/// returns false unless told otherwise), so the one-touch recognizer nearly
+/// always recognizes first — real fingers essentially never land in the same
+/// touch batch — and having already recognized, blocks the two-touch one
+/// from ever getting a turn. A second finger landing afterward doesn't help;
+/// the exclusivity decision already happened. One recognizer with
+/// `numberOfTouches` read fresh each callback has no such race: it is always
+/// already tracking, and just changes what it means by whatever is on screen
+/// right now.
 ///
-/// Reporting deltas via `setTranslation(.zero, in:)` after every callback,
-/// rather than `DragGesture`'s own start-accumulated `translation`, is what
-/// keeps a clamped value like `elevation` from building an invisible
-/// overshoot past its ceiling that would otherwise have to be "unwound"
-/// before the view responds to a reversed drag again — see `orbit(by:)`.
+/// The one thing this needs that the two-recognizer version didn't: when a
+/// finger is added or removed mid-drag, `UIPanGestureRecognizer` recomputes
+/// its translation from the new touches' centroid, which jumps relative to
+/// the old one even though nothing actually moved. Comparing the live touch
+/// count against what it was on the previous callback (kept in `Coordinator`,
+/// since this type itself is a stateless value struct SwiftUI can recreate at
+/// any time) lets exactly that one callback be discarded instead of read as
+/// a real motion.
+///
+/// Deltas are still reported via `setTranslation(.zero, in:)` after every
+/// callback rather than `DragGesture`'s own start-accumulated `translation` —
+/// see `orbit(by:)` for why that still matters once `elevation` clamps.
 private struct TouchDragGesture: UIGestureRecognizerRepresentable {
-    var touches: Int
-    var onChanged: (_ location: CGPoint, _ delta: CGSize) -> Void
+    var onOrbit: (_ delta: CGSize) -> Void
+    var onPan: (_ location: CGPoint, _ delta: CGSize) -> Void
+
+    final class Coordinator {
+        var lastTouchCount = 0
+    }
+
+    func makeCoordinator(converter: CoordinateSpaceConverter) -> Coordinator {
+        Coordinator()
+    }
 
     func makeUIGestureRecognizer(context: Context) -> UIPanGestureRecognizer {
         let recognizer = UIPanGestureRecognizer()
-        recognizer.minimumNumberOfTouches = touches
-        recognizer.maximumNumberOfTouches = touches
+        recognizer.maximumNumberOfTouches = 2
         return recognizer
     }
 
     func handleUIGestureRecognizerAction(_ recognizer: UIPanGestureRecognizer, context: Context) {
-        guard recognizer.state == .changed else { return }
-        let translation = recognizer.translation(in: recognizer.view)
-        guard translation != .zero else { return }
-        recognizer.setTranslation(.zero, in: recognizer.view)
-        onChanged(recognizer.location(in: recognizer.view), CGSize(width: translation.x, height: translation.y))
+        switch recognizer.state {
+        case .began:
+            context.coordinator.lastTouchCount = recognizer.numberOfTouches
+            recognizer.setTranslation(.zero, in: recognizer.view)
+
+        case .changed:
+            let touchCount = recognizer.numberOfTouches
+            let translation = recognizer.translation(in: recognizer.view)
+            recognizer.setTranslation(.zero, in: recognizer.view)
+            defer { context.coordinator.lastTouchCount = touchCount }
+
+            guard touchCount == context.coordinator.lastTouchCount, translation != .zero else { return }
+            let delta = CGSize(width: translation.x, height: translation.y)
+            if touchCount >= 2 {
+                onPan(recognizer.location(in: recognizer.view), delta)
+            } else {
+                onOrbit(delta)
+            }
+
+        case .ended, .cancelled, .failed:
+            context.coordinator.lastTouchCount = 0
+
+        default:
+            break
+        }
     }
 }
 #endif
