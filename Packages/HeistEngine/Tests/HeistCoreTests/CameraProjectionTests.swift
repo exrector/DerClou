@@ -74,9 +74,25 @@ struct CameraProjectionTests {
         #expect(abs(farRight.x - nearRight.x) < 0.001)
     }
 
-    @Test("The tilt gives height its own place on screen")
-    func tiltShowsHeight() throws {
+    @Test("At rest the view is a plan: height takes no room on screen")
+    func restIsAPlanView() throws {
         let projection = projection()
+        let foot = WorldPoint(x: 12, y: 0, z: 5)
+        let head = WorldPoint(x: 12, y: level.metrics.wallHeight, z: 5)
+
+        let onScreenFoot = try #require(projection.screenPoint(of: foot, viewportSize: viewport))
+        let onScreenHead = try #require(projection.screenPoint(of: head, viewportSize: viewport))
+
+        // Straight down, so a wall is its own footprint and nothing else. This
+        // is the resting view the owner asked for, and depth is something the
+        // player reaches for rather than something the framing imposes.
+        #expect(abs(onScreenHead.x - onScreenFoot.x) < 0.001)
+        #expect(abs(onScreenHead.y - onScreenFoot.y) < 0.001)
+    }
+
+    @Test("Tilting gives height its own place on screen")
+    func tiltShowsHeight() throws {
+        let projection = projection(CameraControl(pitch: 40))
         let foot = WorldPoint(x: 12, y: 0, z: 5)
         let head = WorldPoint(x: 12, y: level.metrics.wallHeight, z: 5)
 
@@ -109,10 +125,12 @@ struct CameraProjectionTests {
         #expect(peeked.yaw == CameraControl.yawRange.lowerBound)
     }
 
-    @Test("Turning the view moves the camera off the level's centre line")
+    @Test("Turning a tilted view moves the camera off the level's centre line")
     func yawMovesTheCamera() {
-        let rest = projection()
-        let turned = projection(CameraControl(yaw: 20))
+        // Only meaningful once the view is tilted: from straight overhead there
+        // is nothing to turn around.
+        let rest = projection(CameraControl(pitch: 35))
+        let turned = projection(CameraControl(pitch: 35, yaw: 20))
 
         #expect(abs(turned.position.x - rest.position.x) > 1)
         // And it is the same level, framed the same way: peeking is a look
@@ -168,14 +186,17 @@ struct CameraProjectionTests {
         }
     }
 
-    @Test("The camera looks at the level from above and behind")
+    @Test("At rest the camera hangs straight above the level's centre")
     func cameraPlacement() {
-        let projection = projection()
+        let rest = projection()
 
-        #expect(projection.focus.x == 12)
-        #expect(projection.position.y > 10)
-        // Tilted, so it stands off toward +z rather than straight overhead.
-        #expect(projection.position.z > projection.focus.z)
+        #expect(rest.focus.x == 12)
+        #expect(rest.position.y > 10)
+        #expect(abs(rest.position.x - rest.focus.x) < 1e-9)
+        #expect(abs(rest.position.z - rest.focus.z) < 1e-9)
+
+        // Tilting is what stands it off toward +z.
+        #expect(projection(CameraControl(pitch: 35)).position.z > rest.focus.z)
     }
 
     @Test("Zooming in shows less")
