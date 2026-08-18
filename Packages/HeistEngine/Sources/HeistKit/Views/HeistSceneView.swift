@@ -304,40 +304,54 @@ public struct HeistSceneView: View {
 }
 
 #if canImport(UIKit)
-/// One drag recognizer that reads live touch count on every callback to
-/// decide whether it is orbiting (one finger) or panning (two).
+/// One drag recognizer that decides, once, whether a touch sequence is
+/// orbiting (one finger) or panning (two) — and does not reconsider that
+/// decision for the rest of the same touch sequence.
 ///
-/// The first version of this used two separate `UIPanGestureRecognizer`s —
-/// one pinned to 1 touch, one to 2 — on the theory that UIKit would hand off
-/// between them by touch count on its own. It didn't: gesture recognizers on
-/// the same view are exclusive by default (`shouldRecognizeSimultaneously`
-/// returns false unless told otherwise), so the one-touch recognizer nearly
-/// always recognizes first — real fingers essentially never land in the same
-/// touch batch — and having already recognized, blocks the two-touch one
-/// from ever getting a turn. A second finger landing afterward doesn't help;
-/// the exclusivity decision already happened. One recognizer with
-/// `numberOfTouches` read fresh each callback has no such race: it is always
-/// already tracking, and just changes what it means by whatever is on screen
-/// right now.
+/// Two earlier versions of this both tried to make that call *continuously*,
+/// and both were the wrong shape for what are two genuinely independent
+/// actions. The first used two separate `UIPanGestureRecognizer`s, one
+/// pinned to 1 touch and one to 2, expecting UIKit to hand off between them —
+/// it doesn't, gesture recognizers on the same view are exclusive by
+/// default, so the one-touch recognizer almost always wins the instant a
+/// finger moves, before a second finger typically has time to land, and
+/// blocks the two-touch one for the rest of that touch sequence. The second
+/// used one recognizer re-reading live touch count on every callback — that
+/// let a second finger take over mid-drag, but "take over mid-drag" is
+/// exactly the problem: a real finger landing 50-100ms after the first is
+/// completely normal, and in that window the first version already reads as
+/// a one-touch drag and applies real orbit motion, which the player sees as
+/// the view flicking before the pan they meant to do takes hold.
 ///
-/// The one thing this needs that the two-recognizer version didn't: when a
-/// finger is added or removed mid-drag, `UIPanGestureRecognizer` recomputes
-/// its translation from the new touches' centroid, which jumps relative to
-/// the old one even though nothing actually moved. Comparing the live touch
-/// count against what it was on the previous callback (kept in `Coordinator`,
-/// since this type itself is a stateless value struct SwiftUI can recreate at
-/// any time) lets exactly that one callback be discarded instead of read as
-/// a real motion.
+/// The fix is not a cleverer handoff — it's to stop treating this as one
+/// mechanism serving two behaviors that must be arbitrated live, and decide
+/// which one it is exactly once, from how many touches are actually down a
+/// short, fixed instant after the gesture starts (`decisionWindow`, chosen
+/// to comfortably outlast normal multi-finger landing stagger). After that,
+/// orbiting and panning genuinely do not interact for the rest of that touch
+/// sequence: an orbit ignores a finger added later instead of switching to
+/// pan, and a pan keeps panning if a finger lifts instead of switching back.
+/// Whatever moved during the decision window itself is dropped rather than
+/// applied — `UIPanGestureRecognizer` recomputes its translation from the
+/// touch centroid, so a second finger landing inside that window would
+/// otherwise show up as a spurious jump.
 ///
-/// Deltas are still reported via `setTranslation(.zero, in:)` after every
-/// callback rather than `DragGesture`'s own start-accumulated `translation` —
-/// see `orbit(by:)` for why that still matters once `elevation` clamps.
+/// Deltas are reported via `setTranslation(.zero, in:)` after every callback
+/// rather than `DragGesture`'s own start-accumulated `translation` — see
+/// `orbit(by:)` for why that still matters once `elevation` clamps.
 private struct TouchDragGesture: UIGestureRecognizerRepresentable {
     var onOrbit: (_ delta: CGSize) -> Void
     var onPan: (_ location: CGPoint, _ delta: CGSize) -> Void
 
+    /// How long a fresh touch is left undecided before it is read as a
+    /// one-finger orbit. Comfortably past typical multi-finger landing
+    /// stagger without reading as a delay on a genuine one-finger drag.
+    private static let decisionWindow: CFAbsoluteTime = 0.08
+
     final class Coordinator {
-        var lastTouchCount = 0
+        enum Mode { case undecided, orbit, pan }
+        var mode: Mode = .undecided
+        var gestureStartTime: CFAbsoluteTime = 0
     }
 
     func makeCoordinator(converter: CoordinateSpaceConverter) -> Coordinator {
@@ -351,27 +365,44 @@ private struct TouchDragGesture: UIGestureRecognizerRepresentable {
     }
 
     func handleUIGestureRecognizerAction(_ recognizer: UIPanGestureRecognizer, context: Context) {
+        let coordinator = context.coordinator
         switch recognizer.state {
         case .began:
-            context.coordinator.lastTouchCount = recognizer.numberOfTouches
+            coordinator.mode = .undecided
+            coordinator.gestureStartTime = CFAbsoluteTimeGetCurrent()
             recognizer.setTranslation(.zero, in: recognizer.view)
 
         case .changed:
-            let touchCount = recognizer.numberOfTouches
             let translation = recognizer.translation(in: recognizer.view)
             recognizer.setTranslation(.zero, in: recognizer.view)
-            defer { context.coordinator.lastTouchCount = touchCount }
 
-            guard touchCount == context.coordinator.lastTouchCount, translation != .zero else { return }
+            if coordinator.mode == .undecided {
+                let touchCount = recognizer.numberOfTouches
+                let elapsed = CFAbsoluteTimeGetCurrent() - coordinator.gestureStartTime
+                guard touchCount >= 2 || elapsed >= Self.decisionWindow else { return }
+                coordinator.mode = touchCount >= 2 ? .pan : .orbit
+                return
+            }
+
+            guard translation != .zero else { return }
             let delta = CGSize(width: translation.x, height: translation.y)
-            if touchCount >= 2 {
+            switch coordinator.mode {
+            case .pan:
+                // A finger lifting back to 1 does not un-pan — see the type
+                // doc for why. An incidental extra touch while already
+                // orbiting is ignored the same way, rather than applied as
+                // the centroid jump it would otherwise show up as.
+                guard recognizer.numberOfTouches >= 2 else { return }
                 onPan(recognizer.location(in: recognizer.view), delta)
-            } else {
+            case .orbit:
+                guard recognizer.numberOfTouches == 1 else { return }
                 onOrbit(delta)
+            case .undecided:
+                break
             }
 
         case .ended, .cancelled, .failed:
-            context.coordinator.lastTouchCount = 0
+            coordinator.mode = .undecided
 
         default:
             break
