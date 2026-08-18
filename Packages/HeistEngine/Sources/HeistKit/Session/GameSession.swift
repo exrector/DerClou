@@ -80,26 +80,6 @@ public final class GameSession {
         cameraResetToken += 1
     }
 
-    /// Fades whatever stands between the camera and the person being watched.
-    ///
-    /// Presentation only: opacity, and nothing the rules can see.
-    public func fadeWallsInTheWay(viewDirection: WorldPoint, deltaTime: Double) {
-        guard let level else { return }
-
-        let watched = selectedActorEntity.map {
-            let position = $0.position
-            // Chest height: what has to be visible is the person, not their feet.
-            return WorldPoint(x: Double(position.x), y: 1.1, z: Double(position.z))
-        }
-
-        WallFadeSystem.update(
-            level: level,
-            watched: watched,
-            direction: viewDirection,
-            deltaTime: deltaTime
-        )
-    }
-
     // MARK: - Mission time
 
     /// Advances mission time and poses every guard for the new moment.

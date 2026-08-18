@@ -28,9 +28,6 @@ public final class TacticalCamera {
     /// Whether the level is fitted inside the viewport or fills it.
     public var mode: FramingMode
 
-    /// Resting tilt away from straight down, in degrees.
-    public var tiltDegrees: Double
-
     /// Vertical field of view, in degrees.
     public var fieldOfViewDegrees: Double
 
@@ -43,12 +40,10 @@ public final class TacticalCamera {
     public init(
         margin: Double = 1.4,
         mode: FramingMode = .fit,
-        tiltDegrees: Double = CameraProjectionSolver.defaultTiltDegrees,
         fieldOfViewDegrees: Double = CameraProjectionSolver.defaultFieldOfViewDegrees
     ) {
         self.margin = margin
         self.mode = mode
-        self.tiltDegrees = tiltDegrees
         self.fieldOfViewDegrees = fieldOfViewDegrees
         self.entity = Entity()
         entity.name = "camera.tactical"
@@ -60,7 +55,7 @@ public final class TacticalCamera {
         entity.components.set(camera)
     }
 
-    /// Player peek and zoom.
+    /// Player tilt and zoom.
     public var control: CameraControl = .neutral
 
     /// Frames the given level for a viewport of `aspectRatio`.
@@ -70,7 +65,6 @@ public final class TacticalCamera {
             metrics: metrics,
             aspectRatio: aspectRatio,
             mode: mode,
-            tiltDegrees: tiltDegrees,
             fieldOfViewDegrees: fieldOfViewDegrees,
             margin: margin,
             control: control
@@ -105,7 +99,7 @@ public final class TacticalCamera {
         log.debug("""
             Camera: \(projection.verticalExtent, privacy: .public) m across the screen, \
             \(projection.distance, privacy: .public) m back, \
-            tilt \(projection.tiltDegrees, privacy: .public), yaw \(projection.yawDegrees, privacy: .public)
+            lean \(projection.leanVertical, privacy: .public)/\(projection.leanHorizontal, privacy: .public)
             """)
     }
 }

@@ -86,7 +86,6 @@ public enum HeistComponents {
         PathFollowingComponent.registerComponent()
         GuardComponent.registerComponent()
         InteractableComponent.registerComponent()
-        OccludingWallComponent.registerComponent()
         PathFollowingSystem.registerSystem()
         GuardPatrolSystem.registerSystem()
     }

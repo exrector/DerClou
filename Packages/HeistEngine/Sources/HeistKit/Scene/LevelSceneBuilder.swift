@@ -61,12 +61,6 @@ public enum LevelSceneBuilder {
             // are not input targets: tapping a wall should not steal the tap.
             entity.collision = CollisionComponent(shapes: [collisionShape(for: box)])
             GreyboxKit.castsShadow(entity)
-            entity.components.set(OccludingWallComponent(
-                height: box.height,
-                centre: WorldPoint(x: box.center.x, y: box.center.y, z: box.center.z),
-                halfWidth: box.width / 2,
-                halfDepth: box.depth / 2
-            ))
             root.addChild(entity)
         }
 
