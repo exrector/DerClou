@@ -12,6 +12,8 @@ struct LabGallery: View {
         case floor = "Пол"
         /// A tabletop diorama with an ordinary camera, in the manner of Hitman GO.
         case board = "Диорама"
+        /// The same diorama under the game's own camera.
+        case combined = "Диорама+"
 
         var id: String { rawValue }
     }
@@ -21,6 +23,7 @@ struct LabGallery: View {
         switch ProcessInfo.processInfo.environment["LAB"] {
         case "walls": .wallTops
         case "board": .board
+        case "combined": .combined
         default: .floor
         }
     }()
@@ -31,6 +34,7 @@ struct LabGallery: View {
             case .wallTops: CameraLab()
             case .floor: FloorAnchoredLab()
             case .board: BoardGameLab()
+            case .combined: DioramaAnchoredLab()
             }
 
             Picker("", selection: $lab) {
@@ -39,7 +43,7 @@ struct LabGallery: View {
                 }
             }
             .pickerStyle(.segmented)
-            .frame(maxWidth: 360)
+            .frame(maxWidth: 440)
             .padding(.horizontal, 24)
             .padding(.bottom, 10)
         }
