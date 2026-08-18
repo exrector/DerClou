@@ -74,20 +74,39 @@ struct CameraProjectionTests {
         #expect(abs(farRight.x - nearRight.x) < 0.001)
     }
 
-    @Test("At rest the view is a plan: height takes no room on screen")
-    func restIsAPlanView() throws {
+    @Test("On the camera's own axis, height takes no room on screen at rest")
+    func restIsAPlanViewOnAxis() throws {
         let projection = projection()
-        let foot = WorldPoint(x: 12, y: 0, z: 5)
-        let head = WorldPoint(x: 12, y: level.metrics.wallHeight, z: 5)
+        // Directly below the camera, height genuinely does not move the screen
+        // point: the offset from the boresight is zero at any elevation, exactly,
+        // perspective or not. This is the resting view the owner asked for.
+        let foot = WorldPoint(x: projection.focus.x, y: 0, z: projection.focus.z)
+        let head = WorldPoint(x: projection.focus.x, y: level.metrics.wallHeight, z: projection.focus.z)
 
         let onScreenFoot = try #require(projection.screenPoint(of: foot, viewportSize: viewport))
         let onScreenHead = try #require(projection.screenPoint(of: head, viewportSize: viewport))
 
-        // Straight down, so a wall is its own footprint and nothing else. This
-        // is the resting view the owner asked for, and depth is something the
-        // player reaches for rather than something the framing imposes.
-        #expect(abs(onScreenHead.x - onScreenFoot.x) < 0.001)
-        #expect(abs(onScreenHead.y - onScreenFoot.y) < 0.001)
+        #expect(abs(onScreenHead.x - onScreenFoot.x) < 1e-6)
+        #expect(abs(onScreenHead.y - onScreenFoot.y) < 1e-6)
+    }
+
+    @Test("Off axis at rest, a narrow field of view keeps height's parallax small")
+    func restParallaxIsSmall() throws {
+        // The trade this camera makes: real perspective, so real shadows, but
+        // only a small, bounded amount of parallax from a wall's height even
+        // away from dead centre — the field of view is chosen narrow enough
+        // that this stays under a few points, not the many it would be at a
+        // normal field of view.
+        let projection = projection()
+        let foot = WorldPoint(x: 3, y: 0, z: 9)
+        let head = WorldPoint(x: 3, y: level.metrics.wallHeight, z: 9)
+
+        let onScreenFoot = try #require(projection.screenPoint(of: foot, viewportSize: viewport))
+        let onScreenHead = try #require(projection.screenPoint(of: head, viewportSize: viewport))
+
+        let moved = ((onScreenHead.x - onScreenFoot.x) * (onScreenHead.x - onScreenFoot.x)
+            + (onScreenHead.y - onScreenFoot.y) * (onScreenHead.y - onScreenFoot.y)).squareRoot()
+        #expect(moved < 8, "a wall's height moved \(moved) points off its own footprint at rest")
     }
 
     @Test("Tilting gives height its own place on screen")
@@ -156,19 +175,31 @@ struct CameraProjectionTests {
         }
     }
 
-    @Test("Rays run parallel, as a parallel projection requires")
-    func raysAreParallel() throws {
+    @Test("Rays fan out, but only within the narrow field of view")
+    func raysStayWithinTheFieldOfView() throws {
+        // A real perspective camera, unlike the off-axis orthographic one this
+        // replaced: rays are not parallel. What makes it read as close to
+        // orthographic is that the fan is narrow — bounded by the field of view,
+        // a few degrees wide rather than tens.
         let projection = projection()
-        let left = try #require(projection.ray(
+        let centre = try #require(projection.ray(
+            screenPoint: (x: viewport.width / 2, y: viewport.height / 2), viewportSize: viewport
+        ))
+        let edge = try #require(projection.ray(
             screenPoint: (x: 40, y: 200), viewportSize: viewport
         ))
+
+        let cosAngle = centre.direction.dot(edge.direction)
+        let angleDegrees = acos(min(max(cosAngle, -1), 1)) * 180 / .pi
+        #expect(angleDegrees < CameraProjectionSolver.defaultFieldOfViewDegrees)
+
+        let left = edge
         let right = try #require(projection.ray(
             screenPoint: (x: 800, y: 100), viewportSize: viewport
         ))
-
-        #expect(abs(left.direction.x - right.direction.x) < 1e-9)
-        #expect(abs(left.direction.y - right.direction.y) < 1e-9)
-        #expect(abs(left.direction.z - right.direction.z) < 1e-9)
+        #expect(abs(left.direction.x - right.direction.x) < 0.2)
+        #expect(abs(left.direction.y - right.direction.y) < 0.01)
+        #expect(abs(left.direction.z - right.direction.z) < 0.03)
     }
 
     // MARK: - Framing

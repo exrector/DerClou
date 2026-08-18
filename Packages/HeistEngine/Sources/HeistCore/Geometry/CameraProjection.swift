@@ -1,35 +1,41 @@
 import Foundation
 
-/// The tactical camera: a tilted orthographic view of the level.
+/// The tactical camera: a narrow-angle perspective view of the level, tilted.
 ///
-/// Settled 2026-08-18, and chosen for what it does *not* do. Parallel projection
-/// means lines never converge: a room at the far edge of the screen is drawn at
-/// exactly the same scale as one at the near edge, a rectangular building stays
-/// a rectangle, and equal distances look equal wherever they are. That is what a
-/// planning game needs, and it is what a tilted perspective camera cannot give —
-/// that one keystones the level into a trapezium.
+/// Settled 2026-08-18, revised the same day after a real, verified constraint:
+/// RealityKit's directional-light shadows do not render behind an
+/// `OrthographicCameraComponent` in this build. Confirmed by an isolated
+/// scene — one floor, one block, one light — switched between an orthographic
+/// and a perspective camera with every other number held identical. Perspective
+/// throws a clean shadow; orthographic throws none, at any shadow distance.
 ///
-/// The tilt does the rest: the floor foreshortens, walls and furniture gain
-/// height, and both happen together and consistently, so nothing reads as
-/// stretched.
+/// The fix keeps what orthographic was for — equal distances reading equal, a
+/// rectangular building staying a rectangle — without giving up real shadows.
+/// A **narrow field of view held far back** is a perspective camera in every
+/// way RealityKit is concerned with, so it shadows correctly; and the narrower
+/// the angle, the closer its projection sits to a parallel one. `fieldOfView`
+/// is chosen tight enough that the keystone it leaves is under the threshold
+/// `CameraProjectionTests` checks for — not zero, but not something a player
+/// looking at a tactical map notices either.
 ///
-/// Standard `OrthographicCameraComponent`, standard `look(at:from:)`, and the
-/// maths below is the textbook orthographic screen transform. An earlier camera
-/// here used a custom off-axis projection matrix to hold the level's outline
-/// pinned to the display while the viewpoint shifted. It worked, but it rested
-/// on an undocumented depth convention, and it could not show anything at an
-/// angle without the oblique distortion that comes of an unforeshortened floor.
-/// Standard parts, chosen deliberately — see docs/UI_AND_CAMERA.md.
+/// Standard `PerspectiveCameraComponent`, built from the projection's own axes.
+/// Two earlier cameras are recorded in `docs/UI_AND_CAMERA.md` and not tried
+/// again: a custom off-axis projection matrix (worked, but rested on an
+/// undocumented depth convention), and a true orthographic camera (worked
+/// visually, but cannot be shadowed here).
 public struct CameraProjection: Sendable, Equatable {
     /// Viewport width divided by height.
     public var aspectRatio: Double
-    /// World meters spanned by the height of the screen.
+    /// World meters spanned by the height of the screen, **at the focus
+    /// plane**. Perspective, so this is exact there and only approximately true
+    /// elsewhere — by design: the field of view is narrow enough that the
+    /// approximation holds over a level's depth.
     public var verticalExtent: Double
     /// Point on the floor the camera looks at.
     public var focus: WorldPoint
-    /// How far back the camera stands. Orthographic scale does not depend on it;
-    /// it only has to clear the geometry.
-    public var distance: Double
+    /// Vertical field of view, in degrees. Narrow: this is the whole knob that
+    /// trades shadow support against how close to parallel the projection is.
+    public var fieldOfViewDegrees: Double
 
     /// Degrees away from straight down. Zero is a plan drawing; the game's view
     /// is well off vertical, so rooms have depth.
@@ -47,7 +53,7 @@ public struct CameraProjection: Sendable, Equatable {
         aspectRatio: Double,
         verticalExtent: Double,
         focus: WorldPoint,
-        distance: Double = 80,
+        fieldOfViewDegrees: Double,
         tiltDegrees: Double,
         yawDegrees: Double = 0,
         croppedWidth: Double = 0,
@@ -56,7 +62,7 @@ public struct CameraProjection: Sendable, Equatable {
         self.aspectRatio = aspectRatio
         self.verticalExtent = verticalExtent
         self.focus = focus
-        self.distance = distance
+        self.fieldOfViewDegrees = fieldOfViewDegrees
         self.tiltDegrees = tiltDegrees
         self.yawDegrees = yawDegrees
         self.croppedWidth = croppedWidth
@@ -65,6 +71,13 @@ public struct CameraProjection: Sendable, Equatable {
 
     private var tilt: Double { tiltDegrees * .pi / 180 }
     private var yaw: Double { yawDegrees * .pi / 180 }
+
+    /// Half the vertical field of view, as a tangent.
+    private var halfFovTangent: Double { tan(fieldOfViewDegrees * .pi / 360) }
+
+    /// How far back the camera stands, so the frustum spans `verticalExtent`
+    /// exactly at the focus plane.
+    public var distance: Double { (verticalExtent / 2) / halfFovTangent }
 
     /// Direction from the focus out to the camera.
     public var offsetDirection: WorldPoint {
@@ -91,11 +104,6 @@ public struct CameraProjection: Sendable, Equatable {
         return (right, right.cross(forward), forward)
     }
 
-    /// Half the screen's height, in meters.
-    public var halfHeight: Double { verticalExtent / 2 }
-    /// Half its width.
-    public var halfWidth: Double { halfHeight * aspectRatio }
-
     /// True when the whole level is on screen.
     public var showsWholeLevel: Bool {
         croppedDepth <= 0.001 && croppedWidth <= 0.001
@@ -109,21 +117,25 @@ public struct CameraProjection: Sendable, Equatable {
         viewportSize: (width: Double, height: Double)
     ) -> (x: Double, y: Double)? {
         guard viewportSize.width > 0, viewportSize.height > 0 else { return nil }
-        guard halfWidth > 0, halfHeight > 0 else { return nil }
 
-        let (right, up, _) = basis
+        let (right, up, forward) = basis
         let offset = world - position
+        let depth = offset.dot(forward)
+        guard depth > 0.0001 else { return nil }
+
+        let ndcX = offset.dot(right) / (depth * halfFovTangent * aspectRatio)
+        let ndcY = offset.dot(up) / (depth * halfFovTangent)
 
         return (
-            x: (offset.dot(right) / halfWidth + 1) / 2 * viewportSize.width,
-            y: (1 - offset.dot(up) / halfHeight) / 2 * viewportSize.height
+            x: (ndcX + 1) / 2 * viewportSize.width,
+            y: (1 - ndcY) / 2 * viewportSize.height
         )
     }
 
     /// The ray a screen point casts into the world.
     ///
-    /// Parallel projection, so rays do not fan out from a focal point: they all
-    /// run along the view direction and start offset from the camera.
+    /// All rays share the camera's position and fan out by the field of view —
+    /// a real perspective camera, not an approximation of one.
     public func ray(
         screenPoint: (x: Double, y: Double),
         viewportSize: (width: Double, height: Double)
@@ -134,10 +146,10 @@ public struct CameraProjection: Sendable, Equatable {
         let ndcY = 1 - (screenPoint.y / viewportSize.height) * 2
 
         let (right, up, forward) = basis
-        return WorldRay(
-            origin: position + right * (ndcX * halfWidth) + up * (ndcY * halfHeight),
-            direction: forward
-        )
+        let direction = (forward
+            + right * (ndcX * halfFovTangent * aspectRatio)
+            + up * (ndcY * halfFovTangent)).normalized
+        return WorldRay(origin: position, direction: direction)
     }
 }
 
@@ -239,12 +251,21 @@ public enum CameraProjectionSolver {
     /// player asks for by dragging, not something the view imposes.
     public static let defaultTiltDegrees = 0.0
 
+    /// Vertical field of view, in degrees.
+    ///
+    /// Narrow enough that the level's own depth is a small fraction of the
+    /// camera's distance, which is what keeps the projection reading as
+    /// parallel. See the type's own documentation for why this exists instead
+    /// of a true orthographic camera.
+    public static let defaultFieldOfViewDegrees = 4.0
+
     /// - Parameters:
     ///   - bounds: level bounds, in cells.
     ///   - metrics: cell-to-meter conversion.
     ///   - aspectRatio: viewport width divided by height.
     ///   - mode: whether the level is fitted inside the screen or fills it.
     ///   - tiltDegrees: resting tilt away from straight down.
+    ///   - fieldOfViewDegrees: vertical field of view.
     ///   - margin: padding around the level, in meters. Enough for the rim of
     ///     ground around the building, and no more.
     ///   - control: the player's peek and zoom.
@@ -254,6 +275,7 @@ public enum CameraProjectionSolver {
         aspectRatio: Double,
         mode: FramingMode = .fit,
         tiltDegrees: Double = defaultTiltDegrees,
+        fieldOfViewDegrees: Double = defaultFieldOfViewDegrees,
         margin: Double = 0,
         control: CameraControl = .neutral
     ) -> CameraProjection {
@@ -307,11 +329,7 @@ public enum CameraProjectionSolver {
                 y: 0,
                 z: centre.z - bias + clamped.focusOffset.z
             ),
-            // Kept as short as the geometry allows. Orthographic scale does
-            // not depend on the distance, but the shadow cascade is built
-            // around the *camera*, so standing needlessly far back puts the
-            // level outside its own shadows.
-            distance: metrics.wallHeight + 12,
+            fieldOfViewDegrees: fieldOfViewDegrees,
             tiltDegrees: tiltTotal,
             yawDegrees: control.yaw,
             croppedWidth: max(0, levelWidth - visibleWidth),

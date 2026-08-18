@@ -3,12 +3,20 @@ import OSLog
 import RealityKit
 import HeistCore
 
-/// The tactical camera: a tilted orthographic view, built from standard parts.
+/// The tactical camera: a narrow-angle perspective view, built from standard
+/// parts.
 ///
-/// `OrthographicCameraComponent` and `look(at:from:)`, nothing else. Every number
-/// comes from a `CameraProjection`, which is also what tap resolution and the
-/// safe-area solver read — one projection, one set of numbers, no second
-/// implementation to drift out of step.
+/// `PerspectiveCameraComponent` with a narrow field of view, built from the
+/// projection's own axes rather than `look(at:from:)`. Every number comes from
+/// a `CameraProjection`, which is also what tap resolution and the safe-area
+/// solver read — one projection, one set of numbers, no second implementation
+/// to drift out of step.
+///
+/// Not orthographic. `CameraProjection`'s own documentation has the reason: a
+/// true orthographic camera does not receive `DirectionalLightComponent`
+/// shadows in this build, confirmed with an isolated scene, and a narrow field
+/// of view held far back reads close enough to parallel while shadowing
+/// correctly.
 @MainActor
 public final class TacticalCamera {
     private let log = Logger(subsystem: "com.exrector.DerClou", category: "camera")
@@ -23,6 +31,9 @@ public final class TacticalCamera {
     /// Resting tilt away from straight down, in degrees.
     public var tiltDegrees: Double
 
+    /// Vertical field of view, in degrees.
+    public var fieldOfViewDegrees: Double
+
     public let entity: Entity
 
     /// The projection currently applied. The single source of truth for anything
@@ -32,18 +43,20 @@ public final class TacticalCamera {
     public init(
         margin: Double = 1.4,
         mode: FramingMode = .fit,
-        tiltDegrees: Double = CameraProjectionSolver.defaultTiltDegrees
+        tiltDegrees: Double = CameraProjectionSolver.defaultTiltDegrees,
+        fieldOfViewDegrees: Double = CameraProjectionSolver.defaultFieldOfViewDegrees
     ) {
         self.margin = margin
         self.mode = mode
         self.tiltDegrees = tiltDegrees
+        self.fieldOfViewDegrees = fieldOfViewDegrees
         self.entity = Entity()
         entity.name = "camera.tactical"
 
-        var camera = OrthographicCameraComponent()
-        camera.near = 0.05
-        camera.far = 600
-        camera.scaleDirection = .vertical
+        var camera = PerspectiveCameraComponent(
+            near: 0.05, far: 800, fieldOfViewInDegrees: Float(fieldOfViewDegrees)
+        )
+        camera.fieldOfViewOrientation = .vertical
         entity.components.set(camera)
     }
 
@@ -58,6 +71,7 @@ public final class TacticalCamera {
             aspectRatio: aspectRatio,
             mode: mode,
             tiltDegrees: tiltDegrees,
+            fieldOfViewDegrees: fieldOfViewDegrees,
             margin: margin,
             control: control
         ))
@@ -66,14 +80,6 @@ public final class TacticalCamera {
     public func apply(_ projection: CameraProjection) {
         guard projection != self.projection else { return }
         self.projection = projection
-
-        var camera = entity.components[OrthographicCameraComponent.self]
-            ?? OrthographicCameraComponent()
-        // Measured against the SDK: `scale` is the *half* extent of the view
-        // along `scaleDirection`, not the full one.
-        camera.scale = Float(projection.verticalExtent / 2)
-        camera.scaleDirection = .vertical
-        entity.components.set(camera)
 
         let position = projection.position
         entity.setPosition(
@@ -98,6 +104,7 @@ public final class TacticalCamera {
 
         log.debug("""
             Camera: \(projection.verticalExtent, privacy: .public) m across the screen, \
+            \(projection.distance, privacy: .public) m back, \
             tilt \(projection.tiltDegrees, privacy: .public), yaw \(projection.yawDegrees, privacy: .public)
             """)
     }

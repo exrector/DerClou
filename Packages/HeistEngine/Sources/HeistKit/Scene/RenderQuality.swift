@@ -37,9 +37,9 @@ public enum RenderQuality: String, Sendable, CaseIterable, Comparable {
     /// Depth bias for the shadow map. Lower is crisper.
     public var shadowDepthBias: Float {
         switch self {
-        case .baseline: 0.9
-        case .standard: 0.5
-        case .high: 0.3
+        case .baseline: 3.0
+        case .standard: 2.0
+        case .high: 1.5
         }
     }
 

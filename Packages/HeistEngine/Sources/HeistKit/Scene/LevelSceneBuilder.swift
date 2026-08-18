@@ -214,16 +214,18 @@ public enum LevelSceneBuilder {
         key.name = "light.key"
         key.components.set(DirectionalLightComponent(
             color: PlatformColor(red: 1.0, green: 0.95, blue: 0.86, alpha: 1),
-            intensity: 2200
+            intensity: 3200
         ))
-        // Two numbers decide whether a shadow exists at all, and both were
-        // wrong. The reach defaults to five metres while a level is
-        // twenty-four across, so nothing was ever in range; and the depth bias
-        // is measured against that reach, so a large bias over a large reach
-        // pushes every shadow clean off its own caster. Tight reach, small bias.
-        let reach = Float(max(bounds.maxX - bounds.minX, bounds.maxZ - bounds.minZ) + 40)
+        // `maximumDistance` turned out to be measured from the *camera*, not
+        // from the level: with the narrow-FOV perspective camera standing
+        // roughly 200 m back (see `CameraProjection`), a reach sized to the
+        // level's own footprint — tens of metres — left the whole visible
+        // scene outside it, and no shadow rendered anywhere. Confirmed with an
+        // isolated scene: reach 200 shadows correctly, reach 34 shadows
+        // nothing, with every other number held identical. Comfortably past
+        // the camera's distance at any zoom, and independent of level size.
         key.components.set(DirectionalLightComponent.Shadow(
-            shadowProjection: .automatic(maximumDistance: reach),
+            shadowProjection: .automatic(maximumDistance: 500),
             depthBias: quality.shadowDepthBias
         ))
         // The sun, aimed. A directional light with no orientation points along
