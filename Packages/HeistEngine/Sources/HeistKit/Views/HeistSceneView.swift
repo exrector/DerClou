@@ -17,19 +17,18 @@ public struct HeistSceneView: View {
     @Bindable private var session: GameSession
     @State private var camera = TacticalCamera()
     @State private var viewportSize: CGSize = .zero
-    @State private var lastMagnification: CGFloat = 1
     /// The world point under the fingers when the current pinch began, and
     /// where on screen it started — so that point can be held fixed under the
     /// fingers as the pinch continues, instead of always zooming toward the
     /// level's centre.
     @State private var zoomAnchor: (screen: CGPoint, world: WorldPoint)?
+    /// A light exponential average of recent orbit deltas — see `orbit(by:)`.
+    @State private var smoothedOrbitDelta: CGSize = .zero
     #if !canImport(UIKit)
     /// How far the current orbit drag has moved since its last callback was
     /// read — see `orbitGestureFallback`.
     @State private var lastOrbitTranslation: CGSize = .zero
     #endif
-    /// A light exponential average of recent orbit deltas — see `orbit(by:)`.
-    @State private var smoothedOrbitDelta: CGSize = .zero
     /// Keeps `SceneEvents.Update` alive for the life of the view.
     @State private var updateSubscription: EventSubscription?
 
@@ -82,12 +81,17 @@ public struct HeistSceneView: View {
             // Two fingers pan instead, which is what lets the player recentre
             // once already zoomed in, without touching the zoom level. Pinch
             // zooms, anchored to wherever the fingers landed.
+            //
+            // All three are raw UIKit gesture recognizers sharing one
+            // `AlwaysSimultaneousDelegate` — see its doc comment for why that
+            // turned out to matter more than anything about touch counting.
             #if canImport(UIKit)
-            .gesture(TouchDragGesture(onOrbit: orbit, onPan: pan))
+            .gesture(TouchDragGesture(touches: 1, onChanged: { _, delta in orbit(by: delta) }))
+            .gesture(TouchDragGesture(touches: 2, onChanged: pan))
+            .gesture(TouchPinchGesture(onChanged: zoom))
             #else
             .gesture(orbitGestureFallback)
             #endif
-            .simultaneousGesture(zoomGesture)
             .onAppear { updateViewport(proxy.size) }
             .onChange(of: proxy.size) { _, size in updateViewport(size) }
             .onChange(of: session.level?.blueprint.id) { _, _ in updateViewport(proxy.size) }
@@ -192,8 +196,8 @@ public struct HeistSceneView: View {
     /// Degraded stand-in for platforms without `UIGestureRecognizerRepresentable`
     /// (this package also declares macOS as a target so its pure-logic tests can
     /// run on the host Mac — the game itself only ships on iOS). Orbits only;
-    /// there is no touch-count-based gesture here to add two-finger pan on top
-    /// of it. Not the shipping experience.
+    /// there is no touch-count-based gesture here to add two-finger pan or
+    /// pinch-zoom on top of it. Not the shipping experience.
     private var orbitGestureFallback: some Gesture {
         DragGesture(minimumDistance: 6)
             .onChanged { value in
@@ -209,40 +213,28 @@ public struct HeistSceneView: View {
 
     /// Pinch zooms toward wherever the fingers landed, not the level's
     /// centre — the point first touched stays under the fingers for the rest
-    /// of the gesture, the same convention as Photos and Maps. With no
-    /// separate pan gesture, this doubles as how the player reaches a
-    /// specific room: zoom in on it, and the anchor keeps it centred.
+    /// of the gesture, the same convention as Photos and Maps.
     ///
-    /// `MagnifyGesture` only ever reports where the pinch *started*
-    /// (`startLocation`), not a live midpoint, so that is what is held fixed.
-    /// Each step re-solves how far the anchor's world point has drifted under
-    /// the new zoom and pulls the focus back by exactly that much.
-    private var zoomGesture: some Gesture {
-        MagnifyGesture()
-            .onChanged { value in
-                if zoomAnchor == nil {
-                    zoomAnchor = anchor(at: value.startLocation)
-                }
+    /// `scale` arrives already incremental (see `TouchPinchGesture`), so
+    /// unlike the `MagnifyGesture` this replaced, there is no need to divide
+    /// out a running "last magnification" first.
+    private func zoom(location: CGPoint, scale: CGFloat) {
+        if zoomAnchor == nil {
+            zoomAnchor = anchor(at: location)
+        }
 
-                let factor = value.magnification / max(lastMagnification, 0.01)
-                lastMagnification = value.magnification
-                camera.control = camera.control.zoomed(by: factor)
-                frameCamera(size: viewportSize)
+        camera.control = camera.control.zoomed(by: Double(scale))
+        frameCamera(size: viewportSize)
 
-                if let zoomAnchor, let drifted = worldPoint(at: zoomAnchor.screen) {
-                    let correction = WorldPoint(
-                        x: zoomAnchor.world.x - drifted.x,
-                        y: 0,
-                        z: zoomAnchor.world.z - drifted.z
-                    )
-                    camera.control = camera.control.focused(at: camera.control.focusOffset + correction)
-                    frameCamera(size: viewportSize)
-                }
-            }
-            .onEnded { _ in
-                lastMagnification = 1
-                zoomAnchor = nil
-            }
+        if let zoomAnchor, let drifted = worldPoint(at: zoomAnchor.screen) {
+            let correction = WorldPoint(
+                x: zoomAnchor.world.x - drifted.x,
+                y: 0,
+                z: zoomAnchor.world.z - drifted.z
+            )
+            camera.control = camera.control.focused(at: camera.control.focusOffset + correction)
+            frameCamera(size: viewportSize)
+        }
     }
 
     /// The world point a screen location resolves to right now, plus the
@@ -304,109 +296,105 @@ public struct HeistSceneView: View {
 }
 
 #if canImport(UIKit)
-/// One drag recognizer that decides, once, whether a touch sequence is
-/// orbiting (one finger) or panning (two) — and does not reconsider that
-/// decision for the rest of the same touch sequence.
+/// A delegate that unconditionally allows whatever wears it to recognize
+/// alongside every other gesture recognizer on the same view.
 ///
-/// Two earlier versions of this both tried to make that call *continuously*,
-/// and both were the wrong shape for what are two genuinely independent
-/// actions. The first used two separate `UIPanGestureRecognizer`s, one
-/// pinned to 1 touch and one to 2, expecting UIKit to hand off between them —
-/// it doesn't, gesture recognizers on the same view are exclusive by
-/// default, so the one-touch recognizer almost always wins the instant a
-/// finger moves, before a second finger typically has time to land, and
-/// blocks the two-touch one for the rest of that touch sequence. The second
-/// used one recognizer re-reading live touch count on every callback — that
-/// let a second finger take over mid-drag, but "take over mid-drag" is
-/// exactly the problem: a real finger landing 50-100ms after the first is
-/// completely normal, and in that window the first version already reads as
-/// a one-touch drag and applies real orbit motion, which the player sees as
-/// the view flicking before the pan they meant to do takes hold.
+/// This is the actual fix, and the thing all three earlier attempts at this
+/// gesture setup were missing. UIKit's default is exclusive: once one
+/// gesture recognizer recognizes, every other one racing it on the same
+/// touches is blocked unless a delegate on (at least) one of the pair says
+/// otherwise. Orbit and pan are pinned to different touch counts, so they
+/// were never really the problem once each read its own fixed count —
+/// but zoom was still `MagnifyGesture`, a gesture living inside SwiftUI's
+/// *own* internal recognizer system, entirely separate from the raw
+/// `UIPanGestureRecognizer`s this file adds directly to the view. Those two
+/// systems do not know about each other's `.simultaneousGesture` — that
+/// modifier only coordinates gestures within SwiftUI's own `Gesture` tree —
+/// so a real two-finger pan and the pinch recognizer backing `MagnifyGesture`
+/// were quietly fighting over the same two touches by UIKit's default
+/// exclusivity rule, with neither side configured to allow the other. Moving
+/// zoom onto a raw `UIPinchGestureRecognizer` puts all three gestures in the
+/// same system, where this one shared delegate can actually say "yes,
+/// simultaneously" to every pair of them.
+private final class AlwaysSimultaneousDelegate: NSObject, UIGestureRecognizerDelegate {
+    func gestureRecognizer(
+        _ gestureRecognizer: UIGestureRecognizer,
+        shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+    ) -> Bool {
+        true
+    }
+}
+
+/// A drag pinned to an exact number of touches.
 ///
-/// The fix is not a cleverer handoff — it's to stop treating this as one
-/// mechanism serving two behaviors that must be arbitrated live, and decide
-/// which one it is exactly once, from how many touches are actually down a
-/// short, fixed instant after the gesture starts (`decisionWindow`, chosen
-/// to comfortably outlast normal multi-finger landing stagger). After that,
-/// orbiting and panning genuinely do not interact for the rest of that touch
-/// sequence: an orbit ignores a finger added later instead of switching to
-/// pan, and a pan keeps panning if a finger lifts instead of switching back.
-/// Whatever moved during the decision window itself is dropped rather than
-/// applied — `UIPanGestureRecognizer` recomputes its translation from the
-/// touch centroid, so a second finger landing inside that window would
-/// otherwise show up as a spurious jump.
+/// `UIPanGestureRecognizer`'s own `minimumNumberOfTouches`/
+/// `maximumNumberOfTouches` already refuse to recognize with the wrong touch
+/// count — there is no need to hand-count touches here the way earlier
+/// versions of this type did. What those versions were actually missing is
+/// `AlwaysSimultaneousDelegate`: without it, whichever of the 1-touch and
+/// 2-touch recognizers happens to recognize first (almost always the 1-touch
+/// one, since real fingers rarely land in the same touch batch) blocks the
+/// other for the rest of that touch sequence by UIKit's default exclusivity,
+/// no matter how correct their own touch-count configuration is.
 ///
 /// Deltas are reported via `setTranslation(.zero, in:)` after every callback
 /// rather than `DragGesture`'s own start-accumulated `translation` — see
 /// `orbit(by:)` for why that still matters once `elevation` clamps.
 private struct TouchDragGesture: UIGestureRecognizerRepresentable {
-    var onOrbit: (_ delta: CGSize) -> Void
-    var onPan: (_ location: CGPoint, _ delta: CGSize) -> Void
+    var touches: Int
+    var onChanged: (_ location: CGPoint, _ delta: CGSize) -> Void
 
-    /// How long a fresh touch is left undecided before it is read as a
-    /// one-finger orbit. Comfortably past typical multi-finger landing
-    /// stagger without reading as a delay on a genuine one-finger drag.
-    private static let decisionWindow: CFAbsoluteTime = 0.08
-
-    final class Coordinator {
-        enum Mode { case undecided, orbit, pan }
-        var mode: Mode = .undecided
-        var gestureStartTime: CFAbsoluteTime = 0
-    }
-
-    func makeCoordinator(converter: CoordinateSpaceConverter) -> Coordinator {
-        Coordinator()
+    func makeCoordinator(converter: CoordinateSpaceConverter) -> AlwaysSimultaneousDelegate {
+        AlwaysSimultaneousDelegate()
     }
 
     func makeUIGestureRecognizer(context: Context) -> UIPanGestureRecognizer {
         let recognizer = UIPanGestureRecognizer()
-        recognizer.maximumNumberOfTouches = 2
+        recognizer.minimumNumberOfTouches = touches
+        recognizer.maximumNumberOfTouches = touches
+        recognizer.delegate = context.coordinator
         return recognizer
     }
 
     func handleUIGestureRecognizerAction(_ recognizer: UIPanGestureRecognizer, context: Context) {
-        let coordinator = context.coordinator
-        switch recognizer.state {
-        case .began:
-            coordinator.mode = .undecided
-            coordinator.gestureStartTime = CFAbsoluteTimeGetCurrent()
-            recognizer.setTranslation(.zero, in: recognizer.view)
+        guard recognizer.state == .changed else { return }
+        let translation = recognizer.translation(in: recognizer.view)
+        guard translation != .zero else { return }
+        recognizer.setTranslation(.zero, in: recognizer.view)
+        onChanged(recognizer.location(in: recognizer.view), CGSize(width: translation.x, height: translation.y))
+    }
+}
 
-        case .changed:
-            let translation = recognizer.translation(in: recognizer.view)
-            recognizer.setTranslation(.zero, in: recognizer.view)
+/// Pinch, reported as the scale factor since the last callback rather than
+/// `UIPinchGestureRecognizer`'s own start-accumulated `scale` — resetting it
+/// to 1 after every callback is the same technique `TouchDragGesture` uses
+/// for translation, and for the same reason: `zoom` is clamped
+/// (`CameraControl.zoomRange`), so comparing against a frozen gesture-start
+/// baseline would let a pinch that keeps pushing past the clamp build an
+/// invisible overshoot that has to be unwound before zoom responds again.
+///
+/// Wraps `UIPinchGestureRecognizer` instead of SwiftUI's own `MagnifyGesture`
+/// so zoom shares `AlwaysSimultaneousDelegate` with orbit and pan — see that
+/// type's doc comment for why that turned out to be the actual bug.
+private struct TouchPinchGesture: UIGestureRecognizerRepresentable {
+    var onChanged: (_ location: CGPoint, _ scale: CGFloat) -> Void
 
-            if coordinator.mode == .undecided {
-                let touchCount = recognizer.numberOfTouches
-                let elapsed = CFAbsoluteTimeGetCurrent() - coordinator.gestureStartTime
-                guard touchCount >= 2 || elapsed >= Self.decisionWindow else { return }
-                coordinator.mode = touchCount >= 2 ? .pan : .orbit
-                return
-            }
+    func makeCoordinator(converter: CoordinateSpaceConverter) -> AlwaysSimultaneousDelegate {
+        AlwaysSimultaneousDelegate()
+    }
 
-            guard translation != .zero else { return }
-            let delta = CGSize(width: translation.x, height: translation.y)
-            switch coordinator.mode {
-            case .pan:
-                // A finger lifting back to 1 does not un-pan — see the type
-                // doc for why. An incidental extra touch while already
-                // orbiting is ignored the same way, rather than applied as
-                // the centroid jump it would otherwise show up as.
-                guard recognizer.numberOfTouches >= 2 else { return }
-                onPan(recognizer.location(in: recognizer.view), delta)
-            case .orbit:
-                guard recognizer.numberOfTouches == 1 else { return }
-                onOrbit(delta)
-            case .undecided:
-                break
-            }
+    func makeUIGestureRecognizer(context: Context) -> UIPinchGestureRecognizer {
+        let recognizer = UIPinchGestureRecognizer()
+        recognizer.delegate = context.coordinator
+        return recognizer
+    }
 
-        case .ended, .cancelled, .failed:
-            coordinator.mode = .undecided
-
-        default:
-            break
-        }
+    func handleUIGestureRecognizerAction(_ recognizer: UIPinchGestureRecognizer, context: Context) {
+        guard recognizer.state == .changed else { return }
+        let scale = recognizer.scale
+        guard scale != 1 else { return }
+        recognizer.scale = 1
+        onChanged(recognizer.location(in: recognizer.view), scale)
     }
 }
 #endif
