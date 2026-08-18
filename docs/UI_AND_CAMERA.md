@@ -95,13 +95,24 @@ TRACES      0
 | — | **Rotation is not offered** | decided |
 | — | **Panning is not offered** | decided |
 
-### Fixed top-plane anchored off-axis perspective camera
+### Fixed top-plane anchored off-axis perspective camera — superseded
 
-Settled 2026-08-18, after five wrong implementations. That name is the technical
-one and it is worth using: it says exactly what the camera is and rules out the
-four things it is not — an orthographic camera, a tilt, an orbit, and a pan.
+**This section describes a design that was replaced the same day it was
+written**, kept only for the reasoning trail. It was: camera fixed above the
+level, peeking slid it sideways, and the projection sheared to hold the plane
+of the wall tops pinned to the display. It worked and shipped briefly.
 
-The rule, from the owner:
+It was superseded by the simpler tilt/turn camera below — `CameraControl.pitch`
+and `.yaw`, resting at a plan view and tilting on drag, no spring back — after
+the owner asked for the diorama-style look instead. **Read "Narrow-angle
+perspective, tilted" further down for the camera actually in the game.**
+
+Settled 2026-08-18, after five wrong implementations before this one. That name
+is the technical one and it is worth using: it says exactly what the camera is
+and rules out the four things it is not — an orthographic camera, a tilt, an
+orbit, and a pan.
+
+The rule, from the owner, that produced this design:
 
 > Представь уровень как открытую сверху прямоугольную коробку. В исходном
 > состоянии камера смотрит почти строго сверху вниз, так что верхние торцы
@@ -139,32 +150,65 @@ images that plane as a plain scale and offset, which cannot stay put while the
 camera moves. "Frame fixed" and "viewpoint changes" are incompatible for a
 symmetric frustum. Only an off-axis one has the extra freedom.
 
-#### Implementation
+#### Implementation, revised the same day
 
-`ProjectiveTransformCameraComponent`, which takes a projection matrix. RealityKit
-uses **reverse-depth** projection — the near plane maps to 1 and the far plane to
-0; the implementation was additionally validated experimentally against the
-built-in camera at zero offset, where the two agree pixel for pixel.
+The camera below is **not** `OrthographicCameraComponent`. It was, briefly:
+standard component, standard `look(at:from:)`, and it worked visually. But
+`DirectionalLightComponent` shadows do not render behind it in this build —
+proven with an isolated scene (one floor, one block, one light) switched
+between an orthographic and a perspective camera with every other number held
+identical: perspective throws a clean shadow, orthographic throws none, at any
+shadow distance tried.
 
-`CameraProjection` in `HeistCore` is the **single source of truth**. The matrix
-handed to the renderer, the ray a tap casts, the screen position of a world point
-and the safe-area solve are all built from its numbers. A second implementation
-of the same projection would drift, and the symptom would be taps landing away
-from the finger.
+The fix keeps what orthographic was for — equal distances reading equal, a
+rectangular building staying a rectangle — without giving up real shadows. A
+**narrow field of view held far back** (`fieldOfViewDegrees` around 4°,
+camera correspondingly ~200 m back) is a perspective camera in every way
+RealityKit is concerned with, so it shadows correctly, and the narrower the
+angle, the closer its projection sits to a parallel one. At rest (camera
+looking straight down) the floor plane is at one exact depth from the camera,
+so the projection is *exactly* parallel there regardless of field of view;
+only off-axis height introduces a small, bounded parallax, which
+`CameraProjectionTests` checks stays under a few points.
 
-Two dead ends recorded so they are not tried again:
+Two earlier cameras are recorded here and not tried again: a custom off-axis
+projection matrix (worked, but rested on an undocumented depth convention),
+and the true orthographic camera above (cannot be shadowed here).
 
-* **A shear on the level's transform does not work.** `Transform` is scale,
-  rotation and translation; Apple documents that it cannot represent an arbitrary
-  4x4 without loss and that shear may be dropped. RealityKit silently decomposed
-  ours into a rotation, which pins one edge of the box and swings the rest —
-  exactly what the owner saw and rejected.
-* **Deforming the world's vertices was proposed and rejected**, correctly. It
-  would have made furniture skew against its own top and bottom, split the game
-  into a drawn geometry and a real one, and put lighting, shadows, raycast and
-  future production assets permanently out of step. If a non-standard projection
-  is ever needed beyond what the camera can express, it belongs in rendering or a
-  shader, with the world left alone.
+##### The shadow bug under the new camera, and what it actually was
+
+Getting an isolated scene to shadow was not the same as getting the real level
+to shadow, and the gap took a long, deliberately narrowed bisection to close.
+In order:
+
+1. **The shadow's reach defaulted to 5 m** against a 24 m level — nothing was
+   ever in range. Fixed by setting `maximumDistance` explicitly.
+2. **The depth bias is read against that reach**, so a bias sized for 5 m
+   pushed every shadow off its own caster once the reach grew. Fixed by
+   tuning bias and reach together.
+3. **The camera's own orientation used `look(at:from:)`**, which is degenerate
+   looking straight down — world up is parallel to the view, so roll is
+   undefined and the level came out visibly skewed. Fixed by building the
+   orientation from the projection's own basis instead.
+4. **The real cause, found last.** `maximumDistance` turned out to be sized
+   against the *camera's* distance from the scene, not the level's own
+   footprint. The new narrow-FOV camera stands roughly 200 m back; a reach of
+   34 m — generous for a 24 m level — left the entire visible scene outside
+   the shadow's reach, and nothing rendered anywhere, with every component
+   correct and every other number sane. Found by bisection: a hand-built
+   probe scene, wrapped in a container entity exactly the way the real level
+   wraps its contents, rendered a shadow at `maximumDistance: 200` and none at
+   `34`, with every other number — intensity, bias, light position — held
+   fixed. Confirmed by carrying the real level's exact numbers into the probe
+   one at a time until the same failure reproduced. Fixed by setting
+   `maximumDistance` to a flat 500 — comfortably past the camera's distance at
+   any zoom, and deliberately not derived from the level's size at all.
+
+Recorded at this length because the investigation crossed and re-crossed
+several plausible culprits — orthographic vs. perspective, near/far precision,
+practical lights washing out contrast, entity nesting under a container — and
+only one of them was real. The rest were confirmed innocent by isolated,
+reproducible A/B tests before being ruled out, not by argument.
 
 #### Range and feel
 
