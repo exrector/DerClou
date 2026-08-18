@@ -76,10 +76,23 @@ public final class TacticalCamera {
         entity.components.set(camera)
 
         let position = projection.position
-        let focus = projection.focus
-        entity.look(
-            at: SIMD3<Float>(Float(focus.x), Float(focus.y), Float(focus.z)),
-            from: SIMD3<Float>(Float(position.x), Float(position.y), Float(position.z)),
+        entity.setPosition(
+            SIMD3<Float>(Float(position.x), Float(position.y), Float(position.z)),
+            relativeTo: nil
+        )
+
+        // Built from the projection's own axes rather than `look(at:from:)`.
+        // At rest the camera looks straight down, and that is exactly the case
+        // where `look` is degenerate: the world's up is parallel to the view, so
+        // the roll is undefined and the level comes out a couple of degrees
+        // askew. The basis states the roll instead of leaving it to be guessed.
+        let (right, up, forward) = projection.basis
+        entity.setOrientation(
+            simd_quatf(simd_float3x3(
+                SIMD3<Float>(Float(right.x), Float(right.y), Float(right.z)),
+                SIMD3<Float>(Float(up.x), Float(up.y), Float(up.z)),
+                SIMD3<Float>(Float(-forward.x), Float(-forward.y), Float(-forward.z))
+            )),
             relativeTo: nil
         )
 
