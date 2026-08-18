@@ -15,28 +15,42 @@ import Foundation
 /// correctly, while reading close enough to parallel that equal distances still
 /// look equal and a rectangular building still looks rectangular.
 ///
-/// **A free two-axis tilt, not a spherical orbit.** The first attempt at "let
-/// the player look around freely" used one polar angle (tilt) and one
-/// azimuthal angle (yaw around it) — spherical coordinates. That has a
-/// property that reads as broken: at rest the two axes are not independent, so
-/// a sideways drag does nothing until a vertical drag has tilted the view away
-/// from straight down first, and tilting only ever went one way, so dragging
-/// the "wrong" direction hit a wall immediately. The fix composes two
-/// independent rotations, one around world X and one around world Z, applied
-/// to the straight-down direction. Both are symmetric, both work from rest,
-/// and they do not interact.
+/// **A true orbit, not a bounded lean.** Two earlier attempts both turned out
+/// to be the wrong shape. The first used one polar angle (tilt) and one
+/// azimuthal angle (yaw around it) coupled together — at rest a sideways drag
+/// did nothing until a vertical drag had tilted the view away from straight
+/// down first. The second decoupled them into two independent *lean* axes
+/// (rotations around world X and world Z) — that fixed the coupling, but
+/// neither axis could sweep past about 70° without the camera reaching the
+/// horizon or going underground, because leaning is a rotation around a
+/// *horizontal* axis. A full turn around the building — "spin the whole
+/// field" — needs a rotation around the *vertical* axis instead: `azimuth`,
+/// a compass heading that wraps all the way around with no edge to hit, paired
+/// with `elevation`, how far up from looking straight down the camera sits.
+/// This is the standard orbit-camera pair (see most 3D viewers' "orbit" tool),
+/// and unlike the lean model it never has to stop short of anything.
 ///
-/// **The frame's size is fixed at rest, independent of the live tilt.** An
+/// **Elevation cannot start at exactly zero.** Looking straight down, every
+/// compass heading looks identical — azimuth has no visible effect at the
+/// pole, which is exactly the "sideways drag does nothing" bug the coupled
+/// model had, just for a different reason (geometry, not a coding mistake:
+/// there is no "which way you're facing" when you're staring straight down).
+/// `CameraControl.restElevationDegrees` keeps rest a few degrees off the pole
+/// so azimuth is always live, from the very first pixel of any drag. At this
+/// camera's narrow field of view the offset is visually negligible — see
+/// `restParallaxIsSmall` — so the resting view still reads as a plan.
+///
+/// **The frame's size is fixed at rest, independent of the live orbit.** An
 /// earlier version recomputed how much of the level had to fit on screen from
 /// the *current* tilt on every touch move, so panning and zooming happened at
 /// once — the picture visibly pulsed while the player was only trying to look
-/// around. Framing is solved once, for the flat resting view; tilting only
+/// around. Framing is solved once, for the flat resting view; orbiting only
 /// moves the camera around that fixed frame, which is what makes it smooth.
 public struct CameraProjection: Sendable, Equatable {
     /// Viewport width divided by height.
     public var aspectRatio: Double
     /// World meters spanned by the height of the screen, at the focus plane.
-    /// Fixed for a given framing — tilting does not change it.
+    /// Fixed for a given framing — orbiting does not change it.
     public var verticalExtent: Double
     /// Point on the floor the camera looks at. Fixed for a given framing.
     public var focus: WorldPoint
@@ -44,12 +58,15 @@ public struct CameraProjection: Sendable, Equatable {
     /// trades shadow support against how close to parallel the projection is.
     public var fieldOfViewDegrees: Double
 
-    /// Degrees tilted around world X — drag up or down. Symmetric: positive and
-    /// negative reveal opposite sides of a room.
-    public var leanVertical: Double
-    /// Degrees tilted around world Z — drag left or right. Symmetric and
-    /// independent of `leanVertical`.
-    public var leanHorizontal: Double
+    /// Degrees up from looking straight down — drag up or down. Never
+    /// negative: `CameraControl.restElevationDegrees` is as flat as this
+    /// model goes, and the far side of a room is reached by turning `azimuth`
+    /// around to it, not by tilting past vertical.
+    public var elevation: Double
+    /// Compass heading in degrees, wrapping — drag left or right. A full turn
+    /// brings the view back to exactly where it started; there is no edge to
+    /// hit.
+    public var azimuth: Double
 
     /// How much of the level's own width falls outside the view, in meters.
     public var croppedWidth: Double
@@ -61,8 +78,8 @@ public struct CameraProjection: Sendable, Equatable {
         verticalExtent: Double,
         focus: WorldPoint,
         fieldOfViewDegrees: Double,
-        leanVertical: Double = 0,
-        leanHorizontal: Double = 0,
+        elevation: Double = CameraControl.restElevationDegrees,
+        azimuth: Double = 0,
         croppedWidth: Double = 0,
         croppedDepth: Double = 0
     ) {
@@ -70,8 +87,8 @@ public struct CameraProjection: Sendable, Equatable {
         self.verticalExtent = verticalExtent
         self.focus = focus
         self.fieldOfViewDegrees = fieldOfViewDegrees
-        self.leanVertical = leanVertical
-        self.leanHorizontal = leanHorizontal
+        self.elevation = elevation
+        self.azimuth = azimuth
         self.croppedWidth = croppedWidth
         self.croppedDepth = croppedDepth
     }
@@ -81,16 +98,20 @@ public struct CameraProjection: Sendable, Equatable {
 
     /// How far back the camera stands, so the frustum spans `verticalExtent`
     /// exactly at the focus plane. A pure function of the fixed framing, so it
-    /// does not change while the player tilts the view.
+    /// does not change while the player orbits the view.
     public var distance: Double { (verticalExtent / 2) / halfFovTangent }
 
-    /// Direction from the focus out to the camera: two independent rotations of
-    /// straight-up, one around world X and one around world Z. Order is fixed
-    /// so the same control values always land on the same direction.
+    /// Direction from the focus out to the camera, in standard elevation/
+    /// azimuth (spherical) form: `elevation` how far up from straight down,
+    /// `azimuth` which way that lift faces.
     public var offsetDirection: WorldPoint {
-        WorldPoint(x: 0, y: 1, z: 0)
-            .rotatedAboutX(leanVertical * .pi / 180)
-            .rotatedAboutZ(leanHorizontal * .pi / 180)
+        let elevationRadians = elevation * .pi / 180
+        let azimuthRadians = azimuth * .pi / 180
+        return WorldPoint(
+            x: sin(elevationRadians) * sin(azimuthRadians),
+            y: cos(elevationRadians),
+            z: sin(elevationRadians) * cos(azimuthRadians)
+        )
     }
 
     /// Where the camera stands.
@@ -100,8 +121,10 @@ public struct CameraProjection: Sendable, Equatable {
     public var basis: (right: WorldPoint, up: WorldPoint, forward: WorldPoint) {
         let forward = offsetDirection * -1
         var right = forward.cross(WorldPoint(x: 0, y: 1, z: 0))
-        // Straight down is the degenerate case — both leans at zero — and it
-        // is the resting view.
+        // Straight down is the degenerate case — elevation at the pole, where
+        // azimuth has no axis to turn around. `CameraControl.restElevationDegrees`
+        // keeps normal operation off this exact point, but the fallback stays
+        // for safety.
         if right.length < 1e-9 {
             right = WorldPoint(x: 1, y: 0, z: 0)
         } else {
@@ -167,29 +190,31 @@ public enum FramingMode: String, Sendable, Codable, CaseIterable {
     case fill
 }
 
-/// What the player can do to the camera: tilt it, and zoom.
+/// What the player can do to the camera: orbit it, and zoom.
 ///
-/// Tilting stays where the player leaves it — no spring back, tried and
+/// Orbiting stays where the player leaves it — no spring back, tried and
 /// rejected earlier as something that fought the player's hand rather than
 /// helping it. `focusButton`-style reset is a deliberate, separate action.
 public struct CameraControl: Sendable, Equatable {
-    /// Degrees tilted around world X, from dragging a finger up or down.
-    public var leanVertical: Double
-    /// Degrees tilted around world Z, from dragging a finger left or right.
-    public var leanHorizontal: Double
+    /// Degrees up from looking straight down, from dragging a finger up or
+    /// down. Never below `restElevationDegrees`.
+    public var elevation: Double
+    /// Compass heading in degrees, wrapping, from dragging a finger left or
+    /// right. A full turn returns to exactly where it started.
+    public var azimuth: Double
     /// Zoom multiplier. 1 frames the whole building; above 1 moves closer.
     public var zoom: Double
     /// Where the view is centred while zoomed in, in meters from the centre.
     public var focusOffset: WorldPoint
 
     public init(
-        leanVertical: Double = 0,
-        leanHorizontal: Double = 0,
+        elevation: Double = restElevationDegrees,
+        azimuth: Double = 0,
         zoom: Double = 1,
         focusOffset: WorldPoint = .zero
     ) {
-        self.leanVertical = leanVertical
-        self.leanHorizontal = leanHorizontal
+        self.elevation = elevation
+        self.azimuth = Self.wrapped(azimuth)
         self.zoom = zoom
         self.focusOffset = focusOffset
     }
@@ -198,20 +223,32 @@ public struct CameraControl: Sendable, Equatable {
 
     public var isNeutral: Bool { self == .neutral }
 
-    /// How far the view may tilt on either axis, in either direction.
+    /// How far off the pole rest sits.
     ///
-    /// Wide and symmetric on purpose: dragging up and dragging down are meant
-    /// to feel like mirror images of each other, not like one direction works
-    /// and the other hits a wall. Stops short of 90°, which would put the
-    /// camera on the horizon and the level edge-on.
-    public static let leanRange: ClosedRange<Double> = -70...70
+    /// Looking exactly straight down, azimuth has no axis to turn around —
+    /// every heading looks identical, so a horizontal drag would do nothing,
+    /// reproducing the exact "sideways drag does nothing at rest" complaint
+    /// that a coupled tilt+yaw model had, this time for a real geometric
+    /// reason rather than a coding mistake. A few degrees keeps azimuth live
+    /// from the first pixel of any drag; at this camera's narrow field of
+    /// view that offset is not visible — see `restParallaxIsSmall`.
+    public static let restElevationDegrees: Double = 3
+    /// How far up from rest the view may go. Stops short of 90°, which would
+    /// put the camera on the horizon; the far side of a room is reached by
+    /// turning `azimuth`, not by climbing past vertical.
+    public static let elevationRange: ClosedRange<Double> = restElevationDegrees...75
     /// Zoom limits.
     public static let zoomRange: ClosedRange<Double> = 1.0...3.0
 
-    public func tilted(vertical: Double, horizontal: Double) -> CameraControl {
+    private static func wrapped(_ degrees: Double) -> Double {
+        let remainder = degrees.truncatingRemainder(dividingBy: 360)
+        return remainder < 0 ? remainder + 360 : remainder
+    }
+
+    public func oriented(elevation: Double, azimuth: Double) -> CameraControl {
         CameraControl(
-            leanVertical: min(max(vertical, Self.leanRange.lowerBound), Self.leanRange.upperBound),
-            leanHorizontal: min(max(horizontal, Self.leanRange.lowerBound), Self.leanRange.upperBound),
+            elevation: min(max(elevation, Self.elevationRange.lowerBound), Self.elevationRange.upperBound),
+            azimuth: azimuth,
             zoom: zoom,
             focusOffset: focusOffset
         )
@@ -219,8 +256,8 @@ public struct CameraControl: Sendable, Equatable {
 
     public func zoomed(by factor: Double) -> CameraControl {
         CameraControl(
-            leanVertical: leanVertical,
-            leanHorizontal: leanHorizontal,
+            elevation: elevation,
+            azimuth: azimuth,
             zoom: min(max(zoom * factor, Self.zoomRange.lowerBound), Self.zoomRange.upperBound),
             focusOffset: focusOffset
         )
@@ -228,7 +265,7 @@ public struct CameraControl: Sendable, Equatable {
 
     public func focused(at offset: WorldPoint) -> CameraControl {
         CameraControl(
-            leanVertical: leanVertical, leanHorizontal: leanHorizontal, zoom: zoom, focusOffset: offset
+            elevation: elevation, azimuth: azimuth, zoom: zoom, focusOffset: offset
         )
     }
 
@@ -370,8 +407,8 @@ public enum CameraProjectionSolver {
             verticalExtent: verticalExtent,
             focus: focus,
             fieldOfViewDegrees: fieldOfViewDegrees,
-            leanVertical: clamped.leanVertical,
-            leanHorizontal: clamped.leanHorizontal,
+            elevation: clamped.elevation,
+            azimuth: clamped.azimuth,
             croppedWidth: max(0, levelWidth - visibleWidth),
             croppedDepth: max(0, levelDepth - verticalExtent)
         )
