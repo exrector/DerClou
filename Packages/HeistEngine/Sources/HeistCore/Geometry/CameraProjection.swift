@@ -1,75 +1,42 @@
 import Foundation
 
-/// The horizontal plane the view is anchored to, and the rectangle of it that
-/// frames the level on screen.
+/// The tactical camera: a tilted orthographic view of the level.
 ///
-/// Version 1 of the level format takes this from the level's own outline at the
-/// height of the exterior walls, which is why those walls are currently a
-/// rectangle of one height. That is a property of the format, not of the camera:
-/// the anchor plane is just a plane, and a later format can put an explicit one
-/// over an L-shaped building, a courtyard or walls of differing height without
-/// the camera changing at all.
-public struct ProjectionAnchorPlane: Sendable, Equatable {
-    /// Height above the floor, in meters.
-    public var height: Double
-    /// Middle of the framed rectangle.
-    public var centre: WorldPoint
-    /// Half the rectangle's width, in meters.
-    public var halfWidth: Double
-    /// Half its depth.
-    public var halfDepth: Double
-
-    public init(height: Double, centre: WorldPoint, halfWidth: Double, halfDepth: Double) {
-        self.height = height
-        self.centre = centre
-        self.halfWidth = halfWidth
-        self.halfDepth = halfDepth
-    }
-}
-
-/// The tactical camera, as one value: where it stands, what it looks through,
-/// and the matrix that expresses it.
+/// Settled 2026-08-18, and chosen for what it does *not* do. Parallel projection
+/// means lines never converge: a room at the far edge of the screen is drawn at
+/// exactly the same scale as one at the near edge, a rectangular building stays
+/// a rectangle, and equal distances look equal wherever they are. That is what a
+/// planning game needs, and it is what a tilted perspective camera cannot give —
+/// that one keystones the level into a trapezium.
 ///
-/// **A fixed top-plane anchored off-axis perspective camera.** Three properties
-/// hold at all times:
+/// The tilt does the rest: the floor foreshortens, walls and furniture gain
+/// height, and both happen together and consistently, so nothing reads as
+/// stretched.
 ///
-/// * It looks straight down and never rotates. Screen right is world +x. Every
-///   exterior wall stays parallel to an edge of the display, and the frame stays
-///   a rectangle — as soon as the camera tips, a rectangle becomes a trapezium
-///   and nothing can pin it again.
-/// * Peeking moves the camera sideways, which is a real change of viewpoint.
-/// * The projection is off axis by exactly the amount that cancels that movement
-///   **at the anchor plane**. A shift of the principal point moves the image by
-///   an amount independent of depth; moving the camera moves it by an amount
-///   inversely proportional to depth. Matching the two at one depth cancels
-///   there and nowhere else, so the tops of the walls hold still while the floor
-///   below them slides by `anchor height × tan(peek)`.
-///
-/// Nothing in the world moves for any of this. One set of coordinates serves
-/// rendering, navigation, collision, patrols, lighting and interaction.
-///
-/// This is the single source of truth: the matrix handed to the renderer, the
-/// ray a tap turns into, and the screen position of a world point are all built
-/// from the numbers below. Two implementations of the same projection would
-/// drift, and the symptom would be taps landing away from the finger.
+/// Standard `OrthographicCameraComponent`, standard `look(at:from:)`, and the
+/// maths below is the textbook orthographic screen transform. An earlier camera
+/// here used a custom off-axis projection matrix to hold the level's outline
+/// pinned to the display while the viewpoint shifted. It worked, but it rested
+/// on an undocumented depth convention, and it could not show anything at an
+/// angle without the oblique distortion that comes of an unforeshortened floor.
+/// Standard parts, chosen deliberately — see docs/UI_AND_CAMERA.md.
 public struct CameraProjection: Sendable, Equatable {
     /// Viewport width divided by height.
     public var aspectRatio: Double
-    public var near: Double
-    public var far: Double
-    /// Vertical field of view, in degrees.
-    public var fieldOfViewDegrees: Double
+    /// World meters spanned by the height of the screen.
+    public var verticalExtent: Double
+    /// Point on the floor the camera looks at.
+    public var focus: WorldPoint
+    /// How far back the camera stands. Orthographic scale does not depend on it;
+    /// it only has to clear the geometry.
+    public var distance: Double
 
-    /// The plane held still on screen.
-    public var anchor: ProjectionAnchorPlane
-    /// How far the camera stands above that plane, in meters.
-    public var anchorDistance: Double
-
-    /// Peek across the screen, as a slope: `tan` of the angle. Positive slides
-    /// the floor right.
-    public var peekAcross: Double
-    /// Peek up the screen. Positive slides the floor down.
-    public var peekUp: Double
+    /// Degrees away from straight down. Zero is a plan drawing; the game's view
+    /// is well off vertical, so rooms have depth.
+    public var tiltDegrees: Double
+    /// Degrees the view is turned about the vertical, for the peek. Zero at rest,
+    /// and it springs back there.
+    public var yawDegrees: Double
 
     /// How much of the level's own width falls outside the view, in meters.
     public var croppedWidth: Double
@@ -78,94 +45,60 @@ public struct CameraProjection: Sendable, Equatable {
 
     public init(
         aspectRatio: Double,
-        near: Double = 0.05,
-        far: Double = 400,
-        fieldOfViewDegrees: Double,
-        anchor: ProjectionAnchorPlane,
-        anchorDistance: Double,
-        peekAcross: Double = 0,
-        peekUp: Double = 0,
+        verticalExtent: Double,
+        focus: WorldPoint,
+        distance: Double = 80,
+        tiltDegrees: Double,
+        yawDegrees: Double = 0,
         croppedWidth: Double = 0,
         croppedDepth: Double = 0
     ) {
         self.aspectRatio = aspectRatio
-        self.near = near
-        self.far = far
-        self.fieldOfViewDegrees = fieldOfViewDegrees
-        self.anchor = anchor
-        self.anchorDistance = anchorDistance
-        self.peekAcross = peekAcross
-        self.peekUp = peekUp
+        self.verticalExtent = verticalExtent
+        self.focus = focus
+        self.distance = distance
+        self.tiltDegrees = tiltDegrees
+        self.yawDegrees = yawDegrees
         self.croppedWidth = croppedWidth
         self.croppedDepth = croppedDepth
     }
 
-    // MARK: - The frustum
+    private var tilt: Double { tiltDegrees * .pi / 180 }
+    private var yaw: Double { yawDegrees * .pi / 180 }
 
-    /// Half-height of the frustum at unit depth — a tangent, not a distance.
-    public var halfHeight: Double { tan(fieldOfViewDegrees * .pi / 360) }
-
-    /// Half-width at unit depth.
-    public var halfWidth: Double { halfHeight * aspectRatio }
-
-    /// Sideways offset of the principal point. Opposite in sign to the camera's
-    /// slide, which is what makes them cancel at the anchor plane.
-    public var offsetAcross: Double { -peekAcross }
-
-    /// Vertical offset. Same sign as the slide, because screen up is world -z.
-    public var offsetUp: Double { peekUp }
+    /// Direction from the focus out to the camera.
+    public var offsetDirection: WorldPoint {
+        WorldPoint(
+            x: sin(yaw) * sin(tilt),
+            y: cos(tilt),
+            z: cos(yaw) * sin(tilt)
+        )
+    }
 
     /// Where the camera stands.
-    public var position: WorldPoint {
-        WorldPoint(
-            x: anchor.centre.x + anchorDistance * peekAcross,
-            y: anchor.height + anchorDistance,
-            z: anchor.centre.z + anchorDistance * peekUp
-        )
-    }
+    public var position: WorldPoint { focus + offsetDirection * distance }
 
-    /// The camera's axes. Constant: it does not rotate, ever.
+    /// Camera axes: screen right, screen up, and the direction it looks.
     public var basis: (right: WorldPoint, up: WorldPoint, forward: WorldPoint) {
-        (
-            right: WorldPoint(x: 1, y: 0, z: 0),
-            up: WorldPoint(x: 0, y: 0, z: -1),
-            forward: WorldPoint(x: 0, y: -1, z: 0)
-        )
+        let forward = offsetDirection * -1
+        var right = forward.cross(WorldPoint(x: 0, y: 1, z: 0))
+        // Straight down is the degenerate case, and it is a legal tilt.
+        if right.length < 1e-9 {
+            right = WorldPoint(x: 1, y: 0, z: 0)
+        } else {
+            right = right.normalized
+        }
+        return (right, right.cross(forward), forward)
     }
 
-    /// World meters spanned by the height of the screen, measured on the floor.
-    public var verticalExtent: Double { 2 * halfHeight * position.y }
+    /// Half the screen's height, in meters.
+    public var halfHeight: Double { verticalExtent / 2 }
+    /// Half its width.
+    public var halfWidth: Double { halfHeight * aspectRatio }
 
     /// True when the whole level is on screen.
     public var showsWholeLevel: Bool {
         croppedDepth <= 0.001 && croppedWidth <= 0.001
-    }
-
-    // MARK: - The matrix
-
-    /// The projection matrix, column-major, as plain numbers.
-    ///
-    /// Given to the renderer as-is. `HeistCore` stays free of platform graphics
-    /// types, so the conversion to a 4x4 happens at the boundary — but the
-    /// numbers are these and only these.
-    ///
-    /// RealityKit's projective camera uses **reverse depth**: the near plane maps
-    /// to 1 and the far plane to 0. The implementation was additionally validated
-    /// experimentally against the built-in perspective camera at zero offset.
-    ///
-    /// The third column is the whole difference from an ordinary camera: it adds
-    /// a multiple of the depth to the clip-space x and y, and since the divide
-    /// that follows is by that same depth, the result is a constant offset of the
-    /// image. That is the off-axis shift.
-    public var matrixColumns: [[Double]] {
-        let x = 1 / halfWidth
-        let y = 1 / halfHeight
-        return [
-            [x, 0, 0, 0],
-            [0, y, 0, 0],
-            [offsetAcross * x, offsetUp * y, near / (far - near), -1],
-            [0, 0, far * near / (far - near), 0]
-        ]
     }
 
     // MARK: - Projecting, and going back
@@ -176,115 +109,70 @@ public struct CameraProjection: Sendable, Equatable {
         viewportSize: (width: Double, height: Double)
     ) -> (x: Double, y: Double)? {
         guard viewportSize.width > 0, viewportSize.height > 0 else { return nil }
+        guard halfWidth > 0, halfHeight > 0 else { return nil }
 
-        let camera = position
-        // Everything the camera can see is below it, because it looks straight
-        // down.
-        let depth = camera.y - world.y
-        guard depth > 0.0001 else { return nil }
-
-        let across = (world.x - camera.x) / depth - offsetAcross
-        let up = -(world.z - camera.z) / depth - offsetUp
+        let (right, up, _) = basis
+        let offset = world - position
 
         return (
-            x: (across / halfWidth + 1) / 2 * viewportSize.width,
-            y: (1 - up / halfHeight) / 2 * viewportSize.height
+            x: (offset.dot(right) / halfWidth + 1) / 2 * viewportSize.width,
+            y: (1 - offset.dot(up) / halfHeight) / 2 * viewportSize.height
         )
     }
 
     /// The ray a screen point casts into the world.
+    ///
+    /// Parallel projection, so rays do not fan out from a focal point: they all
+    /// run along the view direction and start offset from the camera.
     public func ray(
         screenPoint: (x: Double, y: Double),
         viewportSize: (width: Double, height: Double)
     ) -> WorldRay? {
         guard viewportSize.width > 0, viewportSize.height > 0 else { return nil }
 
-        // Normalised device coordinates: x right, y up, both in -1...1.
         let ndcX = (screenPoint.x / viewportSize.width) * 2 - 1
         let ndcY = 1 - (screenPoint.y / viewportSize.height) * 2
 
-        let across = ndcX * halfWidth + offsetAcross
-        let up = ndcY * halfHeight + offsetUp
-
-        // One meter down for every meter of depth, so these are read straight
-        // off as the sideways travel over that meter.
+        let (right, up, forward) = basis
         return WorldRay(
-            origin: position,
-            direction: WorldPoint(x: across, y: -1, z: -up).normalized
+            origin: position + right * (ndcX * halfWidth) + up * (ndcY * halfHeight),
+            direction: forward
         )
     }
 }
 
-/// The angle the view sits at when nobody is touching it.
-///
-/// The peek is one number, and nothing says it has to rest at zero. Held a
-/// little off vertical, every piece of furniture shows a side, every wall shows
-/// a face and the depth of a room is legible before the player does anything —
-/// while the level stays an exact rectangle filling the screen. It is a plan
-/// drawn with a shift lens rather than a photograph taken from a chair.
-///
-/// Settled 2026-08-18 by the owner, after comparing this against a tilted
-/// tabletop camera in the manner of Hitman GO. That camera reads well but turns
-/// the level into a trapezium, and this game is one where the player has to
-/// compare two routes by eye.
-///
-/// Art direction, not mechanics: the player's peek is a delta around it, and
-/// resetting the camera returns here rather than to flat.
-public struct RestingLean: Sendable, Equatable {
-    /// Degrees down the screen. Positive shows the far side of a room.
-    public var vertical: Double
-    /// Degrees across it.
-    public var horizontal: Double
-
-    public init(vertical: Double = 0, horizontal: Double = 0) {
-        self.vertical = vertical
-        self.horizontal = horizontal
-    }
-
-    /// Straight down, with no obliquity at all.
-    public static let flat = RestingLean()
-
-    /// The game's own. Enough to read height and depth at a glance; far short of
-    /// hiding anything behind anything.
-    public static let tactical = RestingLean(vertical: 11, horizontal: 7)
-}
-
 /// How the level is fitted to the viewport.
 public enum FramingMode: String, Sendable, Codable, CaseIterable {
-    /// Show the whole anchor rectangle, letterboxing whichever axis does not
-    /// match the viewport. Nothing is ever cropped.
+    /// Show the whole level, letterboxing whichever axis does not match.
     case fit
     /// Fill the viewport edge to edge, cropping whichever axis overflows.
-    ///
-    /// The default: the display must never show anything that is not the game.
-    /// `CameraProjection.croppedWidth` reports what it costs, so a level can be
-    /// checked in a test.
     case fill
 }
 
-/// What the player can do to the camera: peek into the box, and zoom.
+/// What the player can do to the camera: peek around it, and zoom.
 ///
-/// Yaw is deliberately absent, and so is panning. The map is a puzzle: it is
-/// only learnable if screen directions never move and the building never slides.
+/// Peeking turns and lifts the view a little and then lets go of it — the view
+/// springs back to the framing the level was authored for. A look around, not a
+/// free camera: the map is a puzzle, and it is only learnable if the player's
+/// picture of it survives from one glance to the next.
 public struct CameraControl: Sendable, Equatable {
-    /// Degrees of peek from dragging a finger up and down the screen.
-    public var leanVertical: Double
-    /// Degrees of peek from dragging across it.
-    public var leanHorizontal: Double
+    /// Degrees added to the tilt. Positive lowers the view toward the horizon.
+    public var pitch: Double
+    /// Degrees the view is turned about the vertical.
+    public var yaw: Double
     /// Zoom multiplier. 1 frames the whole building; above 1 moves closer.
     public var zoom: Double
-    /// Where the view is centred while zoomed in, in meters from the building's
-    /// centre. Always clamped so the frame stays inside the building.
+    /// Where the view is centred while zoomed in, in meters from the centre.
     public var focusOffset: WorldPoint
 
     public init(
-        leanVertical: Double = 0,
-        leanHorizontal: Double = 0,
+        pitch: Double = 0,
+        yaw: Double = 0,
         zoom: Double = 1,
         focusOffset: WorldPoint = .zero
     ) {
-        self.leanVertical = leanVertical
-        self.leanHorizontal = leanHorizontal
+        self.pitch = pitch
+        self.yaw = yaw
         self.zoom = zoom
         self.focusOffset = focusOffset
     }
@@ -293,20 +181,18 @@ public struct CameraControl: Sendable, Equatable {
 
     public var isNeutral: Bool { self == .neutral }
 
-    /// How far the view may peek, the same in all four directions.
-    ///
-    /// The effect is fixed by geometry: a peek of θ slides the floor against the
-    /// frame by the anchor height times tan θ, so 20° over a 3 m wall exposes a
-    /// little over a third of its inside face.
-    public static let leanRange: ClosedRange<Double> = -20...20
-
+    /// How far the view may be lifted or lowered while peeking.
+    public static let pitchRange: ClosedRange<Double> = -14...14
+    /// How far it may be turned. Deliberately small: past this the player has to
+    /// re-learn which way is which.
+    public static let yawRange: ClosedRange<Double> = -22...22
     /// Zoom limits.
     public static let zoomRange: ClosedRange<Double> = 1.0...3.0
 
-    public func leaned(vertical: Double, horizontal: Double) -> CameraControl {
+    public func peeked(pitch: Double, yaw: Double) -> CameraControl {
         CameraControl(
-            leanVertical: min(max(vertical, Self.leanRange.lowerBound), Self.leanRange.upperBound),
-            leanHorizontal: min(max(horizontal, Self.leanRange.lowerBound), Self.leanRange.upperBound),
+            pitch: min(max(pitch, Self.pitchRange.lowerBound), Self.pitchRange.upperBound),
+            yaw: min(max(yaw, Self.yawRange.lowerBound), Self.yawRange.upperBound),
             zoom: zoom,
             focusOffset: focusOffset
         )
@@ -314,20 +200,15 @@ public struct CameraControl: Sendable, Equatable {
 
     public func zoomed(by factor: Double) -> CameraControl {
         CameraControl(
-            leanVertical: leanVertical,
-            leanHorizontal: leanHorizontal,
+            pitch: pitch,
+            yaw: yaw,
             zoom: min(max(zoom * factor, Self.zoomRange.lowerBound), Self.zoomRange.upperBound),
             focusOffset: focusOffset
         )
     }
 
     public func focused(at offset: WorldPoint) -> CameraControl {
-        CameraControl(
-            leanVertical: leanVertical,
-            leanHorizontal: leanHorizontal,
-            zoom: zoom,
-            focusOffset: offset
-        )
+        CameraControl(pitch: pitch, yaw: yaw, zoom: zoom, focusOffset: offset)
     }
 
     /// Clamps the centre so the framed rectangle never leaves the building.
@@ -349,42 +230,32 @@ public struct CameraControl: Sendable, Equatable {
 }
 
 /// Builds the camera for a level and a viewport.
-///
-/// Pure maths, kept out of the view layer so "does the frame actually hold
-/// still" is answered by a unit test rather than by squinting at a screenshot.
 public enum CameraProjectionSolver {
-    /// Narrow on purpose — telephoto rather than wide angle.
+    /// The resting tilt, in degrees from straight down.
     ///
-    /// It sets how strong the perspective is: the wider it goes, the more of
-    /// every inside wall face shows before the player peeks at all, and the more
-    /// the building reads as a funnel rather than as a plan.
-    public static let defaultFieldOfViewDegrees = 26.0
+    /// Far enough over that a room has depth and a figure has a silhouette;
+    /// short of the angle at which the inside faces of the walls start eating
+    /// the frame. A wall covers `height x sin(tilt)` of the screen and a room
+    /// covers `depth x cos(tilt)`, so the tilt is really a bargain between the
+    /// two — past the mid forties the walls win and the floor plan disappears.
+    public static let defaultTiltDegrees = 40.0
 
     /// - Parameters:
-    ///   - bounds: level bounds, in cells. Their outline at wall-top height is
-    ///     the anchor rectangle for this version of the level format.
+    ///   - bounds: level bounds, in cells.
     ///   - metrics: cell-to-meter conversion.
     ///   - aspectRatio: viewport width divided by height.
-    ///   - mode: whether the anchor rectangle is fitted inside the screen or
-    ///     fills it.
-    ///   - fieldOfViewDegrees: vertical field of view.
-    ///   - margin: padding around the level, in meters.
-    ///   - anchorHeight: height of the plane held still on screen. Defaults to
-    ///     the tops of the walls, which is the game's camera. Zero anchors the
-    ///     floor instead — the gameplay plane stays put and everything standing
-    ///     on it leans, which is the other way of reading the same scene and is
-    ///     under comparison in the labs.
-    ///   - restingLean: the angle the view sits at with no gesture in progress.
-    ///   - control: the player's peek and zoom, applied on top of that.
+    ///   - mode: whether the level is fitted inside the screen or fills it.
+    ///   - tiltDegrees: resting tilt away from straight down.
+    ///   - margin: padding around the level, in meters. The building sits in a
+    ///     landscape rather than in a void, so a little of it should show.
+    ///   - control: the player's peek and zoom.
     public static func solve(
         bounds: CellRect,
         metrics: LevelMetrics,
         aspectRatio: Double,
-        mode: FramingMode = .fill,
-        fieldOfViewDegrees: Double = defaultFieldOfViewDegrees,
+        mode: FramingMode = .fit,
+        tiltDegrees: Double = defaultTiltDegrees,
         margin: Double = 0,
-        anchorHeight: Double? = nil,
-        restingLean: RestingLean = .flat,
         control: CameraControl = .neutral
     ) -> CameraProjection {
         let aspect = max(aspectRatio, 0.01)
@@ -392,51 +263,56 @@ public enum CameraProjectionSolver {
 
         let levelWidth = metrics.meters(fromCells: bounds.size.width)
         let levelDepth = metrics.meters(fromCells: bounds.size.depth)
-        let halfWidth = (levelWidth + margin * 2) / 2
-        let halfDepth = (levelDepth + margin * 2) / 2
+        let width = levelWidth + margin * 2
+        let depth = levelDepth + margin * 2
 
-        // How much of the anchor rectangle the screen has room for. Showing the
-        // full width costs one amount, the full depth another; filling takes the
-        // smaller, and the rest runs off the edge.
-        let coveredHalfDepth = switch mode {
-        case .fill: min(halfDepth, halfWidth / aspect) / zoom
-        case .fit: max(halfDepth, halfWidth / aspect) / zoom
+        let tiltTotal = tiltDegrees + control.pitch
+        let tilt = tiltTotal * .pi / 180
+
+        // Tilting foreshortens the floor and stands the walls up into the frame,
+        // so what the screen has to cover vertically is the sum of the two.
+        let projectedDepth = depth * cos(tilt) + metrics.wallHeight * sin(tilt)
+        let fromWidth = width / aspect
+
+        let extent = switch mode {
+        case .fit: max(projectedDepth, fromWidth)
+        case .fill: min(projectedDepth, fromWidth)
         }
-        let coveredHalfWidth = coveredHalfDepth * aspect
+        let verticalExtent = extent / zoom
+        let visibleWidth = verticalExtent * aspect
+
+        // What of the floor lands on screen, once the walls have taken a share.
+        let visibleDepth = max(
+            0,
+            (verticalExtent - metrics.wallHeight * sin(tilt)) / max(cos(tilt), 0.01)
+        )
 
         let clamped = control.clampedToLevel(
             bounds: bounds,
             metrics: metrics,
-            visibleWidth: coveredHalfWidth * 2,
-            visibleDepth: coveredHalfDepth * 2
+            visibleWidth: visibleWidth,
+            visibleDepth: visibleDepth
         )
 
         let centre = metrics.worldPoint(bounds.center)
-        let height = anchorHeight ?? metrics.wallHeight
-        let anchor = ProjectionAnchorPlane(
-            height: height,
-            centre: WorldPoint(
-                x: centre.x + clamped.focusOffset.x,
-                y: height,
-                z: centre.z + clamped.focusOffset.z
-            ),
-            halfWidth: coveredHalfWidth,
-            halfDepth: coveredHalfDepth
-        )
-
-        // How far above the anchor plane the camera has to stand for the frustum
-        // to cover exactly that rectangle.
-        let halfAngle = tan(fieldOfViewDegrees * .pi / 360)
+        // Aim a little past the middle, by half of what the walls take: the far
+        // wall leans up into frame while the near one simply ends at the floor,
+        // so aiming at the floor's centre wastes as much again at the bottom.
+        let bias = metrics.wallHeight * sin(tilt) / 2
 
         return CameraProjection(
             aspectRatio: aspect,
-            fieldOfViewDegrees: fieldOfViewDegrees,
-            anchor: anchor,
-            anchorDistance: coveredHalfDepth / halfAngle,
-            peekAcross: tan((restingLean.horizontal + clamped.leanHorizontal) * .pi / 180),
-            peekUp: tan((restingLean.vertical + clamped.leanVertical) * .pi / 180),
-            croppedWidth: max(0, levelWidth - coveredHalfWidth * 2),
-            croppedDepth: max(0, levelDepth - coveredHalfDepth * 2)
+            verticalExtent: verticalExtent,
+            focus: WorldPoint(
+                x: centre.x + clamped.focusOffset.x,
+                y: 0,
+                z: centre.z - bias + clamped.focusOffset.z
+            ),
+            distance: max(width, depth) * 2 + 20,
+            tiltDegrees: tiltTotal,
+            yawDegrees: control.yaw,
+            croppedWidth: max(0, levelWidth - visibleWidth),
+            croppedDepth: max(0, levelDepth - visibleDepth)
         )
     }
 }

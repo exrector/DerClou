@@ -38,10 +38,9 @@ public enum LevelSceneBuilder {
         let root = Entity()
         root.name = "level.\(blueprint.id)"
 
-        // Ground first: a dark apron well beyond the building, so the display
-        // never shows empty background at the edges however the camera leans or
-        // zooms. What sits under a hardware cutout is scenery.
-        root.addChild(GreyboxKit.ground(around: geometry))
+        // The land first: grass, a path, planting, a couple of trees. Scenery
+        // only, but it is what stops the level reading as a sealed box.
+        root.addChild(GreyboxKit.surroundings(around: geometry))
 
         for box in geometry.floors {
             let entity = GreyboxKit.entity(for: box)
@@ -56,6 +55,12 @@ public enum LevelSceneBuilder {
             // Walls carry collision for line-of-sight queries later, but they
             // are not input targets: tapping a wall should not steal the tap.
             entity.collision = CollisionComponent(shapes: [collisionShape(for: box)])
+            entity.components.set(OccludingWallComponent(
+                height: box.height,
+                centre: WorldPoint(x: box.center.x, y: box.center.y, z: box.center.z),
+                halfWidth: box.width / 2,
+                halfDepth: box.depth / 2
+            ))
             root.addChild(entity)
         }
 
@@ -115,42 +120,51 @@ public enum LevelSceneBuilder {
         let radius = Float(actor.prototype.footprint.width / 2)
         let isGuard = actor.prototype.id == "actor.guard"
         let bodyColor = isGuard
-            ? PlatformColor(red: 0.62, green: 0.24, blue: 0.22, alpha: 1)
-            : PlatformColor(red: 0.20, green: 0.34, blue: 0.52, alpha: 1)
+            ? PlatformColor(red: 0.78, green: 0.34, blue: 0.30, alpha: 1)
+            : PlatformColor(red: 0.28, green: 0.46, blue: 0.72, alpha: 1)
 
-        var bodyMaterial = PhysicallyBasedMaterial()
-        bodyMaterial.baseColor = .init(tint: bodyColor)
-        bodyMaterial.roughness = .init(floatLiteral: 0.85)
+        // A pawn: a base, a tapered body and a head. It reads as a figure from
+        // above *and* from the tactical angle, which a cylinder does not, and it
+        // is the shape a board game would use.
+        let material = GreyboxKit.flat(bodyColor, roughness: 0.55)
 
-        let bodyHeight = height * 0.75
+        let base = ModelEntity(
+            mesh: .generateCylinder(height: 0.06, radius: radius * 1.25),
+            materials: [material]
+        )
+        base.name = "\(actor.id).base"
+        base.position = SIMD3<Float>(0, 0.03, 0)
+        container.addChild(base)
+
+        let bodyHeight = height * 0.62
         let body = ModelEntity(
-            mesh: .generateCylinder(height: bodyHeight, radius: radius),
-            materials: [bodyMaterial]
+            mesh: .generateCone(height: bodyHeight, radius: radius * 0.95),
+            materials: [material]
         )
         body.name = "\(actor.id).body"
-        body.setPosition(SIMD3<Float>(0, bodyHeight / 2, 0), relativeTo: nil)
+        body.position = SIMD3<Float>(0, 0.06 + bodyHeight / 2, 0)
         container.addChild(body)
 
         let head = ModelEntity(
-            mesh: .generateSphere(radius: radius * 0.75),
-            materials: [bodyMaterial]
+            mesh: .generateSphere(radius: radius * 0.66),
+            materials: [material]
         )
         head.name = "\(actor.id).head"
-        head.setPosition(SIMD3<Float>(0, bodyHeight + radius * 0.6, 0), relativeTo: nil)
+        head.position = SIMD3<Float>(0, 0.06 + bodyHeight + radius * 0.5, 0)
         container.addChild(head)
 
-        // Nose cone: with no skeletal animation yet, this is what makes facing
-        // legible from a top-down camera.
-        var noseMaterial = PhysicallyBasedMaterial()
-        noseMaterial.baseColor = .init(tint: PlatformColor(red: 0.92, green: 0.86, blue: 0.62, alpha: 1))
-        noseMaterial.roughness = .init(floatLiteral: 0.6)
-        let nose = ModelEntity(
-            mesh: .generateBox(width: radius * 0.4, height: radius * 0.4, depth: radius * 1.2),
-            materials: [noseMaterial]
+        // Facing, as a wedge on the base. Legible from any of the angles the
+        // camera can reach, unlike a nose on the body.
+        let facing = ModelEntity(
+            mesh: .generateBox(size: SIMD3<Float>(radius * 0.5, 0.05, radius * 0.9), cornerRadius: 0.02),
+            materials: [GreyboxKit.flat(
+                PlatformColor(red: 0.98, green: 0.92, blue: 0.72, alpha: 1),
+                roughness: 0.5
+            )]
         )
-        nose.name = "\(actor.id).facing"
-        nose.setPosition(SIMD3<Float>(0, bodyHeight * 0.9, radius * 0.9), relativeTo: nil)
-        container.addChild(nose)
+        facing.name = "\(actor.id).facing"
+        facing.position = SIMD3<Float>(0, 0.07, radius * 1.15)
+        container.addChild(facing)
 
         container.components.set(LevelEntityComponent(id: actor.id, kind: .actor))
 
@@ -171,54 +185,77 @@ public enum LevelSceneBuilder {
         return container
     }
 
-    /// Key light plus practicals.
+    /// One warm key with shadows, a cool sky fill, and practicals inside.
     ///
-    /// Shadows are what stop an orthographic top-down view from reading flat, so
-    /// the directional light is deliberately angled rather than straight down.
+    /// The key is angled rather than overhead: a tilted view lives on the shadows
+    /// that walls and furniture cast across the floor, and straight-down light
+    /// gives none. The fill is blue because the light not coming from the sun
+    /// comes from the sky, and that is what keeps the shadow sides from going
+    /// muddy — it is most of what makes the scene read as airy rather than sealed.
     private static func addLighting(
         to root: Entity,
         geometry: LevelGeometry,
         metrics: LevelMetrics,
         quality: RenderQuality
     ) {
+        let bounds = boundsOfFloors(geometry)
+        let centre = SIMD3<Float>(Float(bounds.centerX), 0, Float(bounds.centerZ))
+
         let key = Entity()
         key.name = "light.key"
         key.components.set(DirectionalLightComponent(
-            color: PlatformColor(red: 1.0, green: 0.96, blue: 0.90, alpha: 1),
-            intensity: 3200
+            color: PlatformColor(red: 1.0, green: 0.95, blue: 0.86, alpha: 1),
+            intensity: 8000
         ))
-        key.components.set(DirectionalLightComponent.Shadow(depthBias: quality.shadowDepthBias))
-
-        let bounds = boundsOfFloors(geometry)
+        // The shadow's reach has to be stated: it defaults to five metres, and a
+        // level is twenty-four across, so with the default the scene renders
+        // completely unshadowed and reads as flat paper. Measured, not guessed.
+        let reach = Float(max(
+            bounds.maxX - bounds.minX,
+            bounds.maxZ - bounds.minZ
+        ) * 1.6 + 20)
+        key.components.set(DirectionalLightComponent.Shadow(
+            shadowProjection: .automatic(maximumDistance: reach),
+            depthBias: quality.shadowDepthBias
+        ))
         key.look(
-            at: SIMD3<Float>(Float(bounds.centerX), 0, Float(bounds.centerZ)),
-            from: SIMD3<Float>(Float(bounds.centerX - 8), 14, Float(bounds.centerZ - 10)),
+            at: centre,
+            from: centre + SIMD3<Float>(-11, 9, -6),
             relativeTo: nil
         )
         root.addChild(key)
 
-        let fill = Entity()
-        fill.name = "light.fill"
-        fill.components.set(DirectionalLightComponent(
-            color: PlatformColor(red: 0.62, green: 0.72, blue: 0.95, alpha: 1),
-            intensity: 900
+        let sky = Entity()
+        sky.name = "light.sky"
+        sky.components.set(DirectionalLightComponent(
+            color: PlatformColor(red: 0.66, green: 0.78, blue: 0.98, alpha: 1),
+            intensity: 1400
         ))
-        fill.look(
-            at: SIMD3<Float>(Float(bounds.centerX), 0, Float(bounds.centerZ)),
-            from: SIMD3<Float>(Float(bounds.centerX + 10), 10, Float(bounds.centerZ + 8)),
+        sky.look(
+            at: centre,
+            from: centre + SIMD3<Float>(8, 11, 9),
             relativeTo: nil
         )
-        root.addChild(fill)
+        root.addChild(sky)
 
-        // Practicals: one warm ceiling lamp per floor quadrant, so rooms read as
-        // lit spaces rather than a uniformly bright plan.
+        let bounce = Entity()
+        bounce.name = "light.bounce"
+        bounce.components.set(DirectionalLightComponent(
+            color: PlatformColor(red: 0.85, green: 0.82, blue: 0.74, alpha: 1),
+            intensity: 450
+        ))
+        bounce.look(at: centre, from: centre + SIMD3<Float>(2, 3, -12), relativeTo: nil)
+        root.addChild(bounce)
+
+        // Practicals: one warm lamp per quadrant of the plan, so rooms read as
+        // lit spaces rather than as a uniformly bright drawing.
         let lampHeight = Float(metrics.wallHeight - 0.3)
         for (index, position) in practicalPositions(bounds, budget: quality.practicalLightBudget).enumerated() {
             let lamp = Entity()
             lamp.name = "light.practical.\(index)"
             lamp.components.set(PointLightComponent(
-                color: PlatformColor(red: 1.0, green: 0.90, blue: 0.75, alpha: 1),
-                intensity: 12000,
+                color: PlatformColor(red: 1.0, green: 0.92, blue: 0.80, alpha: 1),
+                intensity: 6000,
                 attenuationRadius: 7
             ))
             lamp.setPosition(SIMD3<Float>(position.0, lampHeight, position.1), relativeTo: nil)

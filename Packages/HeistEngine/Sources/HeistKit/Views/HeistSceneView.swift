@@ -14,8 +14,9 @@ public struct HeistSceneView: View {
     @State private var camera = TacticalCamera()
     @State private var viewportSize: CGSize = .zero
     @State private var lastMagnification: CGFloat = 1
-    /// How far the view was leaning when the current drag began.
-    @State private var leanAtDragStart: (vertical: Double, horizontal: Double)?
+    /// Where the peek was when the current drag began.
+    @State private var peekAtDragStart: (pitch: Double, yaw: Double)?
+    @State private var springBack = false
 
     /// System safe-area insets, read by the caller *outside* `ignoresSafeArea`.
     private let safeAreaInsets: EdgeInsets
@@ -55,16 +56,12 @@ public struct HeistSceneView: View {
             }
             // Peek and pinch, but never yaw: the map is a puzzle, and it only
             // stays learnable if screen directions never move.
-            .gesture(leanGesture)
+            .gesture(peekGesture)
             .simultaneousGesture(zoomGesture)
             .onAppear { updateViewport(proxy.size) }
             .onChange(of: proxy.size) { _, size in updateViewport(size) }
             .onChange(of: session.level?.blueprint.id) { _, _ in updateViewport(proxy.size) }
             .onChange(of: safeAreaInsets) { _, _ in updateViewport(proxy.size) }
-            .onChange(of: session.cameraTuning) { _, _ in
-                applyTuning()
-                frameCamera(size: viewportSize)
-            }
             .onChange(of: session.cameraResetToken) { _, _ in
                 camera.control = .neutral
                 frameCamera(size: viewportSize)
@@ -76,7 +73,14 @@ public struct HeistSceneView: View {
                 while !Task.isCancelled {
                     try? await Task.sleep(for: .milliseconds(16))
                     let now = Date()
-                    session.tick(realTimeDelta: now.timeIntervalSince(last))
+                    let delta = now.timeIntervalSince(last)
+                    session.tick(realTimeDelta: delta)
+                    if let projection = camera.projection {
+                        session.fadeWallsInTheWay(
+                            viewDirection: projection.basis.forward,
+                            deltaTime: delta
+                        )
+                    }
                     last = now
                 }
             }
@@ -109,15 +113,8 @@ public struct HeistSceneView: View {
         )
     }
 
-    /// Hands the live tuning to the camera. Temporary; see `CameraTuning`.
-    private func applyTuning() {
-        camera.anchorHeight = session.anchorHeight
-        camera.restingLean = session.cameraTuning.restingLean
-    }
-
     private func frameCamera(size: CGSize) {
         guard let blueprint = session.level?.blueprint, size.width > 0, size.height > 0 else { return }
-        applyTuning()
         camera.frame(
             bounds: blueprint.bounds,
             metrics: blueprint.metrics,
@@ -127,32 +124,34 @@ public struct HeistSceneView: View {
 
     // MARK: - Camera gestures
 
-    /// One finger leans the view into the building.
+    /// One finger looks around the level, and lets go of it.
     ///
-    /// Not a pan and not a turn. The view hinges along the tops of the walls, so
-    /// they stay where they are on screen while the floor and everything
-    /// standing on it swing — which is how the depth of a room becomes visible
-    /// in any of the four directions without the map ever rotating.
-    private var leanGesture: some Gesture {
+    /// A peek, not a free camera: a narrow range, and the view springs back to
+    /// the framing the level was authored for as soon as the finger lifts. The
+    /// map is a puzzle, and it is only learnable if the player's picture of it
+    /// survives from one glance to the next.
+    private var peekGesture: some Gesture {
         DragGesture(minimumDistance: 6)
             .onChanged { value in
-                if leanAtDragStart == nil {
-                    leanAtDragStart = (camera.control.leanVertical, camera.control.leanHorizontal)
+                if peekAtDragStart == nil {
+                    peekAtDragStart = (camera.control.pitch, camera.control.yaw)
                 }
-                guard let start = leanAtDragStart else { return }
+                guard let start = peekAtDragStart else { return }
 
-                // Degrees of lean per point of finger travel: a drag across half
-                // the screen reaches the limit.
-                let degreesPerPoint = 0.09
-
-                camera.control = camera.control.leaned(
-                    vertical: start.vertical + Double(value.translation.height) * degreesPerPoint,
-                    horizontal: start.horizontal + Double(value.translation.width) * degreesPerPoint
+                let degreesPerPoint = 0.06
+                camera.control = camera.control.peeked(
+                    pitch: start.pitch + Double(value.translation.height) * degreesPerPoint,
+                    yaw: start.yaw + Double(value.translation.width) * degreesPerPoint
                 )
                 frameCamera(size: viewportSize)
             }
             .onEnded { _ in
-                leanAtDragStart = nil
+                peekAtDragStart = nil
+                withAnimation(.spring(response: 0.45, dampingFraction: 0.82)) {
+                    springBack = true
+                }
+                camera.control = camera.control.peeked(pitch: 0, yaw: 0)
+                frameCamera(size: viewportSize)
             }
     }
 

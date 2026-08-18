@@ -43,6 +43,10 @@ extension WorldPoint {
         (self - other).planarLength
     }
 
+    public func dot(_ other: WorldPoint) -> Double {
+        x * other.x + y * other.y + z * other.z
+    }
+
     public func cross(_ other: WorldPoint) -> WorldPoint {
         WorldPoint(
             x: y * other.z - z * other.y,

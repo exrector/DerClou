@@ -10,12 +10,22 @@ import AppKit
 public typealias PlatformColor = NSColor
 #endif
 
-/// Procedural stand-in geometry and materials for the environment kit.
+/// Procedural geometry and materials for the environment kit.
 ///
-/// This is the *engineering* look, not the art direction: real dimensions, real
-/// PBR response, real shadows, but primitive shapes. Because every prototype
-/// already carries its final footprint, replacing a greybox with an authored
-/// USDZ is a one-line change in `PropCatalog` and touches no level data.
+/// The art direction, in one place. Settled 2026-08-18 after comparing the
+/// original grey-box against a tabletop diorama: the grey-box read as a prison
+/// cell — a sealed dark box with nothing outside it — and the diorama read as
+/// light, airy and made of real materials. The diorama wins.
+///
+/// So: warm pale plaster, painted wood, light coming from one warm key with a
+/// cool sky fill, and a building that stands *in* somewhere rather than in a
+/// void — grass around it, a path up to it, planting near the walls. The
+/// exterior is scenery and carries no gameplay, but it is what stops the level
+/// feeling sealed, and it gives the eye somewhere for the building to sit.
+///
+/// Shapes are still primitives. Every prototype carries its final footprint, so
+/// replacing one with an authored USDZ is a line in `PropCatalog` and touches no
+/// level data.
 public enum GreyboxKit {
     /// Colour and PBR response per surface family.
     public static func material(for surface: SurfaceKey) -> RealityKit.Material {
@@ -23,21 +33,21 @@ public enum GreyboxKit {
 
         let (color, roughness, metallic): (PlatformColor, Float, Float) = switch surface {
         case .concrete:
-            (PlatformColor(red: 0.16, green: 0.18, blue: 0.22, alpha: 1), 0.85, 0.0)
+            (PlatformColor(red: 0.83, green: 0.79, blue: 0.72, alpha: 1), 0.92, 0.0)
         case .plaster:
-            (PlatformColor(red: 0.30, green: 0.31, blue: 0.34, alpha: 1), 0.90, 0.0)
+            (PlatformColor(red: 0.95, green: 0.94, blue: 0.91, alpha: 1), 0.94, 0.0)
         case .wood:
-            (PlatformColor(red: 0.42, green: 0.28, blue: 0.16, alpha: 1), 0.55, 0.0)
+            (PlatformColor(red: 0.72, green: 0.52, blue: 0.34, alpha: 1), 0.60, 0.0)
         case .metal:
-            (PlatformColor(red: 0.55, green: 0.57, blue: 0.60, alpha: 1), 0.35, 1.0)
+            (PlatformColor(red: 0.72, green: 0.74, blue: 0.77, alpha: 1), 0.35, 1.0)
         case .darkMetal:
-            (PlatformColor(red: 0.18, green: 0.19, blue: 0.21, alpha: 1), 0.30, 1.0)
+            (PlatformColor(red: 0.32, green: 0.34, blue: 0.38, alpha: 1), 0.35, 1.0)
         case .glass:
-            (PlatformColor(red: 0.60, green: 0.70, blue: 0.78, alpha: 1), 0.05, 0.0)
+            (PlatformColor(red: 0.72, green: 0.84, blue: 0.88, alpha: 1), 0.08, 0.0)
         case .fabric:
-            (PlatformColor(red: 0.24, green: 0.36, blue: 0.34, alpha: 1), 0.95, 0.0)
+            (PlatformColor(red: 0.36, green: 0.55, blue: 0.52, alpha: 1), 0.95, 0.0)
         case .emissive:
-            (PlatformColor(red: 0.20, green: 0.85, blue: 0.55, alpha: 1), 0.60, 0.0)
+            (PlatformColor(red: 0.30, green: 0.88, blue: 0.60, alpha: 1), 0.60, 0.0)
         }
 
         material.baseColor = .init(tint: color)
@@ -73,12 +83,13 @@ public enum GreyboxKit {
         return entity
     }
 
-    /// A dark apron extending well past the building.
+    /// The land the building stands on: grass, a path, and some planting.
     ///
-    /// Stops the edges of the display from ever showing empty background, and
-    /// gives the hardware cutout something deliberate to sit on.
+    /// Scenery, and none of it is walkable or reaches the navigation grid. It
+    /// earns its place by what it does to the eye — a building with ground
+    /// around it reads as a place, and one without reads as a box.
     @MainActor
-    public static func ground(around geometry: LevelGeometry) -> ModelEntity {
+    public static func surroundings(around geometry: LevelGeometry) -> Entity {
         var minX = 0.0, maxX = 0.0, minZ = 0.0, maxZ = 0.0
         for floor in geometry.floors {
             minX = min(minX, floor.center.x - floor.width / 2)
@@ -87,26 +98,98 @@ public enum GreyboxKit {
             maxZ = max(maxZ, floor.center.z + floor.depth / 2)
         }
 
-        // Generous: the camera can zoom out to frame the level plus margin, and
-        // this has to cover the corners of that view at any pan.
+        let container = Entity()
+        container.name = "environment"
+
+        // Generous, because the view can be turned and zoomed: the grass has to
+        // reach past the corners of the frame at any peek.
         let padding = max(maxX - minX, maxZ - minZ)
         let width = (maxX - minX) + padding * 2
         let depth = (maxZ - minZ) + padding * 2
+        let centre = SIMD3<Float>(Float((minX + maxX) / 2), 0, Float((minZ + maxZ) / 2))
 
+        let grass = ModelEntity(
+            mesh: .generateBox(width: Float(width), height: 0.3, depth: Float(depth)),
+            materials: [flat(PlatformColor(red: 0.52, green: 0.63, blue: 0.40, alpha: 1), roughness: 0.95)]
+        )
+        grass.name = "environment.grass"
+        grass.position = centre + SIMD3<Float>(0, -0.19, 0)
+        container.addChild(grass)
+
+        // A paved apron just outside the walls, so the building meets the ground
+        // through something rather than being planted in a lawn.
+        let apron = ModelEntity(
+            mesh: .generateBox(
+                width: Float(maxX - minX) + 2.4,
+                height: 0.08,
+                depth: Float(maxZ - minZ) + 2.4
+            ),
+            materials: [flat(PlatformColor(red: 0.74, green: 0.72, blue: 0.67, alpha: 1), roughness: 0.9)]
+        )
+        apron.name = "environment.apron"
+        apron.position = centre + SIMD3<Float>(0, -0.05, 0)
+        container.addChild(apron)
+
+        // A path leading away from the near edge, with low hedging along it.
+        let path = ModelEntity(
+            mesh: .generateBox(width: 2.6, height: 0.06, depth: 7),
+            materials: [flat(PlatformColor(red: 0.83, green: 0.79, blue: 0.71, alpha: 1), roughness: 0.9)]
+        )
+        path.name = "environment.path"
+        path.position = SIMD3<Float>(centre.x, -0.03, Float(maxZ) + 4.6)
+        container.addChild(path)
+
+        let hedge = flat(PlatformColor(red: 0.36, green: 0.50, blue: 0.31, alpha: 1), roughness: 0.95)
+        for side in [-1.0, 1.0] {
+            let run = ModelEntity(
+                mesh: .generateBox(size: SIMD3<Float>(0.55, 0.55, 6.4), cornerRadius: 0.22),
+                materials: [hedge]
+            )
+            run.name = "environment.hedge"
+            run.position = SIMD3<Float>(
+                centre.x + Float(side) * 1.9,
+                0.24,
+                Float(maxZ) + 4.6
+            )
+            container.addChild(run)
+        }
+
+        // Two trees, off to the sides, for something taller than the building to
+        // catch the light.
+        for side in [-1.0, 1.0] {
+            let tree = Entity()
+            tree.name = "environment.tree"
+            tree.position = SIMD3<Float>(
+                Float(side < 0 ? minX - 4.6 : maxX + 4.6),
+                0,
+                Float(minZ) + Float(maxZ - minZ) * 0.15
+            )
+            let trunk = ModelEntity(
+                mesh: .generateCylinder(height: 2.2, radius: 0.18),
+                materials: [flat(PlatformColor(red: 0.48, green: 0.38, blue: 0.28, alpha: 1), roughness: 0.9)]
+            )
+            trunk.position = SIMD3<Float>(0, 1.1, 0)
+            tree.addChild(trunk)
+            let crown = ModelEntity(
+                mesh: .generateSphere(radius: 1.5),
+                materials: [flat(PlatformColor(red: 0.38, green: 0.54, blue: 0.33, alpha: 1), roughness: 0.95)]
+            )
+            crown.position = SIMD3<Float>(0, 2.9, 0)
+            crown.scale = SIMD3<Float>(1, 0.85, 1)
+            tree.addChild(crown)
+            container.addChild(tree)
+        }
+
+        return container
+    }
+
+    /// A plain matte material. Most of the scenery wants nothing else.
+    static func flat(_ colour: PlatformColor, roughness: Float) -> PhysicallyBasedMaterial {
         var material = PhysicallyBasedMaterial()
-        material.baseColor = .init(tint: PlatformColor(red: 0.07, green: 0.08, blue: 0.10, alpha: 1))
-        material.roughness = .init(floatLiteral: 0.95)
-
-        let entity = ModelEntity(
-            mesh: .generateBox(width: Float(width), height: 0.2, depth: Float(depth)),
-            materials: [material]
-        )
-        entity.name = "environment.ground"
-        entity.setPosition(
-            SIMD3<Float>(Float((minX + maxX) / 2), -0.16, Float((minZ + maxZ) / 2)),
-            relativeTo: nil
-        )
-        return entity
+        material.baseColor = .init(tint: colour)
+        material.roughness = .init(floatLiteral: roughness)
+        material.metallic = .init(floatLiteral: 0)
+        return material
     }
 
     /// Outline of a world-space rectangle, drawn flat on the floor.
