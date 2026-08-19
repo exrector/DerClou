@@ -237,8 +237,12 @@ public struct CameraControl: Sendable, Equatable {
     /// put the camera on the horizon; the far side of a room is reached by
     /// turning `azimuth`, not by climbing past vertical.
     public static let elevationRange: ClosedRange<Double> = restElevationDegrees...75
-    /// Zoom limits.
-    public static let zoomRange: ClosedRange<Double> = 1.0...3.0
+    /// Zoom limits. 1 always frames the whole building — there is nothing
+    /// beyond that to zoom out to, so the lower bound stays put. The upper
+    /// bound is how far the player can push in on one room or object; raised
+    /// from an earlier 3 to 6 after the owner found 3 too shallow to actually
+    /// close in on something specific.
+    public static let zoomRange: ClosedRange<Double> = 1.0...6.0
 
     private static func wrapped(_ degrees: Double) -> Double {
         let remainder = degrees.truncatingRemainder(dividingBy: 360)
