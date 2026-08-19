@@ -68,18 +68,28 @@ public struct PathFollowingSystem: System {
         }
     }
 
-    /// The walk cycle every current character model was authored to look
-    /// right at: one full stride cycle per second, keyframed with no root
-    /// motion of its own — the entity's actual translation comes entirely
-    /// from `PathWalker` above, per CLAUDE.md's "Locomotion versus game
-    /// movement" (animation presents movement, it does not drive it).
+    /// The real-world pace the current "Walk" clip (a retargeted Mixamo
+    /// mocap cycle, applied to every character via
+    /// ArtSource/Tools/apply_animation.py from a shared Walking.fbx) was
+    /// actually captured at — measured, not assumed: the clip's Hips bone
+    /// travels 126.25 raw Blender units (== 1.2625 m once the standard
+    /// Mixamo-import 0.01 object scale is applied, confirmed identical on
+    /// both the motion file and every character rig it's been applied to)
+    /// over 138 frames at the file's own 30 fps, i.e. 4.6 s, giving
+    /// 1.2625 / 4.6 ≈ 0.274 m/s. apply_animation.py strips that drift back
+    /// out of the exported asset — it keeps only the cyclic sway/bob — but
+    /// the *rate* the clip was captured at still has to be known so
+    /// playback can be re-timed to each entity's actual `walkSpeed`, per
+    /// CLAUDE.md's "Locomotion versus game movement" (animation presents
+    /// movement, it does not drive it: the entity's translation comes
+    /// entirely from `PathWalker` above).
     ///
     /// That split is exactly why the cycle *rate* still has to track speed
     /// even though position does not: two actors with different `walkSpeed`
     /// cover different ground per second while their legs would otherwise
     /// cycle at the identical fixed rate, which reads as the slower one's
     /// feet sliding and the faster one's legs lagging behind its own body.
-    private static let referenceWalkSpeed: Float = 1.4
+    private static let referenceWalkSpeed: Float = 0.274
 
     @MainActor
     private func startWalkingAnimation(for entity: Entity, walkSpeed: Float) {

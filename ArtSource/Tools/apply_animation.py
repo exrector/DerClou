@@ -72,8 +72,10 @@ for b in char_arm.data.bones:
     canon_to_char[canon] = b.name
 
 before_actions = set(bpy.data.actions.keys())
+before_objects = set(bpy.data.objects.keys())
 bpy.ops.import_scene.fbx(filepath=r"{motion_fbx}")
-motion_arm = [o for o in bpy.data.objects if o.type == 'ARMATURE' and o != char_arm][0]
+imported_objects = [o for o in bpy.data.objects if o.name not in before_objects]
+motion_arm = next(o for o in imported_objects if o.type == 'ARMATURE')
 
 renamed, missing = 0, []
 for b in list(motion_arm.data.bones):
@@ -129,9 +131,21 @@ if not char_arm.animation_data:
     char_arm.animation_data_create()
 char_arm.animation_data.action = action
 
-bpy.data.objects.remove(motion_arm, do_unlink=True)
+# Every downloaded Mixamo motion clip in this project's library turned out
+# to be a "with skin" download — even the ones named just "Walking.fbx" —
+# bundling a full copy of whichever character was live in the Mixamo
+# preview when it was exported (every single file checked carried Ch33,
+# the Thief). Removing only motion_arm left those mesh objects orphaned in
+# the scene: unskinned, un-scaled by the character's own ~0.01 import
+# scale, and silently included in the next export as giant, wrongly
+# positioned duplicate geometry sitting outside the SkelRoot — the "giant
+# boot" bug. Fix: remove every object this specific import call created,
+# not just the armature we actually wanted from it.
+for obj in imported_objects:
+    bpy.data.objects.remove(obj, do_unlink=True)
 
 print(f"RETARGET renamed={{renamed}} missing={{len(missing)}} sample_missing={{missing[:8]}}")
+print(f"CLEANUP removed_imported_objects={{len(imported_objects)}}")
 print(f"DETREND axes={{detrended_axes}}")
 
 bpy.ops.wm.save_as_mainfile(filepath=r"{char_blend}")
@@ -163,7 +177,7 @@ print("USD export successful!")
     print(f"Applying {motion_fbx} -> {char_blend} as action '{action_name}'...")
     res = subprocess.run(cmd, capture_output=True, text=True)
     for line in res.stdout.splitlines():
-        if line.startswith("RETARGET") or line.startswith("DETREND"):
+        if line.startswith("RETARGET") or line.startswith("DETREND") or line.startswith("CLEANUP"):
             print(line)
     # See convert_character.py: Blender has returned 0 here even after an
     # unhandled Python exception aborted the script before usd_export ran,
