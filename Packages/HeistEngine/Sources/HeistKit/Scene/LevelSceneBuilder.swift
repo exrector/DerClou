@@ -150,6 +150,11 @@ public enum LevelSceneBuilder {
                 model.name = "\(actor.id).visual"
                 container.addChild(model)
                 GreyboxKit.castsShadow(model)
+                if let anim = model.availableAnimations.first {
+                    let controller = model.playAnimation(anim)
+                    controller.time = 0.0
+                    controller.pause()
+                }
                 loadedCustomModel = true
             }
         }
