@@ -91,6 +91,7 @@ public final class GameSession {
         guard clock.isRunning else { return }
         clock.advance(byRealTime: realTimeDelta)
         poseGuards(at: clock.elapsed)
+        updateInteractions(at: clock.elapsed)
     }
 
     public func startClock() {
@@ -217,14 +218,153 @@ public final class GameSession {
         }
 
         if let interactable = interactableComponent(for: entity) {
-            // Interaction dispatch lands in a later phase; for now report what
-            // the object offers so the wiring is visible and testable.
-            let verbs = interactable.interactions.map(\.rawValue).joined(separator: ", ")
-            status = "\(interactable.id): \(verbs)"
+            guard let verb = InteractionResolver.primaryInteraction(
+                for: interactable.interactions, config: interactable.config
+            ) else {
+                status = "Nothing more to do with \(interactable.id)"
+                return
+            }
+            beginInteraction(with: interactable.id, interaction: verb)
             return
         }
 
         moveSelectedActor(to: worldPoint)
+    }
+
+    // MARK: - Interaction
+
+    /// Routes the selected actor to `propID` and, once it arrives, starts
+    /// `interaction` on it. Phase 3's whole "tap entity -> available
+    /// contextual actions -> approach point -> actor walks there -> runs the
+    /// interaction for its configured duration -> emits an event" loop, from
+    /// the input side: `ApproachPointSolver` answers where to stand,
+    /// `PathFinder` answers how to get there (identically to
+    /// `moveSelectedActor`'s own plain-floor case — an interaction walk is
+    /// not a different kind of walk), and `updateInteractions(at:)` below
+    /// picks the thread back up once the walk itself finishes.
+    ///
+    /// Any interaction already in flight for this actor is dropped first: a
+    /// new tap always supersedes whatever the actor was in the middle of,
+    /// the same way `moveSelectedActor` already replaces an in-progress
+    /// plain walk.
+    public func beginInteraction(with propID: String, interaction: InteractionKind) {
+        guard let actor = selectedActorEntity, let actorID = selectedActorID else {
+            status = "No actor selected"
+            return
+        }
+        guard let level else { return }
+        guard let prop = level.geometry.props.first(where: { $0.id == propID }) else {
+            log.error("beginInteraction: \(propID, privacy: .public) is not a known prop")
+            return
+        }
+
+        actor.components.remove(PendingInteractionComponent.self)
+        actor.components.remove(ActiveInteractionComponent.self)
+
+        let from = actor.position
+        let origin = WorldPoint(x: Double(from.x), y: 0, z: Double(from.z))
+
+        guard let approach = ApproachPointSolver.approachPoint(
+            for: prop.box, grid: level.navGrid, from: origin
+        ) else {
+            actor.components.remove(PathFollowingComponent.self)
+            status = "Nowhere to stand to reach \(propID)"
+            log.debug("No approach point for \(propID, privacy: .public)")
+            return
+        }
+
+        switch PathFinder.findPath(from: origin, to: approach, in: level.navGrid) {
+        case .failure(let failure):
+            actor.components.remove(PathFollowingComponent.self)
+            status = "No route to \(propID)"
+            log.debug("""
+                Approach path failed for \(actorID, privacy: .public) -> \(propID, privacy: .public): \
+                \(failure.rawValue, privacy: .public)
+                """)
+
+        case .success(let path):
+            actor.components.set(PathFollowingComponent(waypoints: path.waypoints))
+            actor.components.set(PendingInteractionComponent(propID: propID, interaction: interaction))
+            status = "\(actorID) -> approaching \(propID) to \(interaction.rawValue)"
+            log.debug("""
+                \(actorID, privacy: .public) approaching \(propID, privacy: .public) \
+                to \(interaction.rawValue, privacy: .public), \(path.waypoints.count) legs
+                """)
+        }
+    }
+
+    /// Advances every actor's interaction state by one tick, in the same
+    /// place and the same way `poseGuards(at:)` advances guards: a pure
+    /// function of mission time, called only while the clock is running.
+    ///
+    /// Two independent transitions happen here, and only here:
+    ///
+    /// 1. **Pending -> active.** A `PendingInteractionComponent` survives
+    ///    without its `PathFollowingComponent` exactly once — the frame the
+    ///    walk finishes — because `PathFollowingSystem` removes
+    ///    `PathFollowingComponent` the instant it is done. That is the
+    ///    signal "arrived," and it starts the timed interaction itself.
+    /// 2. **Active -> complete.** An `ActiveInteractionComponent` whose
+    ///    `duration` has elapsed since `startedAt` (measured in mission
+    ///    seconds, never render time) applies its effect via
+    ///    `InteractionResolver.applying(_:to:)` and clears.
+    private func updateInteractions(at missionTime: Double) {
+        guard let level else { return }
+
+        for (actorID, actor) in level.actors {
+            if let pending = actor.components[PendingInteractionComponent.self],
+               actor.components[PathFollowingComponent.self] == nil {
+                actor.components.remove(PendingInteractionComponent.self)
+                startActiveInteraction(pending, for: actor, actorID: actorID, missionTime: missionTime)
+            }
+
+            if let active = actor.components[ActiveInteractionComponent.self],
+               active.isFinished(at: missionTime) {
+                actor.components.remove(ActiveInteractionComponent.self)
+                completeInteraction(active, actorID: actorID)
+            }
+        }
+    }
+
+    private func startActiveInteraction(
+        _ pending: PendingInteractionComponent, for actor: Entity, actorID: String, missionTime: Double
+    ) {
+        guard let target = level?.interactableProps[pending.propID],
+              let interactable = target.components[InteractableComponent.self] else { return }
+
+        let duration = InteractionResolver.duration(for: pending.interaction, config: interactable.config)
+        actor.components.set(ActiveInteractionComponent(
+            propID: pending.propID, interaction: pending.interaction,
+            startedAt: missionTime, duration: duration
+        ))
+        status = "\(actorID) is \(pending.interaction.rawValue)ing \(pending.propID)"
+        log.debug("""
+            \(actorID, privacy: .public) started \(pending.interaction.rawValue, privacy: .public) \
+            on \(pending.propID, privacy: .public), \(duration, privacy: .public) s
+            """)
+    }
+
+    private func completeInteraction(_ active: ActiveInteractionComponent, actorID: String) {
+        guard let target = level?.interactableProps[active.propID],
+              var interactable = target.components[InteractableComponent.self] else { return }
+
+        interactable.config = InteractionResolver.applying(active.interaction, to: interactable.config)
+        target.components[InteractableComponent.self] = interactable
+
+        // Taking a standalone loot pickup (not a container's contents)
+        // removes it from the scene — there is nothing left to look at.
+        // A container that was looted stays: it is now just an empty crate.
+        if active.interaction == .takeLoot,
+           let prop = level?.geometry.props.first(where: { $0.id == active.propID }),
+           prop.prototype.kind == .loot {
+            target.isEnabled = false
+        }
+
+        status = "\(actorID) finished \(active.interaction.rawValue) on \(active.propID)"
+        log.info("""
+            \(actorID, privacy: .public) finished \(active.interaction.rawValue, privacy: .public) \
+            on \(active.propID, privacy: .public)
+            """)
     }
 
     /// Finds a route and starts walking the selected actor.
@@ -238,6 +378,12 @@ public final class GameSession {
             return
         }
         guard let level else { return }
+
+        // A plain destination always supersedes whatever the actor was in
+        // the middle of doing — the same rule `beginInteraction` applies in
+        // the other direction.
+        actor.components.remove(PendingInteractionComponent.self)
+        actor.components.remove(ActiveInteractionComponent.self)
 
         let from = actor.position
         let start = WorldPoint(x: Double(from.x), y: 0, z: Double(from.z))

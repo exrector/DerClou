@@ -15,7 +15,11 @@ let package = Package(
     ],
     targets: [
         .target(name: "HeistCore"),
-        .target(name: "HeistKit", dependencies: ["HeistCore"]),
+        .target(
+            name: "HeistKit",
+            dependencies: ["HeistCore"],
+            resources: [.process("Resources")]
+        ),
         .testTarget(
             name: "HeistCoreTests",
             dependencies: ["HeistCore"]

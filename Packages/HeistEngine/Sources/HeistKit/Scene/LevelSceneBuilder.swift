@@ -9,6 +9,12 @@ public struct BuiltLevel {
     public let root: Entity
     /// Actor entities by stable blueprint ID.
     public let actors: [String: Entity]
+    /// Interactable prop entities by stable blueprint ID — everything that
+    /// carries an `InteractableComponent`, for the session to look up by ID
+    /// once `InteractionResolver` needs to read or rewrite its live state.
+    /// Scenery and other non-interactable props are not worth indexing here;
+    /// nothing ever needs to find them by ID.
+    public let interactableProps: [String: Entity]
 
     public var blueprint: LevelBlueprint { build.blueprint }
     public var geometry: LevelGeometry { build.geometry }
@@ -64,15 +70,24 @@ public enum LevelSceneBuilder {
             root.addChild(entity)
         }
 
+        var interactableProps: [String: Entity] = [:]
         for prop in geometry.props {
             let entity = GreyboxKit.entity(for: prop.box, name: prop.id)
             entity.components.set(LevelEntityComponent(id: prop.id, kind: prop.prototype.kind))
             entity.collision = CollisionComponent(shapes: [collisionShape(for: prop.box)])
             GreyboxKit.castsShadow(entity)
             if !prop.prototype.interactions.isEmpty {
+                // `prop.config` (resolved defaults + level overrides) seeds
+                // the component's *live* state — `InteractionResolver` reads
+                // and rewrites this copy as interactions complete, leaving
+                // `LevelGeometry`'s own copy, and therefore the level file,
+                // untouched.
                 entity.components.set(
-                    InteractableComponent(id: prop.id, interactions: prop.prototype.interactions)
+                    InteractableComponent(
+                        id: prop.id, interactions: prop.prototype.interactions, config: prop.config
+                    )
                 )
+                interactableProps[prop.id] = entity
             }
             root.addChild(entity)
         }
@@ -93,7 +108,9 @@ public enum LevelSceneBuilder {
 
         addLighting(to: root, geometry: geometry, metrics: blueprint.metrics, quality: quality)
 
-        return BuiltLevel(build: prepared, root: root, actors: actorEntities)
+        return BuiltLevel(
+            build: prepared, root: root, actors: actorEntities, interactableProps: interactableProps
+        )
     }
 
     // MARK: - Pieces
@@ -125,48 +142,62 @@ public enum LevelSceneBuilder {
             ? PlatformColor(red: 0.78, green: 0.34, blue: 0.30, alpha: 1)
             : PlatformColor(red: 0.28, green: 0.46, blue: 0.72, alpha: 1)
 
-        // A pawn: a base, a tapered body and a head. It reads as a figure from
-        // above *and* from the tactical angle, which a cylinder does not, and it
-        // is the shape a board game would use.
-        let material = GreyboxKit.flat(bodyColor, roughness: 0.55)
+        var loadedCustomModel = false
+        if let assetName = actor.prototype.asset {
+            let directUrl = Bundle.module.url(forResource: assetName, withExtension: "usdz", subdirectory: "Characters")
+                ?? Bundle.module.url(forResource: assetName, withExtension: "usdz")
+            if let directUrl, let model = try? Entity.load(contentsOf: directUrl) {
+                model.name = "\(actor.id).visual"
+                container.addChild(model)
+                GreyboxKit.castsShadow(model)
+                loadedCustomModel = true
+            }
+        }
 
-        let base = ModelEntity(
-            mesh: .generateCylinder(height: 0.06, radius: radius * 1.25),
-            materials: [material]
-        )
-        base.name = "\(actor.id).base"
-        base.position = SIMD3<Float>(0, 0.03, 0)
-        container.addChild(base)
+        if !loadedCustomModel {
+            // A pawn: a base, a tapered body and a head. It reads as a figure from
+            // above *and* from the tactical angle, which a cylinder does not, and it
+            // is the shape a board game would use.
+            let material = GreyboxKit.flat(bodyColor, roughness: 0.55)
 
-        let bodyHeight = height * 0.62
-        let body = ModelEntity(
-            mesh: .generateCone(height: bodyHeight, radius: radius * 0.95),
-            materials: [material]
-        )
-        body.name = "\(actor.id).body"
-        body.position = SIMD3<Float>(0, 0.06 + bodyHeight / 2, 0)
-        container.addChild(body)
+            let base = ModelEntity(
+                mesh: .generateCylinder(height: 0.06, radius: radius * 1.25),
+                materials: [material]
+            )
+            base.name = "\(actor.id).base"
+            base.position = SIMD3<Float>(0, 0.03, 0)
+            container.addChild(base)
 
-        let head = ModelEntity(
-            mesh: .generateSphere(radius: radius * 0.66),
-            materials: [material]
-        )
-        head.name = "\(actor.id).head"
-        head.position = SIMD3<Float>(0, 0.06 + bodyHeight + radius * 0.5, 0)
-        container.addChild(head)
+            let bodyHeight = height * 0.62
+            let body = ModelEntity(
+                mesh: .generateCone(height: bodyHeight, radius: radius * 0.95),
+                materials: [material]
+            )
+            body.name = "\(actor.id).body"
+            body.position = SIMD3<Float>(0, 0.06 + bodyHeight / 2, 0)
+            container.addChild(body)
 
-        // Facing, as a wedge on the base. Legible from any of the angles the
-        // camera can reach, unlike a nose on the body.
-        let facing = ModelEntity(
-            mesh: .generateBox(size: SIMD3<Float>(radius * 0.5, 0.05, radius * 0.9), cornerRadius: 0.02),
-            materials: [GreyboxKit.flat(
-                PlatformColor(red: 0.98, green: 0.92, blue: 0.72, alpha: 1),
-                roughness: 0.5
-            )]
-        )
-        facing.name = "\(actor.id).facing"
-        facing.position = SIMD3<Float>(0, 0.07, radius * 1.15)
-        container.addChild(facing)
+            let head = ModelEntity(
+                mesh: .generateSphere(radius: radius * 0.66),
+                materials: [material]
+            )
+            head.name = "\(actor.id).head"
+            head.position = SIMD3<Float>(0, 0.06 + bodyHeight + radius * 0.5, 0)
+            container.addChild(head)
+
+            // Facing, as a wedge on the base. Legible from any of the angles the
+            // camera can reach, unlike a nose on the body.
+            let facing = ModelEntity(
+                mesh: .generateBox(size: SIMD3<Float>(radius * 0.5, 0.05, radius * 0.9), cornerRadius: 0.02),
+                materials: [GreyboxKit.flat(
+                    PlatformColor(red: 0.98, green: 0.92, blue: 0.72, alpha: 1),
+                    roughness: 0.5
+                )]
+            )
+            facing.name = "\(actor.id).facing"
+            facing.position = SIMD3<Float>(0, 0.07, radius * 1.15)
+            container.addChild(facing)
+        }
 
         container.components.set(LevelEntityComponent(id: actor.id, kind: .actor))
 

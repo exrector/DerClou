@@ -37,3 +37,6 @@ Package.resolved
 
 # Do NOT ignore Reality Composer Pro / RealityKit project content.
 # RCP scene/content assets required to build the game belong in source control.
+
+# Blender auto-backup — a duplicate of the previous save, no unique content.
+*.blend1

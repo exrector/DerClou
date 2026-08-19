@@ -123,7 +123,10 @@ extension PropCatalog {
             surface: .wood,
             blocksMovement: false,
             interactions: [.open, .lockpick],
-            defaults: ["locked": .bool(false), "lockDifficulty": .int(1), "openDuration": .double(1.0)]
+            defaults: [
+                "locked": .bool(false), "lockDifficulty": .int(1),
+                "openDuration": .double(1.0), "lockpickDuration": .double(4.0)
+            ]
         ),
 
         // Exterior scenery — what the display edges are filled with
@@ -222,7 +225,10 @@ extension PropCatalog {
             surface: .darkMetal,
             blocksMovement: false,
             interactions: [.hack, .toggleSwitch],
-            defaults: ["difficulty": .int(2), "mountHeight": .double(1.3), "hackDuration": .double(6.0)]
+            defaults: [
+                "difficulty": .int(2), "mountHeight": .double(1.3),
+                "hackDuration": .double(6.0), "toggleSwitchDuration": .double(0.5)
+            ]
         ),
 
         // Containers and loot
@@ -233,7 +239,7 @@ extension PropCatalog {
             height: 0.6,
             surface: .darkMetal,
             interactions: [.crackSafe, .takeLoot],
-            defaults: ["locked": .bool(true), "difficulty": .int(3), "crackDuration": .double(20.0)]
+            defaults: ["locked": .bool(true), "difficulty": .int(3), "crackSafeDuration": .double(20.0)]
         ),
         PropPrototype(
             id: "loot.cash",
@@ -254,7 +260,8 @@ extension PropCatalog {
             height: 1.75,
             surface: .fabric,
             blocksMovement: false,
-            defaults: ["walkSpeed": .double(1.4)]
+            defaults: ["walkSpeed": .double(1.4)],
+            asset: "thief"
         ),
         PropPrototype(
             id: "actor.guard",
