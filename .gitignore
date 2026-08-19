@@ -40,3 +40,7 @@ Package.resolved
 
 # Blender auto-backup — a duplicate of the previous save, no unique content.
 *.blend1
+
+# Python bytecode cache from running ArtSource/Tools/*.py directly.
+__pycache__/
+*.pyc
