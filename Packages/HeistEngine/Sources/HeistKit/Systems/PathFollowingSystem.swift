@@ -43,7 +43,7 @@ public struct PathFollowingSystem: System {
             }
 
             if !component.isAnimating {
-                startWalkingAnimation(for: entity)
+                startWalkingAnimation(for: entity, walkSpeed: actor.walkSpeed)
                 component.isAnimating = true
             }
 
@@ -68,11 +68,29 @@ public struct PathFollowingSystem: System {
         }
     }
 
+    /// The walk cycle every current character model was authored to look
+    /// right at: one full stride cycle per second, keyframed with no root
+    /// motion of its own — the entity's actual translation comes entirely
+    /// from `PathWalker` above, per CLAUDE.md's "Locomotion versus game
+    /// movement" (animation presents movement, it does not drive it).
+    ///
+    /// That split is exactly why the cycle *rate* still has to track speed
+    /// even though position does not: two actors with different `walkSpeed`
+    /// cover different ground per second while their legs would otherwise
+    /// cycle at the identical fixed rate, which reads as the slower one's
+    /// feet sliding and the faster one's legs lagging behind its own body.
+    private static let referenceWalkSpeed: Float = 1.4
+
     @MainActor
-    private func startWalkingAnimation(for entity: Entity) {
+    private func startWalkingAnimation(for entity: Entity, walkSpeed: Float) {
+        // How much faster or slower than the speed the cycle was authored
+        // for — `AnimationPlaybackController.speed` is a rate multiplier,
+        // not a duration, so this is the whole adjustment.
+        let rate = walkSpeed / Self.referenceWalkSpeed
         for child in entity.children {
             if let anim = child.availableAnimations.first {
-                _ = child.playAnimation(anim.repeat(), transitionDuration: 0.15)
+                let controller = child.playAnimation(anim.repeat(), transitionDuration: 0.15)
+                controller.speed = rate
             }
         }
     }
@@ -80,7 +98,13 @@ public struct PathFollowingSystem: System {
     @MainActor
     private func stopWalkingAnimation(for entity: Entity) {
         for child in entity.children {
-            child.stopAllAnimations()
+            if let anim = child.availableAnimations.first {
+                let controller = child.playAnimation(anim, transitionDuration: 0.15)
+                controller.time = 0.0
+                controller.pause()
+            } else {
+                child.stopAllAnimations()
+            }
         }
     }
 

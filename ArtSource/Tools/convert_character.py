@@ -58,7 +58,17 @@ bpy.ops.wm.usd_export(
     export_animation=True,
     export_armatures=True,
     export_materials=True,
-    generate_preview_surface=True
+    generate_preview_surface=True,
+    # See the matching comment in generate_thief_model.py: Blender's exporter
+    # leaves Z-up data as-is and just tags `upAxis = "Z"` unless told
+    # otherwise, which RealityKit does not reliably re-orient for a skinned/
+    # animated SkelRoot (a plain static mesh is fine; a rig is not). Without
+    # this, every future character converted through this script — Guard01
+    # next — would ship with the same floating, misaligned-skeleton bug the
+    # Thief had.
+    convert_orientation=True,
+    export_global_forward_selection="NEGATIVE_Z",
+    export_global_up_selection="Y"
 )
 print("USDZ export successful!")
 """
