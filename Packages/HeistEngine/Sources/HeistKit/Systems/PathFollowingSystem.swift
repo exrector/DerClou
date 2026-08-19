@@ -42,17 +42,24 @@ public struct PathFollowingSystem: System {
                 face(entity: entity, direction: facing)
             }
 
+            if !component.isAnimating {
+                startWalkingAnimation(for: entity)
+                component.isAnimating = true
+            }
+
             if step.isStalled {
                 let actorID = actor.id
                 Self.log.error("""
                     \(actorID, privacy: .public) made no progress toward waypoint \
                     \(component.walker.index, privacy: .public); abandoning route
                     """)
+                stopWalkingAnimation(for: entity)
                 entity.components.remove(PathFollowingComponent.self)
                 continue
             }
 
             if step.isFinished {
+                stopWalkingAnimation(for: entity)
                 entity.components.remove(PathFollowingComponent.self)
                 continue
             }
@@ -61,6 +68,23 @@ public struct PathFollowingSystem: System {
         }
     }
 
+    @MainActor
+    private func startWalkingAnimation(for entity: Entity) {
+        for child in entity.children {
+            if let anim = child.availableAnimations.first {
+                _ = child.playAnimation(anim.repeat(), transitionDuration: 0.15)
+            }
+        }
+    }
+
+    @MainActor
+    private func stopWalkingAnimation(for entity: Entity) {
+        for child in entity.children {
+            child.stopAllAnimations()
+        }
+    }
+
+    @MainActor
     private func face(entity: Entity, direction: WorldPoint) {
         guard direction.planarLength > 0.0001 else { return }
         // Model forward is +z, matching the blueprint's rotation convention.
