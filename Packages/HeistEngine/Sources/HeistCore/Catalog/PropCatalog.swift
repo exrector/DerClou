@@ -273,6 +273,42 @@ extension PropCatalog {
             defaults: ["walkSpeed": .double(1.2), "range": .double(9.0), "fieldOfView": .double(100.0)],
             asset: "guard01"
         ),
+        // Roster review only for now: same shape as actor.guard, different
+        // model, no patrol route wired to them yet — placed standing still
+        // in Level01 so all five converted characters can be looked at
+        // together. Not a decision that these are permanent gameplay
+        // prototypes; merging them behind a single per-instance asset
+        // override is the more scalable design once that's needed.
+        PropPrototype(
+            id: "actor.guard02",
+            kind: .actor,
+            footprint: CellSize(width: 0.6, depth: 0.6),
+            height: 1.8,
+            surface: .fabric,
+            blocksMovement: false,
+            defaults: ["walkSpeed": .double(1.2), "range": .double(9.0), "fieldOfView": .double(100.0)],
+            asset: "guard02"
+        ),
+        PropPrototype(
+            id: "actor.guard03",
+            kind: .actor,
+            footprint: CellSize(width: 0.6, depth: 0.6),
+            height: 1.8,
+            surface: .fabric,
+            blocksMovement: false,
+            defaults: ["walkSpeed": .double(1.2), "range": .double(9.0), "fieldOfView": .double(100.0)],
+            asset: "guard03"
+        ),
+        PropPrototype(
+            id: "actor.civilian01",
+            kind: .actor,
+            footprint: CellSize(width: 0.6, depth: 0.6),
+            height: 1.7,
+            surface: .fabric,
+            blocksMovement: false,
+            defaults: ["walkSpeed": .double(1.1)],
+            asset: "civilian01"
+        ),
 
         // Markers
         PropPrototype(

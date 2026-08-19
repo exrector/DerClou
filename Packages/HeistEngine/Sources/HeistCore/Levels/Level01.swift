@@ -140,7 +140,13 @@ extension LevelBlueprint {
                         CellPoint(5.0, 9.2),
                         CellPoint(20.0, 9.2)
                     ]
-                )
+                ),
+                // Roster review row: standing still (no route), clear of the
+                // guard's patrol band (y 8.0-9.2) so it doesn't walk through
+                // them. Remove once these are wired into real gameplay.
+                ActorSpec(id: "office01.guard02.review", prototype: "actor.guard02", position: CellPoint(8.0, 10.3)),
+                ActorSpec(id: "office01.guard03.review", prototype: "actor.guard03", position: CellPoint(12.0, 10.3)),
+                ActorSpec(id: "office01.civilian01.review", prototype: "actor.civilian01", position: CellPoint(16.0, 10.3))
             ],
             markers: [
                 MarkerSpec(id: "office01.marker.spawn", kind: .spawn, position: CellPoint(2.0, 8.6)),
