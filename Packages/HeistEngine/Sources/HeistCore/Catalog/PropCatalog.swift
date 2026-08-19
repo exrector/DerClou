@@ -271,7 +271,7 @@ extension PropCatalog {
             surface: .fabric,
             blocksMovement: false,
             defaults: ["walkSpeed": .double(1.2), "range": .double(9.0), "fieldOfView": .double(100.0)],
-            asset: "guard"
+            asset: "guard01"
         ),
 
         // Markers
