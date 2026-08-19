@@ -88,7 +88,7 @@ public struct HeistSceneView: View {
             #if canImport(UIKit)
             .gesture(TouchDragGesture(touches: 1, onChanged: { _, delta in orbit(by: delta) }))
             .gesture(TouchDragGesture(touches: 2, onChanged: pan))
-            .gesture(TouchPinchGesture(onChanged: zoom))
+            .gesture(TouchPinchGesture(onChanged: zoom, onEnded: { zoomAnchor = nil }))
             #else
             .gesture(orbitGestureFallback)
             #endif
@@ -376,8 +376,21 @@ private struct TouchDragGesture: UIGestureRecognizerRepresentable {
 /// Wraps `UIPinchGestureRecognizer` instead of SwiftUI's own `MagnifyGesture`
 /// so zoom shares `AlwaysSimultaneousDelegate` with orbit and pan — see that
 /// type's doc comment for why that turned out to be the actual bug.
+///
+/// `onEnded` matters here in a way it didn't for `TouchDragGesture`: the view
+/// keeps a `zoomAnchor` across callbacks *within* one pinch, captured on its
+/// first callback and reused for the rest of that same gesture (see
+/// `zoom(location:scale:)`). Forgetting to clear it when the gesture ends —
+/// the actual regression the first version of this type shipped with, moving
+/// off `MagnifyGesture`'s own `.onEnded` without carrying the reset along —
+/// leaves the anchor pointing at wherever the *previous* pinch happened to
+/// end. Every pinch after that corrects zoom toward a stale, unrelated point
+/// instead of the one actually under the fingers, which reads as the zoom
+/// centring on the wrong place and, since that stale correction fights the
+/// live one every callback, as jittery on top of that.
 private struct TouchPinchGesture: UIGestureRecognizerRepresentable {
     var onChanged: (_ location: CGPoint, _ scale: CGFloat) -> Void
+    var onEnded: () -> Void
 
     func makeCoordinator(converter: CoordinateSpaceConverter) -> AlwaysSimultaneousDelegate {
         AlwaysSimultaneousDelegate()
@@ -390,11 +403,19 @@ private struct TouchPinchGesture: UIGestureRecognizerRepresentable {
     }
 
     func handleUIGestureRecognizerAction(_ recognizer: UIPinchGestureRecognizer, context: Context) {
-        guard recognizer.state == .changed else { return }
-        let scale = recognizer.scale
-        guard scale != 1 else { return }
-        recognizer.scale = 1
-        onChanged(recognizer.location(in: recognizer.view), scale)
+        switch recognizer.state {
+        case .changed:
+            let scale = recognizer.scale
+            guard scale != 1 else { return }
+            recognizer.scale = 1
+            onChanged(recognizer.location(in: recognizer.view), scale)
+
+        case .ended, .cancelled, .failed:
+            onEnded()
+
+        default:
+            break
+        }
     }
 }
 #endif
