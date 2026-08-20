@@ -17,7 +17,7 @@ public struct GuardPatrolSystem: System {
 
     public func update(context: SceneUpdateContext) {
         for entity in context.entities(matching: Self.query, updatingSystemWhen: .rendering) {
-            guard let guardComponent = entity.components[GuardComponent.self] else { continue }
+            guard var guardComponent = entity.components[GuardComponent.self] else { continue }
 
             let state = guardComponent.route.state(at: guardComponent.missionTime)
 
@@ -27,6 +27,25 @@ public struct GuardPatrolSystem: System {
             entity.orientation = simd_quatf(
                 angle: Float(state.facing * .pi / 180), axis: SIMD3<Float>(0, 1, 0)
             )
+
+            // A guard's position is a pure time lookup (see PatrolRoute's own
+            // docs) rather than something PathFollowingSystem accumulates for
+            // it, so nothing else here was ever driving its Walk animation —
+            // it moved while its model stayed frozen on whatever frame
+            // LevelSceneBuilder had paused it on at load, i.e. it slid rather
+            // than walked. Same rule as the Thief now: play while moving,
+            // rest at the waypoint pause.
+            if state.isPaused {
+                if guardComponent.isAnimating {
+                    WalkAnimationSync.stopWalking(for: entity)
+                    guardComponent.isAnimating = false
+                }
+            } else if !guardComponent.isAnimating {
+                WalkAnimationSync.startWalking(for: entity, walkSpeed: Float(guardComponent.route.speed))
+                guardComponent.isAnimating = true
+            }
+
+            entity.components[GuardComponent.self] = guardComponent
         }
     }
 }

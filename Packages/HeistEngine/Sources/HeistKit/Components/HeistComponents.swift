@@ -50,11 +50,16 @@ public struct GuardComponent: Component {
     public var route: PatrolRoute
     /// Seconds into the mission, as of the last update.
     public var missionTime: Double
+    /// Whether the Walk clip is currently playing — kept in sync with
+    /// `PatrolRoute.State.isPaused` by `GuardPatrolSystem`, the same way
+    /// `PathFollowingComponent.isAnimating` tracks it for the Thief.
+    public var isAnimating: Bool
 
     public init(id: String, route: PatrolRoute, missionTime: Double = 0) {
         self.id = id
         self.route = route
         self.missionTime = missionTime
+        self.isAnimating = false
     }
 }
 
