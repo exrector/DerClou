@@ -29,25 +29,30 @@ public enum WalkAnimationSync {
     /// play — see `startWalking(for:walkSpeed:)`.
     public static let referenceWalkSpeed: Float = 1.49
 
+    /// The clip name every character's walk cycle is exported under —
+    /// `ArtSource/Tools/apply_animation.py`'s `action_name` argument.
+    public static let clipName = "Walk"
+
     public static func startWalking(for entity: Entity, walkSpeed: Float) {
+        guard let anim = CharacterAnimationLibrary.animation(named: clipName, on: entity) else { return }
         let rate = walkSpeed / referenceWalkSpeed
         for child in entity.children {
-            if let anim = child.availableAnimations.first {
-                let controller = child.playAnimation(anim.repeat(), transitionDuration: 0.15)
-                controller.speed = rate
-            }
+            let controller = child.playAnimation(anim.repeat(), transitionDuration: 0.15)
+            controller.speed = rate
         }
     }
 
     public static func stopWalking(for entity: Entity) {
-        for child in entity.children {
-            if let anim = child.availableAnimations.first {
-                let controller = child.playAnimation(anim, transitionDuration: 0.15)
-                controller.time = 0.0
-                controller.pause()
-            } else {
+        guard let anim = CharacterAnimationLibrary.animation(named: clipName, on: entity) else {
+            for child in entity.children {
                 child.stopAllAnimations()
             }
+            return
+        }
+        for child in entity.children {
+            let controller = child.playAnimation(anim, transitionDuration: 0.15)
+            controller.time = 0.0
+            controller.pause()
         }
     }
 }

@@ -6,7 +6,7 @@ import Foundation
 /// level needs something new, it belongs in `PropCatalog` or in a system.
 public enum LevelLibrary {
     public static var all: [LevelBlueprint] {
-        [.office01]
+        [.office01, .characterLab]
     }
 
     public static func level(id: String) -> LevelBlueprint? {
@@ -140,13 +140,7 @@ extension LevelBlueprint {
                         CellPoint(5.0, 9.2),
                         CellPoint(20.0, 9.2)
                     ]
-                ),
-                // Roster review row: standing still (no route), clear of the
-                // guard's patrol band (y 8.0-9.2) so it doesn't walk through
-                // them. Remove once these are wired into real gameplay.
-                ActorSpec(id: "office01.guard02.review", prototype: "actor.guard02", position: CellPoint(8.0, 10.3)),
-                ActorSpec(id: "office01.guard03.review", prototype: "actor.guard03", position: CellPoint(12.0, 10.3)),
-                ActorSpec(id: "office01.civilian01.review", prototype: "actor.civilian01", position: CellPoint(16.0, 10.3))
+                )
             ],
             markers: [
                 MarkerSpec(id: "office01.marker.spawn", kind: .spawn, position: CellPoint(2.0, 8.6)),
@@ -163,6 +157,53 @@ extension LevelBlueprint {
                     target: "office01.camera.store",
                     effect: .power
                 )
+            ]
+        )
+    }
+
+    /// Not a mission — a bare room for looking at the character roster.
+    ///
+    /// office01 briefly grew three extra standing-still actors for exactly
+    /// this purpose; it broke office01's own validation (they sat inside the
+    /// reserved Plan Deck strip) and its actor-count test, and a real mission
+    /// has no business carrying roster review as part of its own definition.
+    /// This gives the same "look at everyone at once" capability its own
+    /// home instead of leaking into a level meant to ship.
+    public static var characterLab: LevelBlueprint {
+        LevelBlueprint(
+            id: "characterlab",
+            title: "Character Lab",
+            metrics: .standard,
+            floors: [
+                FloorSpec(id: "characterlab.floor.main", rect: CellRect(x: 0, y: 0, width: 16, depth: 10))
+            ],
+            walls: [
+                WallSpec(id: "characterlab.wall.north", start: CellPoint(0, 0), end: CellPoint(16, 0)),
+                WallSpec(id: "characterlab.wall.south", start: CellPoint(0, 10), end: CellPoint(16, 10)),
+                WallSpec(id: "characterlab.wall.west", start: CellPoint(0, 0), end: CellPoint(0, 10)),
+                WallSpec(id: "characterlab.wall.east", start: CellPoint(16, 0), end: CellPoint(16, 10))
+            ],
+            props: [
+                PropSpec(id: "characterlab.extraction", prototype: "marker.extraction", position: CellPoint(14.0, 5.0))
+            ],
+            actors: [
+                ActorSpec(id: "characterlab.thief", prototype: "actor.thief", position: CellPoint(2.0, 5.0)),
+                // Same "actor.guard" role, three different looks — the point
+                // of ActorRole/appearance: no per-look prototype needed.
+                ActorSpec(id: "characterlab.guard01", prototype: "actor.guard", position: CellPoint(5.0, 5.0)),
+                ActorSpec(
+                    id: "characterlab.guard02", prototype: "actor.guard", position: CellPoint(8.0, 5.0),
+                    config: ["appearance": .string("guard02")]
+                ),
+                ActorSpec(
+                    id: "characterlab.guard03", prototype: "actor.guard", position: CellPoint(11.0, 5.0),
+                    config: ["appearance": .string("guard03")]
+                ),
+                ActorSpec(id: "characterlab.civilian01", prototype: "actor.civilian", position: CellPoint(13.5, 7.0))
+            ],
+            markers: [
+                MarkerSpec(id: "characterlab.marker.spawn", kind: .spawn, position: CellPoint(2.0, 5.0)),
+                MarkerSpec(id: "characterlab.marker.extraction", kind: .extraction, position: CellPoint(14.0, 5.0))
             ]
         )
     }

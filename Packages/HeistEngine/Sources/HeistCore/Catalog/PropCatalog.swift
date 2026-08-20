@@ -26,6 +26,20 @@ public enum InteractionKind: String, Codable, Sendable, CaseIterable {
     case extract
 }
 
+/// Which gameplay rules an actor follows — separate from `PropPrototype.id`
+/// (a catalog key) and from `asset`/`ActorSpec.config["appearance"]` (which
+/// model renders). Before this existed, `LevelSceneBuilder` decided
+/// component wiring by string-comparing `prototype.id` against literals
+/// like `"actor.guard"`, so every new look (Guard02, Guard03, ...) needed
+/// its own prototype id just to stay recognisable as a guard — appearance
+/// and gameplay role were the same string. See `ActorSpec.appearance`(config
+/// key `"appearance"`) for how a role now carries more than one look.
+public enum ActorRole: String, Codable, Sendable, CaseIterable {
+    case thief
+    case `guard`
+    case civilian
+}
+
 /// Broad category, used for selection rules, sorting and debug colouring.
 public enum PropKind: String, Codable, Sendable, CaseIterable {
     /// Exterior dressing: trees, hedges, neighbouring walls. Lives outside the
@@ -61,9 +75,17 @@ public struct PropPrototype: Codable, Sendable, Equatable, Identifiable {
     public var interactions: [InteractionKind]
     /// Default config, overridden per instance by `PropSpec.config`.
     public var defaults: [String: LevelValue]
-    /// Production asset name, resolved in the RealityKit content bundle.
-    /// Nil means "render the greybox stand-in for this footprint".
+    /// Default production asset name, resolved in the RealityKit content
+    /// bundle. Nil means "render the greybox stand-in for this footprint".
+    /// A placed instance can override this per-instance — see
+    /// `ActorSpec.appearance`.
     public var asset: String?
+    /// Which gameplay rules this actor follows. Nil for every non-actor
+    /// `PropKind`. Component wiring in `LevelSceneBuilder` reads this
+    /// instead of comparing `id` against string literals, so a new look for
+    /// an existing role (another guard model, say) never needs a new
+    /// prototype — see `ActorRole`'s own docs for why that used to be true.
+    public var actorRole: ActorRole?
 
     public init(
         id: String,
@@ -74,7 +96,8 @@ public struct PropPrototype: Codable, Sendable, Equatable, Identifiable {
         blocksMovement: Bool = true,
         interactions: [InteractionKind] = [],
         defaults: [String: LevelValue] = [:],
-        asset: String? = nil
+        asset: String? = nil,
+        actorRole: ActorRole? = nil
     ) {
         self.id = id
         self.kind = kind
@@ -85,6 +108,7 @@ public struct PropPrototype: Codable, Sendable, Equatable, Identifiable {
         self.interactions = interactions
         self.defaults = defaults
         self.asset = asset
+        self.actorRole = actorRole
     }
 
     /// Resolved config for a placed instance: prototype defaults + overrides.
@@ -253,6 +277,15 @@ extension PropCatalog {
         ),
 
         // Actors
+        //
+        // One prototype per gameplay role, not per look: which model renders
+        // is `asset` here (the role's default) or `ActorSpec.config
+        // ["appearance"]` per placement (an override — see LevelSceneBuilder
+        // and CharacterLab for the pattern). Guard01/02/03 and future
+        // civilians are all the same `actor.guard`/`actor.civilian` role
+        // wearing a different model; they used to each need their own
+        // prototype id just to be recognised as a guard at all, which is
+        // exactly the coupling `ActorRole` exists to remove.
         PropPrototype(
             id: "actor.thief",
             kind: .actor,
@@ -261,7 +294,8 @@ extension PropCatalog {
             surface: .fabric,
             blocksMovement: false,
             defaults: ["walkSpeed": .double(1.4)],
-            asset: "thief"
+            asset: "thief",
+            actorRole: .thief
         ),
         PropPrototype(
             id: "actor.guard",
@@ -271,43 +305,19 @@ extension PropCatalog {
             surface: .fabric,
             blocksMovement: false,
             defaults: ["walkSpeed": .double(1.2), "range": .double(9.0), "fieldOfView": .double(100.0)],
-            asset: "guard01"
-        ),
-        // Roster review only for now: same shape as actor.guard, different
-        // model, no patrol route wired to them yet — placed standing still
-        // in Level01 so all five converted characters can be looked at
-        // together. Not a decision that these are permanent gameplay
-        // prototypes; merging them behind a single per-instance asset
-        // override is the more scalable design once that's needed.
-        PropPrototype(
-            id: "actor.guard02",
-            kind: .actor,
-            footprint: CellSize(width: 0.6, depth: 0.6),
-            height: 1.8,
-            surface: .fabric,
-            blocksMovement: false,
-            defaults: ["walkSpeed": .double(1.2), "range": .double(9.0), "fieldOfView": .double(100.0)],
-            asset: "guard02"
+            asset: "guard01",
+            actorRole: .guard
         ),
         PropPrototype(
-            id: "actor.guard03",
-            kind: .actor,
-            footprint: CellSize(width: 0.6, depth: 0.6),
-            height: 1.8,
-            surface: .fabric,
-            blocksMovement: false,
-            defaults: ["walkSpeed": .double(1.2), "range": .double(9.0), "fieldOfView": .double(100.0)],
-            asset: "guard03"
-        ),
-        PropPrototype(
-            id: "actor.civilian01",
+            id: "actor.civilian",
             kind: .actor,
             footprint: CellSize(width: 0.6, depth: 0.6),
             height: 1.7,
             surface: .fabric,
             blocksMovement: false,
             defaults: ["walkSpeed": .double(1.1)],
-            asset: "civilian01"
+            asset: "civilian01",
+            actorRole: .civilian
         ),
 
         // Markers

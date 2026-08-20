@@ -54,6 +54,12 @@ public struct PlacedProp: Sendable, Equatable, Identifiable {
     public var character: CharacterProfile {
         CharacterProfile(prototype: prototype, config: config)
     }
+
+    /// The model this actor renders: `config["appearance"]` (an
+    /// `ActorSpec.appearance` override, letting one `ActorRole` show up as
+    /// more than one look) if set, otherwise the prototype's own default
+    /// `asset`.
+    public var appearance: String? { config["appearance"]?.stringValue ?? prototype.asset }
 }
 
 /// Everything needed to build the scene and bake navigation, in world meters.

@@ -137,20 +137,30 @@ public enum LevelSceneBuilder {
 
         let height = Float(actor.prototype.height)
         let radius = Float(actor.prototype.footprint.width / 2)
-        let isGuard = actor.prototype.id == "actor.guard"
+        let isGuard = actor.prototype.actorRole == .guard
         let bodyColor = isGuard
             ? PlatformColor(red: 0.78, green: 0.34, blue: 0.30, alpha: 1)
             : PlatformColor(red: 0.28, green: 0.46, blue: 0.72, alpha: 1)
 
         var loadedCustomModel = false
-        if let assetName = actor.prototype.asset {
+        // `actor.appearance` resolves a per-instance override
+        // (`ActorSpec.config["appearance"]`) before falling back to the
+        // role's own default asset — see `ActorRole`'s docs for why this
+        // exists instead of one prototype per look.
+        if let assetName = actor.appearance {
             let directUrl = Bundle.module.url(forResource: assetName, withExtension: "usdz", subdirectory: "Characters")
                 ?? Bundle.module.url(forResource: assetName, withExtension: "usdz")
             if let directUrl, let model = try? Entity.load(contentsOf: directUrl) {
                 model.name = "\(actor.id).visual"
                 container.addChild(model)
                 GreyboxKit.castsShadow(model)
-                if let anim = model.availableAnimations.first {
+                CharacterAnimationLibrary.attach(to: model)
+                // Named lookup, not "whichever clip happened to load
+                // first" — see CharacterAnimationLibrary's own docs. Rests
+                // on the Walk clip's own first frame until a system (
+                // PathFollowingSystem, GuardPatrolSystem) actually starts
+                // this actor moving.
+                if let anim = CharacterAnimationLibrary.animation(named: WalkAnimationSync.clipName, on: container) {
                     let controller = model.playAnimation(anim)
                     controller.time = 0.0
                     controller.pause()
@@ -206,7 +216,7 @@ public enum LevelSceneBuilder {
 
         container.components.set(LevelEntityComponent(id: actor.id, kind: .actor))
 
-        if actor.prototype.id == "actor.thief" {
+        if actor.prototype.actorRole == .thief {
             container.components.set(
                 PlayableActorComponent(id: actor.id, walkSpeed: Float(actor.character.walkSpeed))
             )

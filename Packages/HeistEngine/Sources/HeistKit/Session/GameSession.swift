@@ -62,7 +62,7 @@ public final class GameSession {
 
         // Select the first playable actor so the level is usable on launch.
         selectedActorID = built.geometry.actors
-            .first { $0.prototype.id == "actor.thief" }?
+            .first { $0.prototype.actorRole == .thief }?
             .id
 
         let walkableCells = built.navGrid.walkable.count { $0 }

@@ -77,6 +77,13 @@ public struct ActorSpec: Codable, Sendable, Equatable, Identifiable {
         self.route = route
         self.config = config
     }
+
+    /// The model this placement should render, overriding its prototype's
+    /// own default asset — how one gameplay role (`ActorRole`, in
+    /// `PropCatalog`) shows up as more than one look without a prototype per
+    /// look. `config["appearance"]`; nil falls back to the prototype's own
+    /// `asset`.
+    public var appearance: String? { config["appearance"]?.stringValue }
 }
 
 /// A non-visual point of interest: spawn, extraction, camera framing anchor.
