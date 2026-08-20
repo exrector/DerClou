@@ -70,26 +70,35 @@ public struct PathFollowingSystem: System {
 
     /// The real-world pace the current "Walk" clip (a retargeted Mixamo
     /// mocap cycle, applied to every character via
-    /// ArtSource/Tools/apply_animation.py from a shared Walking.fbx) was
+    /// ArtSource/Tools/apply_animation.py from Standard Walk.fbx) was
     /// actually captured at — measured, not assumed: the clip's Hips bone
-    /// travels 126.25 raw Blender units (== 1.2625 m once the standard
-    /// Mixamo-import 0.01 object scale is applied, confirmed identical on
-    /// both the motion file and every character rig it's been applied to)
-    /// over 138 frames at the file's own 30 fps, i.e. 4.6 s, giving
-    /// 1.2625 / 4.6 ≈ 0.274 m/s. apply_animation.py strips that drift back
-    /// out of the exported asset — it keeps only the cyclic sway/bob — but
-    /// the *rate* the clip was captured at still has to be known so
-    /// playback can be re-timed to each entity's actual `walkSpeed`, per
-    /// CLAUDE.md's "Locomotion versus game movement" (animation presents
-    /// movement, it does not drive it: the entity's translation comes
-    /// entirely from `PathWalker` above).
+    /// travels 174.23 raw Blender units (== 1.7423 m once the standard
+    /// Mixamo-import 0.01 object scale is applied) over 35 frames at the
+    /// file's own 30 fps, i.e. 1.167 s, giving 1.7423 / 1.167 ≈ 1.49 m/s.
+    /// apply_animation.py strips that drift back out of the exported asset
+    /// — it keeps only the cyclic sway/bob — but the *rate* the clip was
+    /// captured at still has to be known so playback can be re-timed to
+    /// each entity's actual `walkSpeed`, per CLAUDE.md's "Locomotion versus
+    /// game movement" (animation presents movement, it does not drive it:
+    /// the entity's translation comes entirely from `PathWalker` above).
+    ///
+    /// This replaced an earlier clip (plain "Walking.fbx" from the same
+    /// Mixamo download batch) captured at an unusually slow ≈0.27 m/s — a
+    /// leisurely amble, not a normal walking pace. Matching that to this
+    /// project's actual walkSpeeds (1.1-1.4 m/s) meant playing it back at
+    /// 4-5x its own rate, and no amount of linear time-scaling makes mocap
+    /// look right stretched that far — stride timing and ground contact
+    /// stop reading as a real gait, which is exactly the "walks like a
+    /// heron" the owner flagged. Standard Walk.fbx's native pace needs only
+    /// about a 1x multiplier at these walkSpeeds, close enough to its own
+    /// capture rate to look like an actual person walking.
     ///
     /// That split is exactly why the cycle *rate* still has to track speed
     /// even though position does not: two actors with different `walkSpeed`
     /// cover different ground per second while their legs would otherwise
     /// cycle at the identical fixed rate, which reads as the slower one's
     /// feet sliding and the faster one's legs lagging behind its own body.
-    private static let referenceWalkSpeed: Float = 0.274
+    private static let referenceWalkSpeed: Float = 1.49
 
     @MainActor
     private func startWalkingAnimation(for entity: Entity, walkSpeed: Float) {
