@@ -9,7 +9,7 @@ namespace DerClou.Core.Navigation
     /// the 2D-simulation/3D-presentation split: pure C#, no Unity types, no
     /// dependency on any rendering/physics engine — the same shape the Swift
     /// version's own grid pathfinder had. Presentation code (Unity's
-    /// <c>ActorEntity</c>) only ever sees the returned waypoints; it never
+    /// <c>ActorView</c>) only ever sees the returned waypoints; it never
     /// needs to know the grid exists.
     /// </summary>
     public static class PathFinder

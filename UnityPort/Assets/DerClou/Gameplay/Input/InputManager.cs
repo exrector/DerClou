@@ -31,10 +31,10 @@ namespace DerClou.Gameplay.Input
         public float dragThresholdPixels = 12f;
 
         private InputMode currentMode = InputMode.Planning;
-        private ActorEntity selectedActor;
-        private ActorEntity hoveredActor;
+        private ActorView selectedActor;
+        private ActorView hoveredActor;
         private Interactable hoveredInteractable;
-        private Dictionary<ActorEntity, Material[]> originalMaterials = new();
+        private Dictionary<ActorView, Material[]> originalMaterials = new();
 
         private bool pointerDown;
         private bool isDragging;
@@ -42,8 +42,8 @@ namespace DerClou.Gameplay.Input
         private Vector2 lastPointerPos;
 
         public InputMode CurrentMode => currentMode;
-        public ActorEntity SelectedActor => selectedActor;
-        public event System.Action<ActorEntity> OnActorSelected;
+        public ActorView SelectedActor => selectedActor;
+        public event System.Action<ActorView> OnActorSelected;
         public event System.Action<Interactable> OnInteractableHovered;
         public event System.Action<Interactable> OnInteractableClicked;
         public event System.Action<Vector3> OnFloorClicked;
@@ -96,7 +96,7 @@ namespace DerClou.Gameplay.Input
         /// `GetMouseButtonDown(0)` frame: a floor click fired both the
         /// selection path's `OnFloorClicked` AND a direct `SetDestination`
         /// call, and clicking a door/panel/safe/loot prop (all on
-        /// `interactableMask`, none of which have an `ActorEntity` parent)
+        /// `interactableMask`, none of which have an `ActorView` parent)
         /// called `SelectActor(null)`, which threw inside `HighlightActor`
         /// the moment anything was already selected.
         private void HandleClick()
@@ -110,7 +110,7 @@ namespace DerClou.Gameplay.Input
 
             if (Physics.Raycast(ray, out var hit, 1000f, actorMask))
             {
-                var actor = hit.collider.GetComponentInParent<ActorEntity>();
+                var actor = hit.collider.GetComponentInParent<ActorView>();
                 // Only the thief is player-controlled — guards are AI-only,
                 // clicking one should not silently redirect input to it.
                 if (actor != null && actor.Role == ActorRole.Thief) { SelectActor(actor); return; }
@@ -136,7 +136,7 @@ namespace DerClou.Gameplay.Input
             Ray ray = tacticalCamera.mainCamera.ScreenPointToRay(Input.mousePosition);
             if (Physics.Raycast(ray, out var hit, 1000f, actorMask))
             {
-                var actor = hit.collider.GetComponentInParent<ActorEntity>();
+                var actor = hit.collider.GetComponentInParent<ActorView>();
                 if (actor != null && actor != hoveredActor)
                 {
                     hoveredActor = actor;
@@ -163,7 +163,7 @@ namespace DerClou.Gameplay.Input
             }
         }
 
-        public void SelectActor(ActorEntity actor)
+        public void SelectActor(ActorView actor)
         {
             if (selectedActor == actor) return;
 
@@ -179,7 +179,7 @@ namespace DerClou.Gameplay.Input
             selectedActor = null;
         }
 
-        private void HighlightActor(ActorEntity actor, bool on)
+        private void HighlightActor(ActorView actor, bool on)
         {
             var renderers = actor.GetComponentsInChildren<Renderer>();
             if (on)

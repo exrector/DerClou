@@ -14,10 +14,10 @@ namespace DerClou.Gameplay.Actors
         public BakedNavigationMesh navMesh;
 
         private Dictionary<int, GuardComponent> guards = new();
-        private Dictionary<int, ActorEntity> entities = new();
+        private Dictionary<int, ActorView> entities = new();
         private Dictionary<int, PatrolRoute> routes = new();
 
-        public void RegisterGuard(int actorId, ActorEntity entity, GuardComponent guard, PatrolRoute route)
+        public void RegisterGuard(int actorId, ActorView entity, GuardComponent guard, PatrolRoute route)
         {
             guards[actorId] = guard;
             entities[actorId] = entity;
@@ -42,7 +42,7 @@ namespace DerClou.Gameplay.Actors
             }
         }
 
-        private void TickGuard(int id, GuardComponent guard, ActorEntity entity, PatrolRoute route, float dt)
+        private void TickGuard(int id, GuardComponent guard, ActorView entity, PatrolRoute route, float dt)
         {
             var node = route.GetNode(guard.currentNodeIndex);
             Vector3 targetPos = new Vector3(node.position.x, 0, node.position.z);
@@ -72,7 +72,7 @@ namespace DerClou.Gameplay.Actors
                         guard.state = GuardComponent.State.Waiting;
                         guard.nodeArrivalTime = missionClock.CurrentTime;
                         if (node.facingYaw >= 0f)
-                            entity.transform.rotation = Quaternion.Euler(0, node.facingYaw, 0);
+                            entity.SetFacingYaw(node.facingYaw);
                     }
                     break;
 

@@ -3,26 +3,22 @@ namespace DerClou.Gameplay.Actors
     using DerClou.Core.Data;
     using DerClou.Core.Navigation;
     using DerClou.Core.Simulation;
-    using DerClou.Core.Time;
     using DerClou.Gameplay.Level;
+    using DerClou.Gameplay.Simulation;
     using UnityEngine;
 
     /// <summary>
-    /// Unity representation of an actor in the scene.
-    /// <para>
-    /// Movement is a grid path follower over <see cref="NavigationService.Grid"/>
-    /// (<see cref="PathFinder"/>, pure C#), not <c>UnityEngine.AI.NavMeshAgent</c>.
-    /// This matches how the Swift/RealityKit version split the project — a
-    /// pure-Swift 2D/2.5D simulation layer feeding a 3D presentation layer —
-    /// and was switched to deliberately: `NavMeshAgent`'s built-in local
-    /// avoidance is not fully deterministic run to run, which conflicts with
-    /// the game's own "same plan, same result" design requirement
-    /// (`docs/GAME_DESIGN.md` §6), and a plain grid path is fully testable
-    /// without the Editor at all.
-    /// </para>
+    /// Unity presentation of one actor. Renamed from <c>ActorEntity</c> as
+    /// part of U2 step 2a (`docs/U2_SIMULATION_DESIGN.md`): this class no
+    /// longer decides where the actor is. <see cref="Core.Systems.ActorMovementSystem"/>
+    /// advances the actor's <see cref="ActorState"/> on a fixed simulation
+    /// step; this class only reads that state back each frame and applies it
+    /// to the Transform/Animator. <see cref="SetDestination"/>/<see cref="Stop"/>
+    /// write into the state (via <see cref="PathFinder"/>, same as before)
+    /// rather than mutating anything this class owns itself.
     /// </summary>
     [RequireComponent(typeof(Animator))]
-    public class ActorEntity : MonoBehaviour
+    public class ActorView : MonoBehaviour
     {
         public int ActorId { get; private set; }
         public ActorRole Role { get; private set; }
@@ -35,7 +31,11 @@ namespace DerClou.Gameplay.Actors
         /// intentionally constant (`README.md` — "Character walking speed is
         /// intentionally constant/simplified"), so this is just "moving or
         /// not", not a sampled velocity.
-        public float CurrentSpeed => hasPath ? Profile.walkSpeed : 0f;
+        public float CurrentSpeed =>
+            SimulationService.Current != null
+            && SimulationService.Current.Actors.TryGetValue(ActorId, out var s)
+            && s.HasPath
+                ? Profile.walkSpeed : 0f;
 
         [Header("Flashlight (Guard03)")]
         public bool carryFlashlight = false;
@@ -47,10 +47,8 @@ namespace DerClou.Gameplay.Actors
         private int idleHash = Animator.StringToHash("Idle");
         private int flashlightLayerIndex = 1;
 
-        private WorldPoint[] currentPath;
-        private int pathIndex;
-        private bool hasPath;
-        private const float ArrivalTolerance = 0.05f;
+        private Vector3 lastRequestedDestination;
+        private bool hasRequestedDestination;
 
         public void Initialize(int actorId, ActorRole role, CharacterProfile profile, string appearanceKey)
         {
@@ -60,6 +58,22 @@ namespace DerClou.Gameplay.Actors
             AppearanceKey = appearanceKey;
 
             Animator = GetComponent<Animator>();
+
+            var state = SimulationService.Current;
+            if (state != null)
+            {
+                state.Actors[actorId] = new ActorState
+                {
+                    ActorId = actorId,
+                    Role = role,
+                    Profile = profile,
+                    Position = new WorldPoint(transform.position.x, transform.position.y, transform.position.z),
+                    FacingYawDegrees = transform.eulerAngles.y,
+                    CurrentPath = null,
+                    PathIndex = 0,
+                    HasPath = false
+                };
+            }
 
             // Flashlight setup for Guard03
             if (carryFlashlight && flashlightPrefab != null && rightHandBone != null)
@@ -76,76 +90,66 @@ namespace DerClou.Gameplay.Actors
             }
         }
 
-        private Vector3 lastRequestedDestination;
-        private bool hasRequestedDestination;
-
         public void SetDestination(Vector3 worldPos)
         {
+            var state = SimulationService.Current;
+            if (state == null || !state.Actors.TryGetValue(ActorId, out var current)) return;
+
             // Callers (`GuardPatrolSystem.TickGuard` in particular) call this
             // every tick for as long as an actor is walking toward the same
             // node — without this check, that is a full A* solve every
             // frame for every walking actor, for a destination that hasn't
             // moved.
-            if (hasPath && hasRequestedDestination
+            if (current.HasPath && hasRequestedDestination
                 && (worldPos - lastRequestedDestination).sqrMagnitude < 0.01f) return;
 
             lastRequestedDestination = worldPos;
             hasRequestedDestination = true;
 
             var grid = NavigationService.Grid;
-            if (grid == null) { hasPath = false; return; }
+            if (grid == null) { current.HasPath = false; state.Actors[ActorId] = current; return; }
 
-            var start = new WorldPoint(transform.position.x, 0, transform.position.z);
+            var start = current.Position;
             var goal = new WorldPoint(worldPos.x, 0, worldPos.z);
             var path = PathFinder.FindPath(grid, start, goal);
-            if (path.Length == 0) { hasPath = false; return; }
+            if (path.Length == 0) { current.HasPath = false; state.Actors[ActorId] = current; return; }
 
-            currentPath = path;
-            pathIndex = 0;
-            hasPath = true;
+            current.CurrentPath = path;
+            current.PathIndex = 0;
+            current.HasPath = true;
+            state.Actors[ActorId] = current;
+        }
+
+        /// Snaps facing directly to `yawDegrees` (e.g. a patrol node's
+        /// authored facing). Must go through state, not `transform.rotation`
+        /// directly — `LateUpdate` re-applies `ActorState.FacingYawDegrees`
+        /// every frame, so a direct Transform write would be silently
+        /// overwritten the instant this actor next has (or doesn't have) a
+        /// path.
+        public void SetFacingYaw(float yawDegrees)
+        {
+            var state = SimulationService.Current;
+            if (state == null || !state.Actors.TryGetValue(ActorId, out var current)) return;
+            current.FacingYawDegrees = yawDegrees;
+            state.Actors[ActorId] = current;
         }
 
         public void Stop()
         {
-            hasPath = false;
-            currentPath = null;
+            var state = SimulationService.Current;
+            if (state == null || !state.Actors.TryGetValue(ActorId, out var current)) return;
+            current.HasPath = false;
+            current.CurrentPath = null;
+            state.Actors[ActorId] = current;
         }
 
-        private void Update()
+        private void LateUpdate()
         {
-            if (!hasPath || currentPath == null || pathIndex >= currentPath.Length) return;
+            var state = SimulationService.Current;
+            if (state == null || !state.Actors.TryGetValue(ActorId, out var s)) return;
 
-            var wp = currentPath[pathIndex];
-            var target = new Vector3(wp.x, transform.position.y, wp.z);
-            var toTarget = target - transform.position;
-            toTarget.y = 0f;
-            float distance = toTarget.magnitude;
-
-            if (distance <= ArrivalTolerance)
-            {
-                pathIndex++;
-                if (pathIndex >= currentPath.Length)
-                {
-                    hasPath = false;
-                    currentPath = null;
-                }
-                return;
-            }
-
-            var direction = toTarget / distance;
-            float step = Profile.walkSpeed * Time.deltaTime;
-            transform.position += direction * Mathf.Min(step, distance);
-
-            if (Profile.maxTurnRateDegrees > 0f)
-            {
-                var targetRotation = Quaternion.LookRotation(direction, Vector3.up);
-                transform.rotation = Quaternion.RotateTowards(
-                    transform.rotation, targetRotation, Profile.maxTurnRateDegrees * Time.deltaTime);
-            }
-            else
-            {
-                transform.rotation = Quaternion.LookRotation(direction, Vector3.up);
-            }
+            transform.position = new Vector3(s.Position.x, s.Position.y, s.Position.z);
+            transform.rotation = Quaternion.Euler(0, s.FacingYawDegrees, 0);
         }
 
         public void UpdateAnimation(float speed)

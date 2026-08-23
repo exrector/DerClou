@@ -9,6 +9,8 @@ namespace DerClou.Gameplay
     using DerClou.Gameplay.Camera;
     using DerClou.Gameplay.Interaction;
     using DerClou.Gameplay.Props;
+    using DerClou.Gameplay.Simulation;
+    using DerClou.Core.Simulation;
     using UnityEngine;
     using System.Collections.Generic;
 
@@ -36,7 +38,7 @@ namespace DerClou.Gameplay
 
         public GamePhase CurrentPhase { get; private set; } = GamePhase.Recon;
 
-        private Dictionary<int, ActorEntity> actors = new();
+        private Dictionary<int, ActorView> actors = new();
         private bool isExecuting = false;
 
         private void Awake()
@@ -80,24 +82,24 @@ namespace DerClou.Gameplay
         private void Update()
         {
             float dt = Time.deltaTime;
-            missionClock.Tick(dt);
             fixedStep.Accumulate(dt);
 
+            // U2 step 2a (`docs/U2_SIMULATION_DESIGN.md`): `missionClock` used
+            // to tick here directly off `Time.deltaTime` — a variable,
+            // render-frame-rate delta — which was the actual reason the
+            // project wasn't deterministic yet despite already having a
+            // clock and an accumulator. `SimulationStep.Tick` now ticks the
+            // clock itself, once per fixed step, and runs the (so far: one)
+            // pure-C# simulation system against `SimulationService.Current`.
             while (fixedStep.TryConsume())
             {
-                FixedTick(fixedStep.FixedDt);
+                SimulationStep.Tick(SimulationService.Current, missionClock, fixedStep.FixedDt);
             }
 
             if (isExecuting)
             {
                 TickExecution(dt);
             }
-        }
-
-        private void FixedTick(float dt)
-        {
-            // Fixed-step systems: patrol, physics, etc.
-            if (patrolSystem != null) patrolSystem.enabled = true; // runs in its own Update
         }
 
         private void TickExecution(float dt)
@@ -110,7 +112,7 @@ namespace DerClou.Gameplay
             }
         }
 
-        private void OnActorSelected(ActorEntity actor)
+        private void OnActorSelected(ActorView actor)
         {
             if (CurrentPhase == GamePhase.Planning)
             {
@@ -152,7 +154,7 @@ namespace DerClou.Gameplay
             CurrentPhase = GamePhase.Result;
         }
 
-        private void QueueMoveAction(ActorEntity actor, Vector3 targetPos)
+        private void QueueMoveAction(ActorView actor, Vector3 targetPos)
         {
             var wp = new WorldPoint { x = targetPos.x, y = 0, z = targetPos.z };
             var action = new PlanAction

@@ -49,7 +49,7 @@ namespace DerClou.Gameplay.Level
 
             // Builds the walkability grid every actor paths against
             // (`PathFinder`, pure C#) straight from `blueprint` data — no
-            // Unity NavMesh involved. See `ActorEntity`'s doc comment for
+            // Unity NavMesh involved. See `ActorView`'s doc comment for
             // why: determinism and testability, matching how the Swift
             // version split simulation from presentation.
             NavigationService.Grid = NavGrid.BuildFromBlueprint(blueprint, catalog);
@@ -337,7 +337,7 @@ namespace DerClou.Gameplay.Level
         /// `docs/ART_DIRECTION.md`: a flat base, a tapered body, a head, and
         /// a facing wedge — all pure-primitive children of `parent`, which
         /// already carries the one collider that matters (selection
-        /// raycasts and `ActorEntity` live on the root, not on these).
+        /// raycasts and `ActorView` live on the root, not on these).
         private static void BuildPawnVisual(Transform parent, Color tint)
         {
             var material = new Material(Shader.Find("Universal Render Pipeline/Lit")) { color = tint };
@@ -457,7 +457,7 @@ namespace DerClou.Gameplay.Level
             // ever assigned to — actors could never be clicked/selected.
             go.layer = LayerMask.NameToLayer("Actor");
 
-            var actor = go.GetComponent<ActorEntity>() ?? go.AddComponent<ActorEntity>();
+            var actor = go.GetComponent<ActorView>() ?? go.AddComponent<ActorView>();
             var profile = BuildCharacterProfile(spec, proto);
             var actorId = GetActorId(spec.id);
             actor.Initialize(

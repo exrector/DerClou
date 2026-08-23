@@ -21,10 +21,10 @@ namespace DerClou.Gameplay.Interaction
     {
         public const float InteractRange = 1.6f;
 
-        private ActorEntity pendingActor;
+        private ActorView pendingActor;
         private Interactable pendingTarget;
 
-        private ActorEntity crackingActor;
+        private ActorView crackingActor;
         private Safe crackingSafe;
 
         private readonly Dictionary<string, SecurityCamera> camerasById = new();
@@ -45,7 +45,7 @@ namespace DerClou.Gameplay.Interaction
             foreach (var safe in FindObjectsOfType<Safe>()) safesById[safe.SafeId] = safe;
         }
 
-        public void RequestInteract(ActorEntity actor, Interactable target)
+        public void RequestInteract(ActorView actor, Interactable target)
         {
             if (actor == null || target == null || MissionComplete) return;
 
@@ -95,7 +95,7 @@ namespace DerClou.Gameplay.Interaction
             }
         }
 
-        private void Perform(ActorEntity actor, Interactable target)
+        private void Perform(ActorView actor, Interactable target)
         {
             var door = target.GetComponent<Door>();
             if (door != null) { PerformDoor(door); return; }
@@ -143,7 +143,7 @@ namespace DerClou.Gameplay.Interaction
             Debug.Log($"{panel.InteractableId}: камера '{controlledId}' теперь {(cam.Powered ? "включена" : "выключена")}.");
         }
 
-        private void PerformSafe(ActorEntity actor, Safe safe)
+        private void PerformSafe(ActorView actor, Safe safe)
         {
             if (safe.IsOpen) { Debug.Log($"{safe.SafeId}: уже открыт."); return; }
             crackingActor = actor;

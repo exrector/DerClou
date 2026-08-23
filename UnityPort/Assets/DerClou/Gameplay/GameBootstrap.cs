@@ -8,6 +8,8 @@ namespace DerClou.Gameplay
     using DerClou.Gameplay.Input;
     using DerClou.Gameplay.Interaction;
     using DerClou.Gameplay.Level;
+    using DerClou.Gameplay.Simulation;
+    using DerClou.Core.Simulation;
     using UnityEngine;
 
     /// <summary>
@@ -169,6 +171,11 @@ namespace DerClou.Gameplay
             levelBuilder.floorMaterial = SolidColorMaterial(new Color(0.87f, 0.83f, 0.74f));
             levelBuilder.wallMaterial = SolidColorMaterial(new Color(0.93f, 0.91f, 0.86f));
             levelBuilder.doorMaterial = SolidColorMaterial(new Color(0.55f, 0.40f, 0.24f));
+
+            // U2 step 2a: the simulation state a fresh mission starts from.
+            // Must exist before `Build` spawns any actor — `ActorView.Initialize`
+            // registers each actor's `ActorState` into this the moment it runs.
+            SimulationService.Current = new MissionState();
 
             // Build the level — `Build` takes and stores `catalog` itself;
             // `LevelBuilder.catalog` is private, so nothing outside it should
