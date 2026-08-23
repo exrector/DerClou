@@ -13,7 +13,7 @@
   - [x] 2a — Actor movement (`MissionState`/`ActorState`, `ActorMovementSystem`, `SimulationStep`, `SimulationService`, `ActorEntity`→`ActorView`). 2026-08-23.
   - [x] 2b — Guard patrol (`GuardState`, pure-C# `Core.Systems.GuardPatrolSystem`, `GuardPatrolSystem`→`GuardView`, `ActorMovementSystem.RequestPath` shared by player+guard, `NavigationService` removed in favor of `MissionState.Grid`). 2026-08-23.
   - [x] 2c — Security camera (`CameraState`, pure-C# `SecurityCameraSystem`, `SecurityCamera`→`CameraView`, `InteractionSystem.PerformPanel` flips `MissionState.Cameras` directly). 2026-08-23.
-  - [ ] 2d — Door
+  - [x] 2d — Door (`DoorState`, pure-C# `DoorSystem`, `Door`→`DoorView`; fixed a real latent `Awake()`-ordering bug computing the hinge rotation from unconfigured defaults along the way). 2026-08-23.
   - [ ] 2e — Safe
 - [ ] **U3** — real planning loop.
 - [ ] **U4** — deterministic guard vision, первая настоящая `plan → execute → fail/succeed → edit → retry` миссия.
