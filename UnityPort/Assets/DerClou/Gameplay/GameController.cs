@@ -41,6 +41,14 @@ namespace DerClou.Gameplay
         private Dictionary<int, ActorView> actors = new();
         private bool isExecuting = false;
 
+        // U3 (`docs/U3_PLANNING_LOOP_DESIGN.md`): where each actor's next
+        // planned action starts from. Lazily seeded from the actor's live
+        // position the first time it's queued — valid because Planning taps
+        // never move the actor, so "live position" and "start of Planning
+        // position" are the same thing until 3c (Retry) needs to rebuild
+        // this from a preserved plan instead.
+        private Dictionary<int, PlanCursor> planCursors = new();
+
         private void Awake()
         {
             if (missionClock == null) missionClock = new MissionClock();
@@ -125,13 +133,30 @@ namespace DerClou.Gameplay
                 return;
             }
 
-            // Move happens immediately — this slice keeps the world live
-            // during "planning" (see `SetPhase`'s comment) rather than
-            // waiting for a commit/execute step that doesn't exist yet.
-            // Still record it into the plan so that infrastructure isn't
-            // dead code once `TickExecution` actually replays plans.
-            inputManager.SelectedActor.SetDestination(worldPos);
-            QueueMoveAction(inputManager.SelectedActor, worldPos);
+            // U3 step 3a: the actor no longer moves on a Planning tap — this
+            // only appends a MoveTo to the plan. Nothing actually happens
+            // until StartExecution replays it (step 3b).
+            var actor = inputManager.SelectedActor;
+            var cursor = GetCursor(actor.ActorId);
+            PlanBuilder.QueueMove(currentPlan, SimulationService.Current, actor.ActorId, ref cursor,
+                new WorldPoint(worldPos.x, 0, worldPos.z));
+            planCursors[actor.ActorId] = cursor;
+
+            Debug.Log($"[GameController] queued MoveTo for actor {actor.ActorId} " +
+                $"({currentPlan.GetOrCreate(actor.ActorId).actions.Count} actions queued, cursor time={cursor.Time:0.0}s)");
+        }
+
+        private PlanCursor GetCursor(int actorId)
+        {
+            if (planCursors.TryGetValue(actorId, out var cursor)) return cursor;
+
+            var state = SimulationService.Current;
+            var position = state != null && state.Actors.TryGetValue(actorId, out var a)
+                ? a.Position
+                : default;
+            cursor = new PlanCursor { Position = position, Time = 0f };
+            planCursors[actorId] = cursor;
+            return cursor;
         }
 
         private void OnInteractableClicked(Interactable interactable)
@@ -149,21 +174,6 @@ namespace DerClou.Gameplay
             // success without a dedicated `GamePhase.Result` UI yet.
             inputManager.SetMode(InputMode.Inspecting);
             CurrentPhase = GamePhase.Result;
-        }
-
-        private void QueueMoveAction(ActorView actor, Vector3 targetPos)
-        {
-            var wp = new WorldPoint { x = targetPos.x, y = 0, z = targetPos.z };
-            var action = new PlanAction
-            {
-                type = PlanActionType.MoveTo,
-                actorId = actor.ActorId,
-                targetPos = wp,
-                earliestStart = missionClock.CurrentTime,
-                duration = 0f // computed from path
-            };
-            currentPlan.GetOrCreate(actor.ActorId).AddAction(action);
-            currentPlan.RecalculateDuration();
         }
 
         public void StartExecution()

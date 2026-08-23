@@ -86,6 +86,17 @@ namespace DerClou.Core.Planning
         }
     }
 
+    /// U3 (`docs/U3_PLANNING_LOOP_DESIGN.md`): where the *next* planned
+    /// action for one actor starts from — not the actor's live position
+    /// (which never moves during Planning), but the end of whatever was
+    /// queued last. Without this, three consecutive floor taps would all
+    /// plan from the actor's spawn point instead of chaining into a route.
+    public struct PlanCursor
+    {
+        public WorldPoint Position;
+        public float Time;
+    }
+
     public interface IActionDurationProvider
     {
         float GetDuration(PlanActionType type, CharacterProfile profile, System.Collections.Generic.Dictionary<string, LevelValue> parameters);
