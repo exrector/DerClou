@@ -111,10 +111,10 @@ namespace DerClou.Gameplay.Level
             var buildingWidth = bounds.max.x - bounds.min.x;
             var buildingDepth = bounds.max.y - bounds.min.y;
 
-            var grassMaterial = new Material(Shader.Find("Standard")) { color = new Color(0.42f, 0.55f, 0.30f) };
-            var apronMaterial = new Material(Shader.Find("Standard")) { color = new Color(0.62f, 0.60f, 0.56f) };
-            var trunkMaterial = new Material(Shader.Find("Standard")) { color = new Color(0.32f, 0.22f, 0.14f) };
-            var canopyMaterial = new Material(Shader.Find("Standard")) { color = new Color(0.28f, 0.45f, 0.22f) };
+            var grassMaterial = new Material(Shader.Find("Universal Render Pipeline/Lit")) { color = new Color(0.42f, 0.55f, 0.30f) };
+            var apronMaterial = new Material(Shader.Find("Universal Render Pipeline/Lit")) { color = new Color(0.62f, 0.60f, 0.56f) };
+            var trunkMaterial = new Material(Shader.Find("Universal Render Pipeline/Lit")) { color = new Color(0.32f, 0.22f, 0.14f) };
+            var canopyMaterial = new Material(Shader.Find("Universal Render Pipeline/Lit")) { color = new Color(0.28f, 0.45f, 0.22f) };
 
             var grass = GameObject.CreatePrimitive(PrimitiveType.Cube);
             grass.name = "Ground_Grass";
@@ -340,7 +340,7 @@ namespace DerClou.Gameplay.Level
         /// raycasts and `ActorEntity` live on the root, not on these).
         private static void BuildPawnVisual(Transform parent, Color tint)
         {
-            var material = new Material(Shader.Find("Standard")) { color = tint };
+            var material = new Material(Shader.Find("Universal Render Pipeline/Lit")) { color = tint };
 
             void AddPart(GameObject shape, Vector3 localPos, Vector3 localScale)
             {

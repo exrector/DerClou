@@ -179,7 +179,9 @@ namespace DerClou.Gameplay
 
         private static Material SolidColorMaterial(Color color)
         {
-            var mat = new Material(Shader.Find("Standard")) { color = color };
+            // U1: project moved Built-in RP → URP; "Standard" is the
+            // Built-in shader and silently resolves to nothing under URP.
+            var mat = new Material(Shader.Find("Universal Render Pipeline/Lit")) { color = color };
             return mat;
         }
     }
