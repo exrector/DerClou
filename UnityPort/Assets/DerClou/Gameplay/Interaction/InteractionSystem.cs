@@ -1,6 +1,7 @@
 namespace DerClou.Gameplay.Interaction
 {
     using DerClou.Core.Data;
+    using DerClou.Core.Systems;
     using DerClou.Gameplay.Actors;
     using DerClou.Gameplay.Props;
     using DerClou.Gameplay.Simulation;
@@ -97,7 +98,7 @@ namespace DerClou.Gameplay.Interaction
 
         private void Perform(ActorView actor, Interactable target)
         {
-            var door = target.GetComponent<Door>();
+            var door = target.GetComponent<DoorView>();
             if (door != null) { PerformDoor(door); return; }
 
             var safe = target.GetComponent<Safe>();
@@ -124,11 +125,14 @@ namespace DerClou.Gameplay.Interaction
             Debug.Log($"{target.InteractableId}: нет реализованного действия.");
         }
 
-        private void PerformDoor(Door door)
+        private void PerformDoor(DoorView door)
         {
-            if (door.IsLocked) { Debug.Log($"{door.DoorId}: заперто."); return; }
-            door.Toggle();
-            Debug.Log($"{door.DoorId}: {(door.IsOpen ? "открыта" : "закрыта")}.");
+            var state = SimulationService.Current;
+            if (state == null || !state.Doors.TryGetValue(door.DoorId, out var d)) return;
+
+            if (d.isLocked) { Debug.Log($"{door.DoorId}: заперто."); return; }
+            DoorSystem.SetOpen(state, door.DoorId, !d.isOpen);
+            Debug.Log($"{door.DoorId}: {(!d.isOpen ? "открыта" : "закрыта")}.");
         }
 
         private void PerformPanel(Interactable panel)

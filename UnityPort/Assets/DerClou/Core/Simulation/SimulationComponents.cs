@@ -74,16 +74,23 @@ namespace DerClou.Core.Simulation
         public System.Collections.Generic.Dictionary<string, LevelValue> config = new();
     }
 
+    /// Renamed from `DoorComponent` in U2 step 2d — live state in
+    /// `MissionState.Doors`, not the dead, never-read data it was before.
+    /// `openDurationSeconds`/`closeDurationSeconds` are separate (not one
+    /// symmetric `openSpeed`) because the old `Door` MonoBehaviour genuinely
+    /// opened and closed at different rates — `DoorSystem` preserves that.
     [System.Serializable]
-    public class DoorComponent
+    public class DoorState
     {
         public string id;
-        public WorldBox closedBox;
         public DoorHingeSide hingeSide;
         public float openAngleDegrees;
-        public bool isOpen;
-        public float openProgress; // 0..1
-        public float openSpeed;    // degrees per second
+        public bool isOpen;         // target
+        public float openProgress;  // 0..1, animated toward the target
+        public float openDurationSeconds = 1f;
+        public float closeDurationSeconds = 1f;
+        public bool isLocked;
+        public int lockDifficulty;
     }
 
     /// Renamed from `SecurityCameraComponent` in U2 step 2c — live state in

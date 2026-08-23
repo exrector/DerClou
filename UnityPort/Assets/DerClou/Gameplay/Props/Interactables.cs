@@ -43,57 +43,49 @@ namespace DerClou.Gameplay.Props
         }
     }
 
-    public class Door : MonoBehaviour
+    /// <summary>
+    /// Renamed from <c>Door</c> in U2 step 2d (`docs/U2_SIMULATION_DESIGN.md`).
+    /// The open/close animation that used to run in this class's
+    /// <c>Update()</c> now lives in the pure-C#
+    /// <c>DerClou.Core.Systems.DoorSystem</c>, ticked from
+    /// <see cref="Core.Simulation.SimulationStep"/>. This class only reads
+    /// <c>DoorState.openProgress</c> back each frame to slerp the hinge
+    /// rotation — it never decides whether the door is open, locked, or
+    /// mid-swing.
+    /// <para>
+    /// <c>openRot</c> depends on hinge side/angle, which weren't known at
+    /// <c>Awake()</c> in the old class — <c>LevelBuilder.BuildDoor</c> set
+    /// them on public fields immediately *after* <c>AddComponent&lt;Door&gt;()</c>
+    /// already ran <c>Awake()</c>, so it silently computed <c>openRot</c>
+    /// from the field *initializers'* defaults (hinge = <c>Left</c>, angle =
+    /// 90°) rather than the level's actual config — invisible only because
+    /// Level01's one door happens to use both defaults. Fixed here by moving
+    /// that computation into <see cref="SetHinge"/>, called explicitly once
+    /// the real values are known.
+    /// </para>
+    /// </summary>
+    public class DoorView : MonoBehaviour
     {
         public string DoorId;
-        public DoorHingeSide HingeSide;
-        public float OpenAngle = 90f;
-        public float OpenDuration = 1f;
-        public float CloseDuration = 1f;
-        public bool IsOpen { get; private set; }
-        public bool IsLocked { get; set; }
-        public int LockDifficulty = 1;
 
         private Quaternion closedRot, openRot;
-        private float currentProgress;
-        private bool isAnimating;
-        private float animSpeed;
 
         private void Awake()
         {
             closedRot = transform.localRotation;
-            Vector3 axis = HingeSide == DoorHingeSide.Left ? Vector3.up : Vector3.down;
-            openRot = closedRot * Quaternion.AngleAxis(OpenAngle, axis);
         }
 
-        public void SetLocked(bool locked) => IsLocked = locked;
-
-        public void Open()
+        public void SetHinge(DoorHingeSide hingeSide, float openAngleDegrees)
         {
-            if (IsOpen || isAnimating) return;
-            IsOpen = true;
-            isAnimating = true;
-            animSpeed = 1f / OpenDuration;
-            currentProgress = 0f;
+            Vector3 axis = hingeSide == DoorHingeSide.Left ? Vector3.up : Vector3.down;
+            openRot = closedRot * Quaternion.AngleAxis(openAngleDegrees, axis);
         }
 
-        public void Close()
+        private void LateUpdate()
         {
-            if (!IsOpen || isAnimating) return;
-            IsOpen = false;
-            isAnimating = true;
-            animSpeed = 1f / CloseDuration;
-            currentProgress = 1f;
-        }
-
-        public void Toggle() { if (IsOpen) Close(); else Open(); }
-
-        private void Update()
-        {
-            if (!isAnimating) return;
-            currentProgress = Mathf.MoveTowards(currentProgress, IsOpen ? 1f : 0f, animSpeed * Time.deltaTime);
-            transform.localRotation = Quaternion.Slerp(closedRot, openRot, currentProgress);
-            if (Mathf.Approximately(currentProgress, IsOpen ? 1f : 0f)) isAnimating = false;
+            var state = SimulationService.Current;
+            if (state == null || !state.Doors.TryGetValue(DoorId, out var d)) return;
+            transform.localRotation = Quaternion.Slerp(closedRot, openRot, d.openProgress);
         }
     }
 

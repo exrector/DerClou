@@ -276,16 +276,32 @@ namespace DerClou.Gameplay.Level
             go.transform.localScale = new Vector3(prop.box.width, prop.box.height, prop.box.depth);
             go.layer = LayerMask.NameToLayer("Door");
 
-            var door = go.GetComponent<Door>() ?? go.AddComponent<Door>();
-            door.DoorId = prop.id;
-            door.HingeSide = prop.config.TryGetValue("hingeSide", out var h) && h.type == LevelValue.Type.String
+            var hingeSide = prop.config.TryGetValue("hingeSide", out var h) && h.type == LevelValue.Type.String
                 ? (DoorHingeSide)System.Enum.Parse(typeof(DoorHingeSide), h.stringValue)
                 : DoorHingeSide.Left;
-            door.OpenAngle = prop.config.TryGetValue("openAngle", out var oa) && oa.type == LevelValue.Type.Float ? oa.floatValue : 90f;
-            door.OpenDuration = prop.config.TryGetValue("openDuration", out var od) && od.type == LevelValue.Type.Float ? od.floatValue : 1f;
-            door.CloseDuration = prop.config.TryGetValue("closeDuration", out var cd) && cd.type == LevelValue.Type.Float ? cd.floatValue : 1f;
-            door.IsLocked = prop.config.TryGetValue("locked", out var lk) && lk.type == LevelValue.Type.Bool && lk.boolValue;
-            door.LockDifficulty = prop.config.TryGetValue("lockDifficulty", out var ld) && ld.type == LevelValue.Type.Int ? ld.intValue : 1;
+            var openAngle = prop.config.TryGetValue("openAngle", out var oa) && oa.type == LevelValue.Type.Float ? oa.floatValue : 90f;
+
+            var view = go.GetComponent<DoorView>() ?? go.AddComponent<DoorView>();
+            view.DoorId = prop.id;
+            view.SetHinge(hingeSide, openAngle);
+
+            // U2 step 2d: the door's live state — open/closed target,
+            // animation progress, lock — goes into `MissionState.Doors`,
+            // not onto this MonoBehaviour.
+            var state = SimulationService.Current;
+            if (state != null)
+            {
+                state.Doors[prop.id] = new DoorState
+                {
+                    id = prop.id,
+                    hingeSide = hingeSide,
+                    openAngleDegrees = openAngle,
+                    openDurationSeconds = prop.config.TryGetValue("openDuration", out var od) && od.type == LevelValue.Type.Float ? od.floatValue : 1f,
+                    closeDurationSeconds = prop.config.TryGetValue("closeDuration", out var cd) && cd.type == LevelValue.Type.Float ? cd.floatValue : 1f,
+                    isLocked = prop.config.TryGetValue("locked", out var lk) && lk.type == LevelValue.Type.Bool && lk.boolValue,
+                    lockDifficulty = prop.config.TryGetValue("lockDifficulty", out var ld) && ld.type == LevelValue.Type.Int ? ld.intValue : 1
+                };
+            }
 
             if (doorMaterial != null)
             {

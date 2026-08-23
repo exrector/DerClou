@@ -34,15 +34,15 @@ namespace DerClou.Core.Simulation
 
     /// <summary>
     /// The gameplay-authoritative state for the current mission. Grew
-    /// <see cref="Cameras"/> in U2 step 2c — Doors/Safes are added by their
-    /// own migration steps (2d–2e), not pre-declared here as unused
-    /// placeholders.
+    /// <see cref="Doors"/> in U2 step 2d — Safes are added by their own
+    /// migration step (2e), not pre-declared here as an unused placeholder.
     /// </summary>
     public class MissionState
     {
         public Dictionary<int, ActorState> Actors = new();
         public Dictionary<int, GuardState> Guards = new();
         public Dictionary<string, CameraState> Cameras = new();
+        public Dictionary<string, DoorState> Doors = new();
 
         /// The grid every actor/guard paths against. Pure C# already
         /// (`NavGrid`), so it belongs on the simulation side rather than
@@ -99,6 +99,21 @@ namespace DerClou.Core.Simulation
                     powered = kv.Value.powered,
                     currentYaw = kv.Value.currentYaw,
                     scanPhase = kv.Value.scanPhase
+                };
+            }
+            foreach (var kv in Doors)
+            {
+                clone.Doors[kv.Key] = new DoorState
+                {
+                    id = kv.Value.id,
+                    hingeSide = kv.Value.hingeSide,
+                    openAngleDegrees = kv.Value.openAngleDegrees,
+                    isOpen = kv.Value.isOpen,
+                    openProgress = kv.Value.openProgress,
+                    openDurationSeconds = kv.Value.openDurationSeconds,
+                    closeDurationSeconds = kv.Value.closeDurationSeconds,
+                    isLocked = kv.Value.isLocked,
+                    lockDifficulty = kv.Value.lockDifficulty
                 };
             }
             return clone;
