@@ -2,6 +2,15 @@
 
 Status: baseline architecture for first implementation.
 
+The concrete algorithm selection, autonomous navigation stack and smart-object
+contracts are maintained in `FOUNDATIONAL_GAME_ALGORITHMS.md`. That document is
+normative when this older baseline uses a broader phrase such as "navigation" or
+"behavior".
+
+Apple framework selection and exact SDK availability are maintained in
+`APPLE_GAMEPLAY_FRAMEWORK_AUDIT.md`. It is normative when this older baseline
+mentions a framework or tool without an availability qualification.
+
 ## 1. Platform target
 
 Primary target: **iPhone, iOS 18+**.
@@ -9,9 +18,10 @@ Primary target: **iPhone, iOS 18+**.
 Lowered from iOS 27 on 2026-08-17. Reasons:
 
 - iOS 27 is beta, so an iOS-27-only build reaches essentially no players;
-- the only iOS 27 APIs the design needed were the navigation mesh ones, and our
-  own grid A* (`HeistCore/Navigation`) is a better fit anyway — deterministic,
-  testable without a simulator, and under our control;
+- the only iOS 27 APIs the design needed were the navigation mesh ones. The
+  project therefore owns its navigation abstraction and baked data; the current
+  grid A* is a tested migration backend, while production navigation moves to a
+  baked polygon corridor/funnel backend without raising the deployment target;
 - iOS 18 is set by three APIs that *are* core to the look: `RealityView`,
   `RealityViewCameraContent` and `OrthographicCameraComponent`.
 
@@ -346,7 +356,15 @@ Responsibilities:
 
 - screen tap → world destination;
 - validate navigability;
-- request path;
+- submit a versioned immutable path request without blocking MainActor;
+- resolve through the selected baked navigation backend on a worker;
+- snapshot older committed trajectories and reject predicted space-time
+  intersections before a newly tapped route starts;
+- preserve first-committed right of way, using actor role only to break an exact
+  commitment-time tie;
+- when a patrol leg is obstructed, discard its remainder and solve the smallest
+  set of steering links directly to the next authored patrol node;
+- discard stale responses after a newer command or world revision;
 - command selected actor;
 - move at constant configured speed;
 - update animation state;
@@ -362,14 +380,14 @@ Responsibilities:
 - queue/perform interaction;
 - emit semantic action into plan recorder during planning.
 
-### GuardPatrolSystem
+### AgentLocomotionSystem
 
 Responsibilities:
 
-- deterministic routine;
-- move among waypoints;
-- fixed waits/turns/inspection actions;
-- no hidden random pauses.
+- present every actor from one mission-time navigation task;
+- fall back to a guard's deterministic patrol routine;
+- apply rounded position/facing and shared semantic animation;
+- never use rays, physics contacts or render delta as movement authority.
 
 ### VisionSystem
 

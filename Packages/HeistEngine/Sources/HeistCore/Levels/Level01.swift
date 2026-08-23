@@ -140,6 +140,19 @@ extension LevelBlueprint {
                         CellPoint(5.0, 9.2),
                         CellPoint(20.0, 9.2)
                     ]
+                ),
+                ActorSpec(
+                    id: "office01.guard.03",
+                    prototype: "actor.guard",
+                    position: CellPoint(10.0, 3.0),
+                    facing: 90,
+                    route: [
+                        CellPoint(10.0, 3.0),
+                        CellPoint(10.0, 5.0),
+                        CellPoint(18.0, 5.0),
+                        CellPoint(18.0, 3.0)
+                    ],
+                    config: ["appearance": .string("guard03")]
                 )
             ],
             markers: [

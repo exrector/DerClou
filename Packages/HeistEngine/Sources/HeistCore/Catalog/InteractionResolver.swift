@@ -31,6 +31,9 @@ public enum InteractionResolver {
 
         let isLocked = config["locked"]?.boolValue ?? false
         let isOpen = config["open"]?.boolValue ?? false
+        let isSearched = config["searched"]?.boolValue ?? false
+        let isInspected = config["inspected"]?.boolValue ?? false
+        let isLooted = config["looted"]?.boolValue ?? false
 
         if isLocked {
             return [.lockpick, .crackSafe, .hack].first { interactions.contains($0) }
@@ -39,7 +42,16 @@ public enum InteractionResolver {
         if !isOpen, interactions.contains(.open) {
             return .open
         }
-        if interactions.contains(.takeLoot) {
+        if isOpen, interactions.contains(.close) {
+            return .close
+        }
+        if !isSearched, interactions.contains(.search) {
+            return .search
+        }
+        if !isInspected, interactions.contains(.inspect) {
+            return .inspect
+        }
+        if !isLooted, interactions.contains(.takeLoot) {
             return .takeLoot
         }
         if interactions.contains(.toggleSwitch) {
@@ -48,9 +60,10 @@ public enum InteractionResolver {
         if interactions.contains(.extract) {
             return .extract
         }
-        // Nothing left to offer — most commonly a door that only ever
-        // supported `open` and now is.
-        return isOpen ? nil : interactions.first
+        // Every supported semantic verb is handled above. Once a stateful
+        // affordance is exhausted, the object remains tappable but offers no
+        // action instead of silently repeating its first verb forever.
+        return nil
     }
 
     /// How long `interaction` takes on a prop with this resolved config, in
@@ -92,10 +105,18 @@ public enum InteractionResolver {
     public static func applying(_ interaction: InteractionKind, to before: [String: LevelValue]) -> [String: LevelValue] {
         var after = before
         switch interaction {
+        case .inspect:
+            after["inspected"] = .bool(true)
+        case .search:
+            after["searched"] = .bool(true)
         case .open:
             after["open"] = .bool(true)
+        case .close:
+            after["open"] = .bool(false)
         case .lockpick:
             after["open"] = .bool(true)
+            after["locked"] = .bool(false)
+        case .unlock:
             after["locked"] = .bool(false)
         case .crackSafe, .hack:
             after["locked"] = .bool(false)

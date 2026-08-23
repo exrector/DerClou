@@ -8,6 +8,24 @@ import Testing
 /// every current catalog prototype's behaviour is derived, not hand-cased.
 @Suite("Interaction resolving")
 struct InteractionResolverTests {
+    @Test("Searchable furniture offers search once")
+    func searchableFurniture() {
+        let interactions: [InteractionKind] = [.search]
+        let before: [String: LevelValue] = ["searched": .bool(false)]
+        #expect(InteractionResolver.primaryInteraction(for: interactions, config: before) == .search)
+
+        let after = InteractionResolver.applying(.search, to: before)
+        #expect(after["searched"]?.boolValue == true)
+        #expect(InteractionResolver.primaryInteraction(for: interactions, config: after) == nil)
+    }
+
+    @Test("Inspecting furniture is stateful, not an endless fallback tap")
+    func inspectIsStateful() {
+        let interactions: [InteractionKind] = [.inspect]
+        let after = InteractionResolver.applying(.inspect, to: [:])
+        #expect(after["inspected"]?.boolValue == true)
+        #expect(InteractionResolver.primaryInteraction(for: interactions, config: after) == nil)
+    }
     // MARK: - primaryInteraction: doors
 
     @Test("A locked door offers lockpick, not open")
@@ -32,6 +50,15 @@ struct InteractionResolverTests {
             for: [.open, .lockpick], config: ["locked": .bool(false), "open": .bool(true)]
         )
         #expect(interaction == nil)
+    }
+
+    @Test("An open door that supports closing offers close")
+    func openDoorOffersClose() {
+        let interaction = InteractionResolver.primaryInteraction(
+            for: [.open, .close, .lockpick],
+            config: ["locked": .bool(false), "open": .bool(true)]
+        )
+        #expect(interaction == .close)
     }
 
     // MARK: - primaryInteraction: containers
@@ -126,6 +153,16 @@ struct InteractionResolverTests {
         let after = InteractionResolver.applying(.open, to: [:])
         #expect(after["open"] == .bool(true))
         #expect(after["locked"] == nil)
+    }
+
+    @Test("Closing clears only the open state")
+    func closingClearsOpen() {
+        let after = InteractionResolver.applying(
+            .close,
+            to: ["open": .bool(true), "locked": .bool(false)]
+        )
+        #expect(after["open"] == .bool(false))
+        #expect(after["locked"] == .bool(false))
     }
 
     @Test("Lockpicking both unlocks and opens in one motion")

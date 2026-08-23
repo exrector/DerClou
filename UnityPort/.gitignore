@@ -1,0 +1,35 @@
+# Unity generated/cache directories — regenerated locally, never versioned.
+/[Ll]ibrary/
+/[Tt]emp/
+/[Oo]bj/
+/[Bb]uild/
+/[Bb]uilds/
+/[Ll]ogs/
+/[Mm]emoryCaptures/
+/[Rr]ecordings/
+
+# Per-machine editor state, not shared project config.
+/[Uu]serSettings/
+
+# IDE-generated project files, regenerated on open.
+.vs/
+*.csproj
+*.sln
+*.suo
+*.user
+*.userprefs
+*.pidb
+*.booproj
+*.svd
+*.pdb
+*.mdb
+*.opendb
+*.VC.db
+
+# OS cruft.
+.DS_Store
+
+# Loose diagnostic/debug output dropped at the project root while working
+# from the editor MCP bridge — not project source.
+*.log
+test_results.xml

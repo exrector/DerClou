@@ -34,6 +34,16 @@ public struct MissionClock: Sendable, Equatable {
         elapsed += delta * rate
     }
 
+    /// Advances by an already-scaled deterministic simulation step.
+    ///
+    /// `FixedStepAccumulator` applies the playback rate before producing this
+    /// value. Keeping the operation explicit prevents the rate being applied
+    /// twice and makes replay/scrubbing independent from render-frame cadence.
+    public mutating func advance(byMissionTime delta: Double) {
+        guard isRunning, delta > 0 else { return }
+        elapsed += delta
+    }
+
     /// Moves directly to a moment. Used by timeline scrubbing and replay.
     public mutating func seek(to time: Double) {
         elapsed = max(0, time)

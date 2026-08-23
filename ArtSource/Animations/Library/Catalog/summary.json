@@ -1,0 +1,26 @@
+{
+  "totalRecords": 2639,
+  "successful": 2639,
+  "errors": 0,
+  "sourceKinds": {
+    "hash-archive": 2453,
+    "named-local": 97,
+    "official-export": 89
+  },
+  "semanticStatus": {
+    "confirmed": 89,
+    "filename-unverified": 97,
+    "unclassified": 2453
+  },
+  "technicalClasses": {
+    "complex-in-place": 673,
+    "locomotion-straight": 710,
+    "locomotion-turning": 421,
+    "stationary": 730,
+    "turn-in-place": 105
+  },
+  "retargetCandidates": 2639,
+  "requiresMeshDiscard": 47,
+  "byteDuplicateFiles": 2,
+  "confirmedFingerprintMatches": 0
+}

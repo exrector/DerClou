@@ -1,5 +1,9 @@
 # Architecture
 
+Animation, patrol turning, perception-source and hinged-door boundaries are
+specified in `ANIMATION_AND_PERCEPTION_CONTRACTS.md`. That contract is normative
+for runtime and asset-pipeline work.
+
 The rules the codebase is built on. If a change would break one of these, that is
 a decision to make deliberately, not a detail to work around.
 
@@ -31,9 +35,9 @@ Nothing in `HeistKit` may contain a game rule. If a system needs to decide
 something — how far an actor moves, whether a door can be opened, whether a guard
 sees you — that decision belongs in `HeistCore` and the system only applies it.
 
-`PathFollowingSystem` is the reference example: it converts transforms to world
-points, calls `PathWalker`, and writes the result back. The walking itself is
-tested without RealityKit.
+`AgentLocomotionSystem` is the reference example: it asks the shared
+`AgentNavigationTask` for the mission-time pose and writes it to RealityKit.
+Trajectory construction and walking are tested without RealityKit.
 
 ## 2. One source of truth per fact
 
@@ -61,6 +65,13 @@ prototypes, actors, markers, security links. It contains **no behaviour**.
 A prototype in `PropCatalog` declares footprint, surface, whether it blocks
 movement, which interactions it supports, and default config. Instances override
 config per placement.
+
+The invisible authoring grid is permanent. `LevelMetrics` is the only conversion
+between cell coordinates and meters. Each prototype's `PlacementContract`
+standardizes snap increments, pivot, asset-scale policy and independent
+collision, navigation, interaction, door-sweep and actor-separation margins.
+Runtime routes use a separate polygon mesh baked from those modular placements;
+characters do not walk from authoring cell to authoring cell.
 
 Adding a level must cost data. If it needs new Swift, the missing piece belongs
 in the catalog or in a system — that is the test for whether this rule still
@@ -160,10 +171,10 @@ valid when these land:
 
 - `SecurityLinkSpec` — switch/camera/alarm dependency graph;
 - `MarkerSpec.Kind.cameraFocus`;
-- `PropPrototype.asset` — production model reference;
-- patrol routes on `ActorSpec` — stored and validated for reachability, but
-  nothing walks them yet.
+- room/portal graph and automatic door traversal action insertion;
+- temporal interaction-slot reservations and the full replay event/snapshot log;
+- production distance-matched animation transitions and foot locking.
 
-Interaction dispatch, doors, guards, vision and the planning timeline are the next
-systems. They plug into `GameSession` and `HeistCore`; none of them should require
-changing the layering above.
+Interaction dispatch, hinged doors, guards, distinct guard/camera vision,
+mission-time locomotion and polygon navigation are present. The next integration
+joins door affordances to autonomous routes without changing these boundaries.

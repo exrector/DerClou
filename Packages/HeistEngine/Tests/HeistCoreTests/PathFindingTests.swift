@@ -147,11 +147,88 @@ struct PathFindingTests {
         #expect(first == second)
     }
 
+    @Test("A worker response preserves request identity and world revision")
+    func versionedPlanningResponse() throws {
+        let start = world(2, 8.6)
+        let goal = world(20, 2)
+        let request = NavigationPlanRequest(
+            id: 42,
+            actorID: "office01.thief.01",
+            worldRevision: 7,
+            start: start,
+            destination: goal,
+            character: .standard,
+            topology: .grid(grid)
+        )
+
+        let response = NavigationPlanner.resolve(request)
+
+        #expect(response.requestID == 42)
+        #expect(response.actorID == "office01.thief.01")
+        #expect(response.worldRevision == 7)
+        #expect(try response.result.get().waypoints.isEmpty == false)
+    }
+
+    @Test("An open corridor route prefers clearance over scraping the wall")
+    func routeUsesComfortClearance() throws {
+        let columns = 15
+        let rows = 7
+        var walkable = [Bool](repeating: true, count: columns * rows)
+        for column in 0..<columns {
+            walkable[column] = false
+            walkable[(rows - 1) * columns + column] = false
+        }
+        for row in 0..<rows {
+            walkable[row * columns] = false
+            walkable[row * columns + columns - 1] = false
+        }
+        let openGrid = NavGrid(
+            minX: 0, minZ: 0, cellSize: 0.2,
+            columns: columns, rows: rows, walkable: walkable
+        )
+        let start = openGrid.worldPoint(.init(column: 1, row: 1))
+        let goal = openGrid.worldPoint(.init(column: 13, row: 1))
+
+        let result = try PathFinder.findPath(from: start, to: goal, in: openGrid).get()
+
+        #expect(
+            result.waypoints.contains { openGrid.cell(at: $0).row >= 2 },
+            "route stayed against the wall: \(result.waypoints)"
+        )
+        for waypoint in result.waypoints.dropFirst().dropLast() {
+            #expect(openGrid.clearance(at: openGrid.cell(at: waypoint)) >= 0.39)
+        }
+    }
+
     @Test("Path length is consistent with walking time")
     func lengthMatchesGeometry() throws {
         let result = try #require(path(world(3, 8), world(13, 8)))
         // A clear 10 m run down the corridor, so the route should be close to it.
         #expect(result.length > 9.5)
         #expect(result.length < 11.5)
+    }
+
+    @Test("A body detour discards obsolete joins when the next node is visible")
+    func minimumLinkRoute() {
+        let open = NavGrid(
+            minX: 0, minZ: 0, cellSize: 1,
+            columns: 8, rows: 8,
+            walkable: [Bool](repeating: true, count: 64)
+        )
+        let start = WorldPoint(x: 0.5, y: 0, z: 0.5)
+        let goal = WorldPoint(x: 6.5, y: 0, z: 6.5)
+        let noisy = PathResult(
+            waypoints: [
+                WorldPoint(x: 1.5, y: 0, z: 0.5),
+                WorldPoint(x: 2.5, y: 0, z: 1.5),
+                WorldPoint(x: 4.5, y: 0, z: 3.5),
+                goal
+            ],
+            length: 10
+        )
+
+        let result = PathFinder.minimumLinkPath(from: start, path: noisy, in: open)
+
+        #expect(result.waypoints == [goal])
     }
 }

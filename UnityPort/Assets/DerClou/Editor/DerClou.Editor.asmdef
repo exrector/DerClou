@@ -1,0 +1,12 @@
+{
+  "name": "DerClou.Editor",
+  "rootNamespace": "DerClou.Editor",
+  "references": ["DerClou.Core", "DerClou.Gameplay"],
+  "includePlatforms": ["Editor"],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": true,
+  "defineConstraints": []
+}

@@ -1,0 +1,12 @@
+{
+  "name": "DerClou.Core.Tests",
+  "rootNamespace": "DerClou.Core.Tests",
+  "references": ["DerClou.Core", "UnityEngine.TestRunner", "UnityEditor.TestRunner"],
+  "includePlatforms": ["Editor"],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": true,
+  "precompiledReferences": ["nunit.framework.dll"],
+  "autoReferenced": true,
+  "defineConstraints": ["UNITY_INCLUDE_TESTS"]
+}

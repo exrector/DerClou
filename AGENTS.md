@@ -25,7 +25,8 @@ Build a polished **top-down / 2.5D burglary-planning puzzle game** for iPhone, i
 - RealityKit
 - Reality Composer Pro 3
 - Xcode
-- native Apple stack only
+- native Apple runtime stack only; external DCC tools and legally usable asset
+  sources are allowed in the offline art pipeline
 - true 3D world with a fixed high top-down tactical camera
 - use SwiftUI `RealityView` with a virtual RealityKit camera and `OrthographicCameraComponent` for the intended tactical projection
 - tap-to-move pathfinding must use a project-owned navigation abstraction backed by GameplayKit graph/pathfinding APIs or a validated deterministic custom A* implementation. **(Старый вариант: RealityKit Navigation Mesh / `NavigationController` from iOS 27.)**

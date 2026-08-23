@@ -13,13 +13,47 @@ public struct CharacterProfile: Sendable, Equatable {
     public var width: Double
     /// Standing height, in meters.
     public var height: Double
-    /// Meters per second. Constant by design: plan timing must be predictable.
+    /// Maximum comfortable walking speed in meters per second.
     public var walkSpeed: Double
+    /// Deterministic locomotion envelope in meters per second squared.
+    public var acceleration: Double
+    public var deceleration: Double
+    /// Additional preferred space between the body's edge and a wall. This is
+    /// comfort, not collision clearance: a narrow door may legitimately force
+    /// it lower, while an open corridor should not be wall-hugged.
+    public var preferredWallClearance: Double
+    /// How strongly route cost favours comfortable clearance over raw distance.
+    public var wallAvoidanceWeight: Double
+    /// Maximum visual/kinematic turn rate used by the trajectory follower.
+    public var maximumTurnRateDegrees: Double
+    /// Radius used when rounding a path corner, constrained by free space.
+    public var preferredCornerRadius: Double
+    /// Distance from an interaction slot at which the actor is considered
+    /// aligned and may begin a door/tool/object action.
+    public var interactionArrivalTolerance: Double
 
-    public init(width: Double, height: Double, walkSpeed: Double) {
+    public init(
+        width: Double,
+        height: Double,
+        walkSpeed: Double,
+        acceleration: Double = 2.8,
+        deceleration: Double = 3.2,
+        preferredWallClearance: Double = 0.45,
+        wallAvoidanceWeight: Double = 4,
+        maximumTurnRateDegrees: Double = 240,
+        preferredCornerRadius: Double = 0.45,
+        interactionArrivalTolerance: Double = 0.08
+    ) {
         self.width = width
         self.height = height
         self.walkSpeed = walkSpeed
+        self.acceleration = acceleration
+        self.deceleration = deceleration
+        self.preferredWallClearance = preferredWallClearance
+        self.wallAvoidanceWeight = wallAvoidanceWeight
+        self.maximumTurnRateDegrees = maximumTurnRateDegrees
+        self.preferredCornerRadius = preferredCornerRadius
+        self.interactionArrivalTolerance = interactionArrivalTolerance
     }
 
     /// Radius used to erode walkable space and to size the collision capsule.
@@ -37,7 +71,14 @@ public struct CharacterProfile: Sendable, Equatable {
         self.init(
             width: prototype.footprint.width,
             height: prototype.height,
-            walkSpeed: resolved["walkSpeed"]?.doubleValue ?? CharacterProfile.fallbackWalkSpeed
+            walkSpeed: resolved["walkSpeed"]?.doubleValue ?? CharacterProfile.fallbackWalkSpeed,
+            acceleration: resolved["acceleration"]?.doubleValue ?? 2.8,
+            deceleration: resolved["deceleration"]?.doubleValue ?? 3.2,
+            preferredWallClearance: resolved["preferredWallClearance"]?.doubleValue ?? 0.45,
+            wallAvoidanceWeight: resolved["wallAvoidanceWeight"]?.doubleValue ?? 4,
+            maximumTurnRateDegrees: resolved["maximumTurnRateDegrees"]?.doubleValue ?? 240,
+            preferredCornerRadius: resolved["preferredCornerRadius"]?.doubleValue ?? 0.45,
+            interactionArrivalTolerance: resolved["interactionArrivalTolerance"]?.doubleValue ?? 0.08
         )
     }
 

@@ -1,0 +1,12 @@
+{
+  "name": "DerClou.Gameplay",
+  "rootNamespace": "DerClou.Gameplay",
+  "references": ["DerClou.Core"],
+  "includePlatforms": [],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": true,
+  "defineConstraints": []
+}

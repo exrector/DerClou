@@ -91,6 +91,49 @@ struct PatrolRouteTests {
         #expect(abs(midway.position.z - 2) < 0.001)
     }
 
+    @Test("A detour targets the next authored node, not a sampled point")
+    func nextAnchorOnCurrentLeg() throws {
+        let anchor = try #require(route.nextAnchor(after: 7))
+        #expect(anchor.waypointIndex == 1)
+        #expect(anchor.position == point(10, 0))
+        #expect(abs(anchor.routeTime - 12) < 0.001)
+    }
+
+    @Test("The next patrol anchor wraps monotonically into the next circuit")
+    func nextAnchorWraps() throws {
+        let anchor = try #require(route.nextAnchor(after: 35.5))
+        #expect(anchor.waypointIndex == 0)
+        #expect(anchor.position == point(0, 0))
+        #expect(abs(anchor.routeTime - 36) < 0.001)
+
+        let following = try #require(route.nextAnchor(after: 36.5))
+        #expect(following.waypointIndex == 1)
+        #expect(abs(following.routeTime - 48) < 0.001)
+    }
+
+    @Test("A waypoint turn is a smooth deterministic timeline interval")
+    func smoothTurn() {
+        let route = PatrolRoute(
+            waypoints: [point(0, 0), point(4, 0), point(4, 4)],
+            speed: 1,
+            pauseAtWaypoint: 0,
+            turnSpeedDegreesPerSecond: 90,
+            initialFacing: 90,
+            isLoop: false
+        )
+
+        // First leg takes 4 seconds. The next direction differs by 90 degrees,
+        // therefore the guard spends exactly one second turning in place.
+        let halfway = route.state(at: 4.5)
+        #expect(halfway.position == point(4, 0))
+        #expect(halfway.activity == .turning)
+        #expect(abs(halfway.facing - 45) < 0.001)
+
+        let afterTurn = route.state(at: 5.25)
+        #expect(afterTurn.activity == .walking)
+        #expect(abs(afterTurn.position.z - 0.25) < 0.001)
+    }
+
     @Test("office01's guard route builds from the blueprint")
     func fromBlueprint() throws {
         let level = LevelBlueprint.office01

@@ -1,0 +1,180 @@
+{
+  "schemaVersion": 1,
+  "sourceManifest": "../../actions-manifest.json",
+  "selections": [
+    {
+      "semantic": "Idle",
+      "configuredSource": "Unarmed Idle.fbx",
+      "resolved": true,
+      "source": "NamedDownloads/Unarmed Idle.fbx",
+      "sourceID": "f5d03051dc071b6c8997f3e3f830919a",
+      "identityStatus": "filename-unverified",
+      "technicalDescription": {
+        "en": "Humanoid motion-only; stationary; 1.900s at 30 fps; path 0.034m; net 0.000m; turn -0.0deg; likely loop.",
+        "ru": "Humanoid motion-only; stationary; 1.900 с при 30 fps; путь 0.034 м; смещение 0.000 м; поворот -0.0°; похож на цикл."
+      },
+      "configuration": {
+        "semantic": "Idle",
+        "source": "Unarmed Idle.fbx",
+        "loop": true
+      }
+    },
+    {
+      "semantic": "StartWalking",
+      "configuredSource": "Start Walking.fbx",
+      "resolved": true,
+      "source": "NamedDownloads/Start Walking.fbx",
+      "sourceID": "c2da2a06d5a62cb80807fc768b9061e7",
+      "identityStatus": "filename-unverified",
+      "technicalDescription": {
+        "en": "Humanoid motion-only; locomotion-straight; 2.933s at 30 fps; path 1.932m; net 1.900m; turn 13.6deg; one-shot/non-looping.",
+        "ru": "Humanoid motion-only; locomotion-straight; 2.933 с при 30 fps; путь 1.932 м; смещение 1.900 м; поворот 13.6°; одноразовый/нециклический."
+      },
+      "configuration": {
+        "semantic": "StartWalking",
+        "source": "Start Walking.fbx",
+        "loop": false
+      }
+    },
+    {
+      "semantic": "Walk",
+      "configuredSource": "Standard Walk.fbx",
+      "resolved": true,
+      "source": "NamedDownloads/Standard Walk.fbx",
+      "sourceID": "af94fb157478c30d43d43dbbd3c62be0",
+      "identityStatus": "filename-unverified",
+      "technicalDescription": {
+        "en": "Humanoid motion-only; locomotion-straight; 1.167s at 30 fps; path 1.745m; net 1.742m; turn 0.0deg; likely loop.",
+        "ru": "Humanoid motion-only; locomotion-straight; 1.167 с при 30 fps; путь 1.745 м; смещение 1.742 м; поворот 0.0°; похож на цикл."
+      },
+      "configuration": {
+        "semantic": "Walk",
+        "source": "Standard Walk.fbx",
+        "loop": true,
+        "measuredGroundSpeedMetersPerSecond": 1.493
+      }
+    },
+    {
+      "semantic": "TurnLeft",
+      "configuredSource": "Standing Torch Turn Left 180.fbx",
+      "resolved": true,
+      "source": "NamedDownloads/Standing Torch Turn Left 180.fbx",
+      "sourceID": "d9ecbc16df0f014d1288dcb8689c0175",
+      "identityStatus": "filename-unverified",
+      "technicalDescription": {
+        "en": "Humanoid motion-only; complex-in-place; 1.567s at 30 fps; path 0.513m; net 0.022m; turn 175.7deg; one-shot/non-looping.",
+        "ru": "Humanoid motion-only; complex-in-place; 1.567 с при 30 fps; путь 0.513 м; смещение 0.022 м; поворот 175.7°; одноразовый/нециклический."
+      },
+      "configuration": {
+        "semantic": "TurnLeft",
+        "source": "Standing Torch Turn Left 180.fbx",
+        "loop": false,
+        "extraction": "lower-body-only; root yaw removed"
+      }
+    },
+    {
+      "semantic": "TurnRight",
+      "configuredSource": "Standing Torch Turn Left 180.fbx",
+      "resolved": true,
+      "source": "NamedDownloads/Standing Torch Turn Left 180.fbx",
+      "sourceID": "d9ecbc16df0f014d1288dcb8689c0175",
+      "identityStatus": "filename-unverified",
+      "technicalDescription": {
+        "en": "Humanoid motion-only; complex-in-place; 1.567s at 30 fps; path 0.513m; net 0.022m; turn 175.7deg; one-shot/non-looping.",
+        "ru": "Humanoid motion-only; complex-in-place; 1.567 с при 30 fps; путь 0.513 м; смещение 0.022 м; поворот 175.7°; одноразовый/нециклический."
+      },
+      "configuration": {
+        "semantic": "TurnRight",
+        "source": "Standing Torch Turn Left 180.fbx",
+        "loop": false,
+        "extraction": "lower-body-only; root yaw removed; entity supplies right yaw"
+      }
+    },
+    {
+      "semantic": "TurnAround",
+      "configuredSource": "Standing Torch Turn Left 180.fbx",
+      "resolved": true,
+      "source": "NamedDownloads/Standing Torch Turn Left 180.fbx",
+      "sourceID": "d9ecbc16df0f014d1288dcb8689c0175",
+      "identityStatus": "filename-unverified",
+      "technicalDescription": {
+        "en": "Humanoid motion-only; complex-in-place; 1.567s at 30 fps; path 0.513m; net 0.022m; turn 175.7deg; one-shot/non-looping.",
+        "ru": "Humanoid motion-only; complex-in-place; 1.567 с при 30 fps; путь 0.513 м; смещение 0.022 м; поворот 175.7°; одноразовый/нециклический."
+      },
+      "configuration": {
+        "semantic": "TurnAround",
+        "source": "Standing Torch Turn Left 180.fbx",
+        "loop": false,
+        "extraction": "lower-body-only; root yaw removed"
+      }
+    },
+    {
+      "semantic": "OpenDoor",
+      "configuredSource": "Opening Door Inwards.fbx",
+      "resolved": true,
+      "source": "NamedDownloads/Opening Door Inwards.fbx",
+      "sourceID": "9355213f52070bdb1b3f924c7d14cde0",
+      "identityStatus": "filename-unverified",
+      "technicalDescription": {
+        "en": "Humanoid motion-only; locomotion-straight; 6.367s at 30 fps; path 2.647m; net 1.674m; turn 0.0deg; likely loop.",
+        "ru": "Humanoid motion-only; locomotion-straight; 6.367 с при 30 fps; путь 2.647 м; смещение 1.674 м; поворот 0.0°; похож на цикл."
+      },
+      "configuration": {
+        "semantic": "OpenDoor",
+        "source": "Opening Door Inwards.fbx",
+        "loop": false
+      }
+    },
+    {
+      "semantic": "PressButton",
+      "configuredSource": "Button Pushing.fbx",
+      "resolved": true,
+      "source": "NamedDownloads/Button Pushing.fbx",
+      "sourceID": "1b4923d3f5671ceabd23b71845dab7b4",
+      "identityStatus": "filename-unverified",
+      "technicalDescription": {
+        "en": "Humanoid motion-only; stationary; 3.233s at 30 fps; path 0.028m; net 0.000m; turn 0.0deg; likely loop.",
+        "ru": "Humanoid motion-only; stationary; 3.233 с при 30 fps; путь 0.028 м; смещение 0.000 м; поворот 0.0°; похож на цикл."
+      },
+      "configuration": {
+        "semantic": "PressButton",
+        "source": "Button Pushing.fbx",
+        "loop": false
+      }
+    },
+    {
+      "semantic": "PullLever",
+      "configuredSource": "Pulling Lever.fbx",
+      "resolved": true,
+      "source": "NamedDownloads/Pulling Lever.fbx",
+      "sourceID": "8f1130ed38116991b704b8541665a7f3",
+      "identityStatus": "filename-unverified",
+      "technicalDescription": {
+        "en": "Humanoid motion-only; stationary; 6.267s at 30 fps; path 0.183m; net 0.000m; turn 0.0deg; likely loop.",
+        "ru": "Humanoid motion-only; stationary; 6.267 с при 30 fps; путь 0.183 м; смещение 0.000 м; поворот 0.0°; похож на цикл."
+      },
+      "configuration": {
+        "semantic": "PullLever",
+        "source": "Pulling Lever.fbx",
+        "loop": false
+      }
+    },
+    {
+      "semantic": "Look",
+      "configuredSource": "Looking.fbx",
+      "resolved": true,
+      "source": "NamedDownloads/Looking.fbx",
+      "sourceID": "e2e76f464993e8e6cd088cf9cfbfe1c8",
+      "identityStatus": "filename-unverified",
+      "technicalDescription": {
+        "en": "Humanoid motion-only; stationary; 4.767s at 30 fps; path 0.119m; net 0.002m; turn 0.0deg; likely loop.",
+        "ru": "Humanoid motion-only; stationary; 4.767 с при 30 fps; путь 0.119 м; смещение 0.002 м; поворот 0.0°; похож на цикл."
+      },
+      "configuration": {
+        "semantic": "Look",
+        "source": "Looking.fbx",
+        "loop": false
+      }
+    }
+  ]
+}

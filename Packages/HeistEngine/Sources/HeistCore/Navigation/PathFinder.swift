@@ -39,7 +39,8 @@ public enum PathFinder {
     public static func findPath(
         from start: WorldPoint,
         to destination: WorldPoint,
-        in grid: NavGrid
+        in grid: NavGrid,
+        character: CharacterProfile = .standard
     ) -> Result<PathResult, PathFailure> {
         guard grid.cellCount > 0 else { return .failure(.startNotOnGrid) }
 
@@ -55,11 +56,11 @@ public enum PathFinder {
             return .success(PathResult(waypoints: [point], length: start.planarDistance(to: point)))
         }
 
-        guard let cells = search(from: startCell, to: goalCell, in: grid) else {
+        guard let cells = search(from: startCell, to: goalCell, in: grid, character: character) else {
             return .failure(.noRoute)
         }
 
-        let smoothed = smooth(cells, in: grid)
+        let smoothed = smooth(cells, in: grid, character: character)
         var waypoints = smoothed.map { grid.worldPoint($0) }
 
         // Finish on the requested point when it is itself walkable, so tapping a
@@ -81,12 +82,51 @@ public enum PathFinder {
         return .success(PathResult(waypoints: waypoints, length: length))
     }
 
+    /// Reduces a valid route to the fewest steering links obtainable by greedy
+    /// farthest-visible shortcuts. This is intentionally separate from A*:
+    /// A* finds a safe corridor; this pass removes the obsolete joins that
+    /// would otherwise make an actor leave and then rejoin an old segment.
+    public static func minimumLinkPath(
+        from start: WorldPoint,
+        path: PathResult,
+        in grid: NavGrid
+    ) -> PathResult {
+        let points = path.waypoints.filter { start.planarDistance(to: $0) > 1e-9 }
+        guard points.count > 1 else { return path }
+
+        var result: [WorldPoint] = []
+        var anchor = start
+        var nextIndex = 0
+        while nextIndex < points.count {
+            var furthest = nextIndex
+            for candidate in stride(from: points.count - 1, through: nextIndex, by: -1) {
+                if hasLineOfSight(from: anchor, to: points[candidate], in: grid) {
+                    furthest = candidate
+                    break
+                }
+            }
+            let point = points[furthest]
+            result.append(point)
+            anchor = point
+            nextIndex = furthest + 1
+        }
+
+        var length = 0.0
+        var previous = start
+        for point in result {
+            length += previous.planarDistance(to: point)
+            previous = point
+        }
+        return PathResult(waypoints: result, length: length)
+    }
+
     // MARK: - A*
 
     private static func search(
         from start: NavGrid.Cell,
         to goal: NavGrid.Cell,
-        in grid: NavGrid
+        in grid: NavGrid,
+        character: CharacterProfile
     ) -> [NavGrid.Cell]? {
         let count = grid.cellCount
         func index(_ cell: NavGrid.Cell) -> Int { cell.row * grid.columns + cell.column }
@@ -123,7 +163,12 @@ public enum PathFinder {
                 let nextIndex = index(next)
                 guard !closed[nextIndex] else { continue }
 
-                let tentative = costSoFar[current] + neighbour.cost
+                let tentative = costSoFar[current] + traversalCost(
+                    stepLength: neighbour.cost,
+                    cell: next,
+                    grid: grid,
+                    character: character
+                )
                 if tentative < costSoFar[nextIndex] {
                     costSoFar[nextIndex] = tentative
                     cameFrom[nextIndex] = current
@@ -156,11 +201,27 @@ public enum PathFinder {
         return cells.reversed()
     }
 
+    private static func traversalCost(
+        stepLength: Double,
+        cell: NavGrid.Cell,
+        grid: NavGrid,
+        character: CharacterProfile
+    ) -> Double {
+        let desired = character.preferredWallClearance
+        guard desired > 0, character.wallAvoidanceWeight > 0 else { return stepLength }
+        let deficit = max(0, desired - grid.clearance(at: cell)) / desired
+        return stepLength * (1 + character.wallAvoidanceWeight * deficit * deficit)
+    }
+
     // MARK: - Smoothing
 
     /// Drops intermediate cells whenever a straight line between two waypoints
     /// stays walkable, turning a staircase of grid steps into a few long legs.
-    private static func smooth(_ cells: [NavGrid.Cell], in grid: NavGrid) -> [NavGrid.Cell] {
+    private static func smooth(
+        _ cells: [NavGrid.Cell],
+        in grid: NavGrid,
+        character: CharacterProfile
+    ) -> [NavGrid.Cell] {
         guard cells.count > 2 else { return cells }
 
         var result: [NavGrid.Cell] = []
@@ -169,19 +230,78 @@ public enum PathFinder {
 
         while anchor < cells.count - 1 {
             var furthest = anchor + 1
-            for candidate in (anchor + 1)..<cells.count {
-                if hasLineOfSight(
+            // Test longest shortcuts first and stop at the first acceptable
+            // one. Testing every shorter candidate after that changes nothing
+            // but turns long routes into needless quadratic work.
+            for candidate in stride(from: cells.count - 1, through: anchor + 1, by: -1) {
+                let direct = weightedSegmentCost(
                     from: grid.worldPoint(cells[anchor]),
                     to: grid.worldPoint(cells[candidate]),
-                    in: grid
-                ) {
+                    in: grid,
+                    character: character
+                )
+                let corridor = weightedCellCost(
+                    cells[anchor...candidate],
+                    in: grid,
+                    character: character
+                )
+                if let direct, direct <= corridor * 1.02 {
                     furthest = candidate
+                    break
                 }
             }
             result.append(cells[furthest])
             anchor = furthest
         }
 
+        return result
+    }
+
+    private static func weightedCellCost(
+        _ cells: ArraySlice<NavGrid.Cell>,
+        in grid: NavGrid,
+        character: CharacterProfile
+    ) -> Double {
+        guard var previous = cells.first else { return 0 }
+        var result = 0.0
+        for cell in cells.dropFirst() {
+            let diagonal = cell.column != previous.column && cell.row != previous.row
+            result += traversalCost(
+                stepLength: diagonal ? sqrt(2.0) : 1,
+                cell: cell,
+                grid: grid,
+                character: character
+            )
+            previous = cell
+        }
+        return result * grid.cellSize
+    }
+
+    /// Samples a proposed shortcut with the same clearance cost as A*. This is
+    /// what prevents smoothing from undoing the wall-safe route A* just found.
+    private static func weightedSegmentCost(
+        from start: WorldPoint,
+        to end: WorldPoint,
+        in grid: NavGrid,
+        character: CharacterProfile
+    ) -> Double? {
+        let distance = start.planarDistance(to: end)
+        guard distance > 0 else { return 0 }
+        let steps = max(1, Int((distance / (grid.cellSize * 0.5)).rounded(.up)))
+        let sampleLength = distance / Double(steps)
+        var result = 0.0
+        for step in 1...steps {
+            let t = Double(step) / Double(steps)
+            let point = (start + (end - start) * t).onFloorPlane
+            let cell = grid.cell(at: point)
+            guard grid.isWalkable(cell) else { return nil }
+            result += traversalCost(
+                stepLength: sampleLength / grid.cellSize,
+                cell: cell,
+                grid: grid,
+                character: character
+            ) * grid.cellSize
+        }
         return result
     }
 

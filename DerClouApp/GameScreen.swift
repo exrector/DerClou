@@ -7,6 +7,8 @@ import HeistKit
 struct GameScreen: View {
     @State private var session = GameSession()
     @State private var isDebugPanelShown = false
+    @State private var isNorthLegCubeShown = false
+    @State private var isSouthLegCubeShown = false
 
     var body: some View {
         // The insets have to be read *outside* `ignoresSafeArea`, or they are
@@ -123,12 +125,99 @@ struct GameScreen: View {
             .font(.caption2)
             .tint(.orange)
 
+            Divider().overlay(Color.white.opacity(0.2))
+            obstacleTestControls
         }
         .multilineTextAlignment(.leading)
         .frame(maxWidth: 300, alignment: .leading)
         .padding(10)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
         .foregroundStyle(.white)
+    }
+
+    /// Manual triggers for "something suddenly blocks the guard's path,"
+    /// so that scenario can be tested on demand from a button instead of by
+    /// walking the thief into position by hand and hoping the timing lands.
+    ///
+    /// The cube toggles exercise the static-obstacle path (a new
+    /// `NavigationWorld` revision — the same mechanism a moved prop or a
+    /// closed door would trigger). "Ambush with thief" exercises the
+    /// separate agent-vs-agent path instead — it is the one actually
+    /// reported as still passing through, so this is the button that
+    /// matters for that report; the cubes are here because they were asked
+    /// for directly, and they double as a live check that obstacle
+    /// rerouting still works outside the test suite.
+    private var obstacleTestControls: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text("Guard obstacle test")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.white.opacity(0.7))
+
+            Button("Ambush with thief") { ambushGuard() }
+                .buttonStyle(.bordered)
+                .tint(.red)
+                .font(.caption2)
+                .disabled(guardID == nil || thiefID == nil)
+
+            Toggle("Cube — north leg", isOn: Binding(
+                get: { isNorthLegCubeShown },
+                set: { setNorthLegCube(shown: $0) }
+            ))
+            .toggleStyle(.switch)
+            .font(.caption2)
+            .tint(.orange)
+
+            Toggle("Cube — south leg", isOn: Binding(
+                get: { isSouthLegCubeShown },
+                set: { setSouthLegCube(shown: $0) }
+            ))
+            .toggleStyle(.switch)
+            .font(.caption2)
+            .tint(.orange)
+        }
+    }
+
+    private var guardID: String? {
+        session.level?.actors.first { $0.value.components[GuardComponent.self] != nil }?.key
+    }
+
+    private var thiefID: String? {
+        session.level?.actors.first { $0.value.components[PlayableActorComponent.self] != nil }?.key
+    }
+
+    private func ambushGuard() {
+        guard let guardID, let thiefID else { return }
+        session.placeBlockerAheadOfAgent(blockerID: thiefID, targetID: guardID, secondsAhead: 1.5)
+    }
+
+    // office01's guard walks a rectangle at z=8 and z=9.2 (see Level01.swift);
+    // these are the midpoints of its two long legs, clear of doorways.
+    private var northLegCubeCenter: WorldPoint? {
+        session.level?.blueprint.metrics.worldPoint(CellPoint(12.5, 8))
+    }
+
+    private var southLegCubeCenter: WorldPoint? {
+        session.level?.blueprint.metrics.worldPoint(CellPoint(12.5, 9.2))
+    }
+
+    private func setNorthLegCube(shown: Bool) {
+        isNorthLegCubeShown = shown
+        guard let center = northLegCubeCenter else { return }
+        if shown {
+            session.placeDebugCube(id: "debug.cube.north-leg", center: center)
+        } else {
+            session.removeDynamicObstacle(id: "debug.cube.north-leg")
+        }
+    }
+
+    private func setSouthLegCube(shown: Bool) {
+        isSouthLegCubeShown = shown
+        guard let center = southLegCubeCenter else { return }
+        if shown {
+            session.placeDebugCube(id: "debug.cube.south-leg", center: center)
+        } else {
+            session.removeDynamicObstacle(id: "debug.cube.south-leg")
+        }
     }
 }
 

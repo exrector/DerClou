@@ -2,11 +2,9 @@ import RealityKit
 
 /// Starts, stops and speed-matches a character's baked "Walk" clip.
 ///
-/// Shared by every system that moves an actor — `PathFollowingSystem` for the
-/// player-tapped Thief, `GuardPatrolSystem` for patrolling guards — so a
-/// walking actor looks the same regardless of which system is driving its
-/// position. Before this existed, only `PathFollowingSystem` called anything
-/// like this: `GuardPatrolSystem` set a guard's position directly from
+/// Shared by `AgentLocomotionSystem`, so a walking actor looks the same
+/// regardless of which semantic goal is driving its position. Before this
+/// existed, the old guard adapter set a guard's position directly from
 /// `PatrolRoute.state(at:)` (a pure lookup, by design — see that type's own
 /// docs) and never touched animation at all, so a guard's model stayed
 /// frozen on whatever frame `LevelSceneBuilder` had paused it on at load time
@@ -31,28 +29,17 @@ public enum WalkAnimationSync {
 
     /// The clip name every character's walk cycle is exported under —
     /// `ArtSource/Tools/apply_animation.py`'s `action_name` argument.
-    public static let clipName = "Walk"
+    public static let clipName = CharacterAnimationSemantic.walk.rawValue
 
     public static func startWalking(for entity: Entity, walkSpeed: Float) {
-        guard let anim = CharacterAnimationLibrary.animation(named: clipName, on: entity) else { return }
-        let rate = walkSpeed / referenceWalkSpeed
-        for child in entity.children {
-            let controller = child.playAnimation(anim.repeat(), transitionDuration: 0.15)
-            controller.speed = rate
-        }
+        _ = CharacterAnimationPlayback.playLoop(
+            .walk,
+            on: entity,
+            speed: walkSpeed / referenceWalkSpeed
+        )
     }
 
     public static func stopWalking(for entity: Entity) {
-        guard let anim = CharacterAnimationLibrary.animation(named: clipName, on: entity) else {
-            for child in entity.children {
-                child.stopAllAnimations()
-            }
-            return
-        }
-        for child in entity.children {
-            let controller = child.playAnimation(anim, transitionDuration: 0.15)
-            controller.time = 0.0
-            controller.pause()
-        }
+        CharacterAnimationPlayback.rest(on: entity)
     }
 }

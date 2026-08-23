@@ -17,13 +17,22 @@ public enum SurfaceKey: String, Codable, Sendable, CaseIterable {
 /// What a prop can be asked to do. This is the vocabulary levels are built from:
 /// a level places prototypes, and the prototype declares its verbs.
 public enum InteractionKind: String, Codable, Sendable, CaseIterable {
+    case inspect
+    case search
     case open
+    case close
+    case unlock
     case lockpick
     case crackSafe
     case hack
     case toggleSwitch
     case takeLoot
     case extract
+}
+
+public enum PropMechanic: String, Codable, Sendable, CaseIterable {
+    case hingedDoor
+    case securityCamera
 }
 
 /// Which gameplay rules an actor follows — separate from `PropPrototype.id`
@@ -64,7 +73,8 @@ public enum PropKind: String, Codable, Sendable, CaseIterable {
 public struct PropPrototype: Codable, Sendable, Equatable, Identifiable {
     public var id: String
     public var kind: PropKind
-    /// Footprint in meters: width (local x), depth (local z).
+    /// Canonical gameplay footprint in meters: width (local x), depth (local z).
+    /// `gridFootprint(metrics:)` exposes the same bounds in authoring cells.
     public var footprint: CellSize
     /// Height in meters.
     public var height: Double
@@ -86,6 +96,11 @@ public struct PropPrototype: Codable, Sendable, Equatable, Identifiable {
     /// an existing role (another guard model, say) never needs a new
     /// prototype — see `ActorRole`'s own docs for why that used to be true.
     public var actorRole: ActorRole?
+    /// Runtime behavior family, independent of prototype ID and appearance.
+    public var mechanic: PropMechanic?
+    /// Optional authored override for the universal modular placement contract.
+    /// Old catalog data decodes as nil and receives the stable default.
+    public var placement: PlacementContract?
 
     public init(
         id: String,
@@ -97,7 +112,9 @@ public struct PropPrototype: Codable, Sendable, Equatable, Identifiable {
         interactions: [InteractionKind] = [],
         defaults: [String: LevelValue] = [:],
         asset: String? = nil,
-        actorRole: ActorRole? = nil
+        actorRole: ActorRole? = nil,
+        mechanic: PropMechanic? = nil,
+        placement: PlacementContract? = nil
     ) {
         self.id = id
         self.kind = kind
@@ -109,11 +126,32 @@ public struct PropPrototype: Codable, Sendable, Equatable, Identifiable {
         self.defaults = defaults
         self.asset = asset
         self.actorRole = actorRole
+        self.mechanic = mechanic
+        self.placement = placement
     }
 
     /// Resolved config for a placed instance: prototype defaults + overrides.
     public func resolvedConfig(overrides: [String: LevelValue]) -> [String: LevelValue] {
         defaults.merging(overrides) { _, override in override }
+    }
+
+    public var placementContract: PlacementContract {
+        placement ?? PlacementContract(
+            rotationSnapDegrees: kind == .architecture ? 90 : 15,
+            pivot: mechanic == .hingedDoor ? .hingeLeft : .bottomCenter,
+            scalePolicy: kind == .actor ? .preserveMeters : .uniformFit
+        )
+    }
+
+    public func gridFootprint(metrics: LevelMetrics) -> CellSize {
+        CellSize(
+            width: metrics.cells(fromMeters: footprint.width),
+            depth: metrics.cells(fromMeters: footprint.depth)
+        )
+    }
+
+    public var canonicalBounds: MetricSize3D {
+        MetricSize3D(width: footprint.width, height: height, depth: footprint.depth)
     }
 }
 
@@ -146,11 +184,17 @@ extension PropCatalog {
             height: 2.1,
             surface: .wood,
             blocksMovement: false,
-            interactions: [.open, .lockpick],
+            interactions: [.open, .close, .unlock, .lockpick],
             defaults: [
                 "locked": .bool(false), "lockDifficulty": .int(1),
-                "openDuration": .double(1.0), "lockpickDuration": .double(4.0)
-            ]
+                "open": .bool(false),
+                "hingeSide": .string(DoorHingeSide.left.rawValue),
+                "openAngle": .double(90),
+                "openDuration": .double(1.0), "closeDuration": .double(1.0),
+                "unlockDuration": .double(0.8),
+                "lockpickDuration": .double(4.0)
+            ],
+            mechanic: .hingedDoor
         ),
 
         // Exterior scenery — what the display edges are filled with
@@ -191,14 +235,18 @@ extension PropCatalog {
             kind: .furniture,
             footprint: CellSize(width: 1.6, depth: 0.8),
             height: 0.75,
-            surface: .wood
+            surface: .wood,
+            interactions: [.search],
+            defaults: ["searchDuration": .double(3.0), "searched": .bool(false)]
         ),
         PropPrototype(
             id: "chair.office",
             kind: .furniture,
             footprint: CellSize(width: 0.55, depth: 0.55),
             height: 1.0,
-            surface: .fabric
+            surface: .fabric,
+            interactions: [.inspect],
+            defaults: ["inspectDuration": .double(1.0), "inspected": .bool(false)]
         ),
         PropPrototype(
             id: "cabinet.filing",
@@ -234,12 +282,14 @@ extension PropCatalog {
             blocksMovement: false,
             defaults: [
                 "powered": .bool(true),
-                "range": .double(6.0),
-                "fieldOfView": .double(60.0),
+                "visionSource": .string(VisionSourceKind.securityCamera.rawValue),
+                "range": .double(VisionProfiles.securityCamera.range),
+                "fieldOfView": .double(VisionProfiles.securityCamera.fieldOfViewDegrees),
                 "scanArc": .double(90.0),
                 "scanPeriod": .double(8.0),
                 "mountHeight": .double(2.4)
-            ]
+            ],
+            mechanic: .securityCamera
         ),
         PropPrototype(
             id: "panel.security",
@@ -304,7 +354,13 @@ extension PropCatalog {
             height: 1.8,
             surface: .fabric,
             blocksMovement: false,
-            defaults: ["walkSpeed": .double(1.2), "range": .double(9.0), "fieldOfView": .double(100.0)],
+            defaults: [
+                "walkSpeed": .double(1.2),
+                "turnSpeed": .double(180.0),
+                "visionSource": .string(VisionSourceKind.guardActor.rawValue),
+                "range": .double(VisionProfiles.guardActor.range),
+                "fieldOfView": .double(VisionProfiles.guardActor.fieldOfViewDegrees)
+            ],
             asset: "guard01",
             actorRole: .guard
         ),

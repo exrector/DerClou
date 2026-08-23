@@ -12,6 +12,8 @@ struct CharacterProfileTests {
         #expect(profile.height == 1.75)
         #expect(profile.radius == 0.3)
         #expect(profile.walkSpeed == 1.4)
+        #expect(profile.preferredWallClearance == 0.45)
+        #expect(profile.preferredCornerRadius == 0.45)
     }
 
     @Test("Changing the prototype changes navigation, with nothing left behind")

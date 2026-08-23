@@ -99,9 +99,7 @@ public enum LevelValidator {
         }
 
         for prop in level.props {
-            // Scenery is meant to sit outside the building.
-            if catalog[prop.prototype]?.kind == .scenery { continue }
-            guard catalog[prop.prototype] != nil else {
+            guard let prototype = catalog[prop.prototype] else {
                 issues.append(LevelIssue(
                     severity: .error,
                     subject: prop.id,
@@ -109,6 +107,23 @@ public enum LevelValidator {
                 ))
                 continue
             }
+            let placement = prototype.placementContract
+            if !placement.isAligned(prop.position) {
+                issues.append(LevelIssue(
+                    severity: .error,
+                    subject: prop.id,
+                    message: "Position is off the prototype's \(placement.positionSnapCells)-cell placement grid"
+                ))
+            }
+            if !placement.isRotationAligned(prop.rotation) {
+                issues.append(LevelIssue(
+                    severity: .error,
+                    subject: prop.id,
+                    message: "Rotation is off the prototype's \(placement.rotationSnapDegrees)-degree increment"
+                ))
+            }
+            // Scenery is meant to sit outside the building.
+            if prototype.kind == .scenery { continue }
             if !isOnFloor(prop.position, level: level) {
                 issues.append(LevelIssue(
                     severity: .warning,
@@ -132,6 +147,21 @@ public enum LevelValidator {
                     severity: .error,
                     subject: actor.id,
                     message: "Prototype '\(actor.prototype)' is \(prototype.kind.rawValue), not an actor"
+                ))
+            }
+            let placement = prototype.placementContract
+            if !placement.isAligned(actor.position) {
+                issues.append(LevelIssue(
+                    severity: .error,
+                    subject: actor.id,
+                    message: "Actor position is off the prototype's \(placement.positionSnapCells)-cell placement grid"
+                ))
+            }
+            if !placement.isRotationAligned(actor.facing) {
+                issues.append(LevelIssue(
+                    severity: .error,
+                    subject: actor.id,
+                    message: "Actor facing is off the prototype's \(placement.rotationSnapDegrees)-degree increment"
                 ))
             }
             if !isOnFloor(actor.position, level: level) {

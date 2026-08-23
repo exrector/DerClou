@@ -44,3 +44,16 @@ Package.resolved
 # Python bytecode cache from running ArtSource/Tools/*.py directly.
 __pycache__/
 *.pyc
+
+# Local animation source library. Raw third-party FBX/ZIP files and generated
+# previews stay on the workstation; only catalogs, policies and tools are
+# versioned. Do not ship or publish the raw archive as an asset pack.
+/ArtSource/Animations/Library/Sources/
+/ArtSource/Animations/Library/Work/
+/ArtSource/Animations/Library/Views/
+/ArtSource/Animations/Packs/Sources/
+
+# Soft-delete staging area (see feedback_soft_delete_korzina in agent
+# memory) — superseded files get moved here instead of hard-deleted, but
+# it is a local scratch area, never a publishable part of the repo.
+/Корзина/

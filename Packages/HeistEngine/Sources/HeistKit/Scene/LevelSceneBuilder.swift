@@ -9,6 +9,8 @@ public struct BuiltLevel {
     public let root: Entity
     /// Actor entities by stable blueprint ID.
     public let actors: [String: Entity]
+    /// Guards and cameras by stable level ID.
+    public let visionSources: [String: Entity]
     /// Interactable prop entities by stable blueprint ID — everything that
     /// carries an `InteractableComponent`, for the session to look up by ID
     /// once `InteractionResolver` needs to read or rewrite its live state.
@@ -71,10 +73,30 @@ public enum LevelSceneBuilder {
         }
 
         var interactableProps: [String: Entity] = [:]
+        var visionSources: [String: Entity] = [:]
         for prop in geometry.props {
-            let entity = GreyboxKit.entity(for: prop.box, name: prop.id)
+            let entity: Entity
+            if prop.prototype.mechanic == .hingedDoor {
+                let hingeSide = DoorHingeSide(
+                    rawValue: prop.config["hingeSide"]?.stringValue ?? ""
+                ) ?? .left
+                entity = GreyboxKit.doorEntity(
+                    for: prop.box,
+                    hingeSide: hingeSide,
+                    name: prop.id
+                )
+                entity.components.set(DoorComponent(
+                    id: prop.id,
+                    closedBox: prop.box,
+                    hingeSide: hingeSide,
+                    openAngleDegrees: prop.config["openAngle"]?.doubleValue ?? 90,
+                    isOpen: prop.config["open"]?.boolValue ?? false
+                ))
+            } else {
+                entity = GreyboxKit.entity(for: prop.box, name: prop.id)
+                entity.components.set(CollisionComponent(shapes: [collisionShape(for: prop.box)]))
+            }
             entity.components.set(LevelEntityComponent(id: prop.id, kind: prop.prototype.kind))
-            entity.collision = CollisionComponent(shapes: [collisionShape(for: prop.box)])
             GreyboxKit.castsShadow(entity)
             if !prop.prototype.interactions.isEmpty {
                 // `prop.config` (resolved defaults + level overrides) seeds
@@ -89,6 +111,29 @@ public enum LevelSceneBuilder {
                 )
                 interactableProps[prop.id] = entity
             }
+            if prop.prototype.mechanic == .securityCamera {
+                let config = VisionConfig(
+                    range: prop.config["range"]?.doubleValue ?? VisionProfiles.securityCamera.range,
+                    fieldOfViewDegrees: prop.config["fieldOfView"]?.doubleValue
+                        ?? VisionProfiles.securityCamera.fieldOfViewDegrees
+                )
+                entity.components.set(VisionSourceComponent(
+                    id: prop.id,
+                    kind: .securityCamera,
+                    config: config,
+                    eyeHeight: 0,
+                    baseFacing: prop.box.yaw,
+                    scanArc: prop.config["scanArc"]?.doubleValue ?? 0,
+                    scanPeriod: prop.config["scanPeriod"]?.doubleValue ?? 0,
+                    isEnabled: prop.config["powered"]?.boolValue ?? true,
+                    occluders: geometry.walls
+                ))
+                entity.addChild(GreyboxKit.visionCone(
+                    config: config,
+                    floorOffsetY: Float(-prop.box.center.y + 0.025)
+                ))
+                visionSources[prop.id] = entity
+            }
             root.addChild(entity)
         }
 
@@ -100,16 +145,23 @@ public enum LevelSceneBuilder {
             let route = spec.flatMap {
                 PatrolRoute(actor: $0, metrics: blueprint.metrics, character: actor.character)
             }
-            let entity = actorEntity(for: actor, route: route)
+            let entity = actorEntity(for: actor, route: route, occluders: geometry.walls)
             GreyboxKit.castsShadow(entity)
             root.addChild(entity)
             actorEntities[actor.id] = entity
+            if entity.components[VisionSourceComponent.self] != nil {
+                visionSources[actor.id] = entity
+            }
         }
 
         addLighting(to: root, geometry: geometry, metrics: blueprint.metrics, quality: quality)
 
         return BuiltLevel(
-            build: prepared, root: root, actors: actorEntities, interactableProps: interactableProps
+            build: prepared,
+            root: root,
+            actors: actorEntities,
+            visionSources: visionSources,
+            interactableProps: interactableProps
         )
     }
 
@@ -127,7 +179,11 @@ public enum LevelSceneBuilder {
     ///
     /// Kept as a container entity with visual children so swapping in a rigged
     /// character later does not disturb movement, selection or navigation.
-    private static func actorEntity(for actor: PlacedProp, route: PatrolRoute?) -> Entity {
+    private static func actorEntity(
+        for actor: PlacedProp,
+        route: PatrolRoute?,
+        occluders: [WorldBox]
+    ) -> Entity {
         let container = Entity()
         container.name = actor.id
         container.position = SIMD3<Float>(Float(actor.box.center.x), 0, Float(actor.box.center.z))
@@ -154,16 +210,53 @@ public enum LevelSceneBuilder {
                 model.name = "\(actor.id).visual"
                 container.addChild(model)
                 GreyboxKit.castsShadow(model)
-                CharacterAnimationLibrary.attach(to: model)
+                var supplementalClips: [String: AnimationResource] = [:]
+                for semantic in CharacterAnimationSemantic.allCases where semantic != .walk {
+                    let carrierName = "\(assetName)_\(semantic.rawValue)"
+                    let carrierURL = Bundle.module.url(
+                        forResource: carrierName,
+                        withExtension: "usdz",
+                        subdirectory: "Characters"
+                    ) ?? Bundle.module.url(forResource: carrierName, withExtension: "usdz")
+                    guard let carrierURL,
+                          let carrier = try? Entity.load(contentsOf: carrierURL),
+                          let resource = CharacterAnimationLibrary.firstAvailableAnimation(
+                            in: carrier
+                          ) else {
+                        continue
+                    }
+                    supplementalClips[semantic.rawValue] = resource
+                }
+                CharacterAnimationLibrary.attach(
+                    to: model,
+                    semanticAliases: [
+                        WalkAnimationSync.clipName: "global scene animation"
+                    ],
+                    supplementalClips: supplementalClips
+                )
                 // Named lookup, not "whichever clip happened to load
                 // first" — see CharacterAnimationLibrary's own docs. Rests
                 // on the Walk clip's own first frame until a system (
-                // PathFollowingSystem, GuardPatrolSystem) actually starts
+                // AgentLocomotionSystem) actually starts
                 // this actor moving.
-                if let anim = CharacterAnimationLibrary.animation(named: WalkAnimationSync.clipName, on: container) {
-                    let controller = model.playAnimation(anim)
+                if let binding = CharacterAnimationLibrary.bindings(
+                    named: WalkAnimationSync.clipName,
+                    on: container
+                ).first {
+                    // A glTF-derived USD exposes its animation on a nested
+                    // SkelRoot. Playing that resource on the loaded file's
+                    // outer entity corrupts RealityKit's scene state and can
+                    // later crash while ColliderComponent is being updated.
+                    // Always play a clip on the entity that owns its library.
+                    let controller = binding.entity.playAnimation(binding.resource)
                     controller.time = 0.0
                     controller.pause()
+
+                    // Третий охранник (guard03) несёт фонарик — накладываем позу
+                    // на ТОТ ЖЕ скелет, где играет базовая походка.
+                    if assetName == "guard03" {
+                        _ = CharacterFlashlightPlayback.applyFlashlightPose(to: binding.entity)
+                    }
                 }
                 loadedCustomModel = true
             }
@@ -215,6 +308,12 @@ public enum LevelSceneBuilder {
         }
 
         container.components.set(LevelEntityComponent(id: actor.id, kind: .actor))
+        container.components.set(AgentNavigationComponent(
+            id: actor.id,
+            character: actor.character,
+            restingPosition: WorldPoint(x: actor.box.center.x, y: 0, z: actor.box.center.z),
+            restingFacing: actor.box.yaw
+        ))
 
         if actor.prototype.actorRole == .thief {
             container.components.set(
@@ -223,12 +322,31 @@ public enum LevelSceneBuilder {
         }
 
         if let route {
+            let vision = VisionConfig(
+                range: actor.config["range"]?.doubleValue ?? VisionProfiles.guardActor.range,
+                fieldOfViewDegrees: actor.config["fieldOfView"]?.doubleValue
+                    ?? VisionProfiles.guardActor.fieldOfViewDegrees
+            )
             container.components.set(GuardComponent(id: actor.id, route: route))
+            container.components.set(VisionSourceComponent(
+                id: actor.id,
+                kind: .guardActor,
+                config: vision,
+                eyeHeight: actor.prototype.height * 0.88,
+                baseFacing: actor.box.yaw,
+                occluders: occluders
+            ))
+            container.addChild(GreyboxKit.visionCone(config: vision, floorOffsetY: 0.025))
         }
 
-        container.components.set(CollisionComponent(
-            shapes: [.generateCapsule(height: height, radius: radius)]
-        ))
+        // Only player-selectable actors need a hit-test shape. Patrol guards
+        // are kinematic functions of mission time and intentionally carry no
+        // collision radius that could ever be mistaken for movement authority.
+        if actor.prototype.actorRole == .thief {
+            container.components.set(CollisionComponent(
+                shapes: [.generateCapsule(height: height, radius: radius)]
+            ))
+        }
 
         return container
     }

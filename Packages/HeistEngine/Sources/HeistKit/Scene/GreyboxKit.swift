@@ -83,6 +83,48 @@ public enum GreyboxKit {
         return entity
     }
 
+    /// A door whose transform origin is the hinge rather than the leaf centre.
+    /// The outer entity stays at the authored placement; only the hinge child
+    /// rotates, so the same prefab works at any level rotation.
+    @MainActor
+    public static func doorEntity(
+        for box: WorldBox,
+        hingeSide: DoorHingeSide,
+        name: String
+    ) -> Entity {
+        let container = Entity()
+        container.name = name
+        container.position = SIMD3<Float>(
+            Float(box.center.x), Float(box.center.y), Float(box.center.z)
+        )
+        container.orientation = simd_quatf(
+            angle: Float(box.yaw * .pi / 180), axis: SIMD3<Float>(0, 1, 0)
+        )
+
+        let side: Float = hingeSide == .left ? -1 : 1
+        let hinge = Entity()
+        hinge.name = "door.hinge"
+        hinge.position.x = side * Float(box.width / 2)
+        container.addChild(hinge)
+
+        let leaf = ModelEntity(
+            mesh: .generateBox(
+                width: Float(box.width),
+                height: Float(box.height),
+                depth: Float(box.depth)
+            ),
+            materials: [material(for: box.surface)]
+        )
+        leaf.name = "door.leaf"
+        leaf.position.x = -side * Float(box.width / 2)
+        leaf.components.set(CollisionComponent(shapes: [
+            .generateBox(width: Float(box.width), height: Float(box.height), depth: Float(box.depth))
+        ]))
+        hinge.addChild(leaf)
+        castsShadow(leaf)
+        return container
+    }
+
     /// A border of outside, run around the building like the rim of a diorama.
     ///
     /// Deliberately narrow. An earlier version put the building in a landscape
@@ -238,6 +280,48 @@ public enum GreyboxKit {
         }
 
         return container
+    }
+
+    /// Floor-level outline of a guard's authored field of view. It is built
+    /// from the same `VisionConfig` the pure solver uses, so changing range or
+    /// angle in level data cannot leave a hand-tuned visual behind.
+    @MainActor
+    public static func visionCone(
+        config: VisionConfig,
+        floorOffsetY: Float,
+        rayCount: Int = 41
+    ) -> Entity {
+        var material = UnlitMaterial()
+        let color = PlatformColor(red: 1.0, green: 0.72, blue: 0.12, alpha: 1)
+        material.color = .init(tint: color)
+        material.blending = .transparent(opacity: 0.22)
+        material.readsDepth = true
+        material.writesDepth = false
+
+        let range = Float(max(0, config.range))
+        let halfAngle = max(0, config.fieldOfViewDegrees) / 2
+        let count = max(3, rayCount)
+
+        var positions = [SIMD3<Float>(0, 0, 0)]
+        for index in 0..<count {
+            let progress = count > 1 ? Double(index) / Double(count - 1) : 0.5
+            let angleDegrees = -halfAngle + config.fieldOfViewDegrees * progress
+            let angle = Float(angleDegrees * .pi / 180)
+            positions.append(SIMD3<Float>(sin(angle) * range, 0, cos(angle) * range))
+        }
+        var indices: [UInt32] = []
+        for index in 1..<positions.count - 1 {
+            indices.append(contentsOf: [0, UInt32(index), UInt32(index + 1)])
+        }
+
+        var descriptor = MeshDescriptor(name: "vision.cone")
+        descriptor.positions = MeshBuffer(positions)
+        descriptor.primitives = .triangles(indices)
+        let mesh = try? MeshResource.generate(from: [descriptor])
+        let cone = ModelEntity(mesh: mesh ?? .generatePlane(width: 0.01, depth: 0.01), materials: [material])
+        cone.name = "vision.cone"
+        cone.position.y = floorOffsetY
+        return cone
     }
 
     /// A flat marker disc, used for the debug destination indicator.

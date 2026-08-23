@@ -27,17 +27,38 @@ public struct PlayableActorComponent: Component {
     }
 }
 
-/// The route an actor is currently walking.
-///
-/// Holds a `PathWalker` from `HeistCore`: the component is storage, the walking
-/// rules live where they can be tested.
-public struct PathFollowingComponent: Component {
-    public var walker: PathWalker
+/// Shared mission-time locomotion storage for every character role.
+/// A thief tap, a guard investigation and a future civilian routine all write
+/// the same semantic task; only goal selection differs.
+public struct AgentNavigationComponent: Component {
+    public var id: String
+    public var character: CharacterProfile
+    public var task: AgentNavigationTask?
+    public var missionTime: Double
+    /// Authoritative pose while no task owns the actor. Rendering mirrors this
+    /// value; it is never used as a source of simulation state.
+    public var restingPosition: WorldPoint
+    public var restingFacing: Double
     public var isAnimating: Bool
+    public var walkLoopStartsAt: Double?
+    public var presentedActivity: AgentNavigationTask.Activity?
 
-    public init(waypoints: [WorldPoint]) {
-        self.walker = PathWalker(waypoints: waypoints)
+    public init(
+        id: String,
+        character: CharacterProfile,
+        missionTime: Double = 0,
+        restingPosition: WorldPoint = WorldPoint(x: 0, y: 0, z: 0),
+        restingFacing: Double = 0
+    ) {
+        self.id = id
+        self.character = character
+        self.task = nil
+        self.missionTime = missionTime
+        self.restingPosition = restingPosition
+        self.restingFacing = restingFacing
         self.isAnimating = false
+        self.walkLoopStartsAt = nil
+        self.presentedActivity = nil
     }
 }
 
@@ -48,18 +69,136 @@ public struct PathFollowingComponent: Component {
 public struct GuardComponent: Component {
     public var id: String
     public var route: PatrolRoute
-    /// Seconds into the mission, as of the last update.
-    public var missionTime: Double
-    /// Whether the Walk clip is currently playing — kept in sync with
-    /// `PatrolRoute.State.isPaused` by `GuardPatrolSystem`, the same way
-    /// `PathFollowingComponent.isAnimating` tracks it for the Thief.
-    public var isAnimating: Bool
+    public var patrolPhaseAtAnchor: Double
+    public var patrolAnchorMissionTime: Double
+    public var isPatrolPaused: Bool
 
-    public init(id: String, route: PatrolRoute, missionTime: Double = 0) {
+    public init(id: String, route: PatrolRoute) {
         self.id = id
         self.route = route
+        self.patrolPhaseAtAnchor = 0
+        self.patrolAnchorMissionTime = 0
+        self.isPatrolPaused = false
+    }
+
+    public func patrolTime(at missionTime: Double) -> Double {
+        patrolPhaseAtAnchor + (isPatrolPaused ? 0 : max(0, missionTime - patrolAnchorMissionTime))
+    }
+
+    public mutating func pausePatrol(at missionTime: Double) {
+        patrolPhaseAtAnchor = patrolTime(at: missionTime)
+        patrolAnchorMissionTime = missionTime
+        isPatrolPaused = true
+    }
+
+    public mutating func resumePatrol(at missionTime: Double, routeTime: Double) {
+        patrolPhaseAtAnchor = routeTime
+        patrolAnchorMissionTime = missionTime
+        isPatrolPaused = false
+    }
+}
+
+/// One perception source, independent of whether it is carried by a guard or
+/// mounted as a camera. Detection and visualization consume this same value.
+public struct VisionSourceComponent: Component {
+    public var id: String
+    public var kind: VisionSourceKind
+    public var config: VisionConfig
+    public var eyeHeight: Double
+    public var baseFacing: Double
+    public var scanArc: Double
+    public var scanPeriod: Double
+    public var missionTime: Double
+    public var isEnabled: Bool
+    public var occluders: [WorldBox]
+    public var lastPresentationStep: Int
+
+    public init(
+        id: String,
+        kind: VisionSourceKind,
+        config: VisionConfig,
+        eyeHeight: Double,
+        baseFacing: Double,
+        scanArc: Double = 0,
+        scanPeriod: Double = 0,
+        missionTime: Double = 0,
+        isEnabled: Bool = true,
+        occluders: [WorldBox]
+    ) {
+        self.id = id
+        self.kind = kind
+        self.config = config
+        self.eyeHeight = eyeHeight
+        self.baseFacing = baseFacing
+        self.scanArc = scanArc
+        self.scanPeriod = scanPeriod
         self.missionTime = missionTime
-        self.isAnimating = false
+        self.isEnabled = isEnabled
+        self.occluders = occluders
+        self.lastPresentationStep = -1
+    }
+
+    public var facing: Double {
+        switch kind {
+        case .guardActor:
+            baseFacing
+        case .securityCamera:
+            VisionScan.facing(
+                baseDegrees: baseFacing,
+                arcDegrees: scanArc,
+                period: scanPeriod,
+                time: missionTime
+            )
+        }
+    }
+}
+
+public struct VisionRayComponent: Component {
+    public var angleDegrees: Double
+
+    public init(angleDegrees: Double) {
+        self.angleDegrees = angleDegrees
+    }
+}
+
+public struct DoorComponent: Component {
+    public var id: String
+    public var closedBox: WorldBox
+    public var hingeSide: DoorHingeSide
+    public var openAngleDegrees: Double
+    public var initialFraction: Double
+    public var settledFraction: Double
+    public var transition: DoorTransition?
+    public var missionTime: Double
+
+    public init(
+        id: String,
+        closedBox: WorldBox,
+        hingeSide: DoorHingeSide,
+        openAngleDegrees: Double,
+        isOpen: Bool
+    ) {
+        self.id = id
+        self.closedBox = closedBox
+        self.hingeSide = hingeSide
+        self.openAngleDegrees = openAngleDegrees
+        self.initialFraction = isOpen ? 1 : 0
+        self.settledFraction = self.initialFraction
+        self.transition = nil
+        self.missionTime = 0
+    }
+
+    public func openFraction(at time: Double) -> Double {
+        transition?.fraction(at: time) ?? settledFraction
+    }
+
+    public func liveBox(at time: Double) -> WorldBox {
+        DoorGeometry.leafBox(
+            closed: closedBox,
+            hingeSide: hingeSide,
+            openAngleDegrees: openAngleDegrees,
+            openFraction: openFraction(at: time)
+        )
     }
 }
 
@@ -92,21 +231,18 @@ public struct InteractableComponent: Component {
 
 /// An actor en route to interact with something once it arrives.
 ///
-/// Set alongside `PathFollowingComponent` when a tap resolves to an
-/// interaction rather than a plain move. The session watches for this
-/// component surviving *without* `PathFollowingComponent` any more — that is
-/// what "arrived" means — and promotes it to `ActiveInteractionComponent`.
-/// Two components rather than one combined "walking to interact" component
-/// because `PathFollowingSystem` only ever needs to know about
-/// `PathFollowingComponent`; teaching it about interactions too would mean a
-/// generic movement system reaching into a concern that is not its own.
+/// Set beside an `AgentNavigationComponent` task when a tap resolves to an
+/// interaction rather than a plain move. The session promotes it to an active
+/// interaction when the pure mission-time task reports `arrived`.
 public struct PendingInteractionComponent: Component {
     public var propID: String
     public var interaction: InteractionKind
+    public var arrivalFacingDegrees: Double
 
-    public init(propID: String, interaction: InteractionKind) {
+    public init(propID: String, interaction: InteractionKind, arrivalFacingDegrees: Double = 0) {
         self.propID = propID
         self.interaction = interaction
+        self.arrivalFacingDegrees = arrivalFacingDegrees
     }
 }
 
@@ -149,12 +285,17 @@ public enum HeistComponents {
 
         LevelEntityComponent.registerComponent()
         PlayableActorComponent.registerComponent()
-        PathFollowingComponent.registerComponent()
+        AgentNavigationComponent.registerComponent()
         GuardComponent.registerComponent()
+        VisionSourceComponent.registerComponent()
+        VisionRayComponent.registerComponent()
+        DoorComponent.registerComponent()
         InteractableComponent.registerComponent()
         PendingInteractionComponent.registerComponent()
         ActiveInteractionComponent.registerComponent()
-        PathFollowingSystem.registerSystem()
-        GuardPatrolSystem.registerSystem()
+        CharacterActionStateComponent.registerComponent()
+        AgentLocomotionSystem.registerSystem()
+        VisionPresentationSystem.registerSystem()
+        DoorPresentationSystem.registerSystem()
     }
 }

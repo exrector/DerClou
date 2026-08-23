@@ -1,18 +1,101 @@
 # Implementation Status
 
-Last updated: 2026-08-17. Covers issue #1 (Phase 0–2), plus the move off iOS 27.
+Last updated: 2026-08-22.
+
+## 2026-08-21 navigation correction
+
+The synchronous dense-grid architecture described later in this historical
+status is no longer the production target. Profiling the real office exposed a
+75,721-cell static-world rebuild in the interactive path, including a global
+clearance transform. That work occupied `MainActor`, visibly freezing the guard,
+camera and UI. Deterministic replay never required doing it there.
+
+Now implemented:
+
+- taps submit immutable `NavigationPlanRequest` values and return immediately;
+- path work runs outside `MainActor`;
+- request ID + actor ID + world revision prevent stale results from committing;
+- furniture approach planning uses the same nonblocking boundary;
+- actors are local transient blockers, not reasons to rebuild static geometry;
+- rapid obstacle edits are coalesced as one authoritative desired overlay, baked
+  off-main and atomically published with a monotonic revision;
+- world revisions no longer broadcast a replan to every actor: a new blocker
+  invalidates only an actor whose still-untravelled capsule corridor intersects
+  its bounds; removals and obstacles behind the actor acknowledge the revision
+  without changing path, time origin or speed;
+- the debug cube, polygon corridor A* and funnel backend are runtime-tested;
+- actor capsules distinguish a stationary blocker from two crossing motions;
+  a guard discards the obstructed patrol leg and targets its next authored node
+  through a minimum-link detour instead of returning to the old line;
+- a player tap snapshots already committed actor trajectories and predicts
+  space-time intersections on the planning worker before publishing movement;
+- right of way belongs to the route committed first; role priority is only the
+  deterministic tie-breaker for simultaneous commands;
+- there is no navigation-level `yield` command: a physically sealed doorway
+  becomes a safe blocked contact for a later push/arrest action;
+- body-conflict replanning now uses the same detached immutable-request boundary
+  as taps; the old route remains live until an atomic handoff, while the fixed
+  simulation step only brakes safely and never runs A*;
+- stationary actors use a longer predictive horizon than two moving actors, so
+  a comfortable bypass starts before capsule contact becomes imminent;
+- runtime prediction samples exact task/patrol trajectories over 2.5 seconds
+  instead of extrapolating one short straight velocity; every new stationary or
+  moving conflict receives one atomic detour attempt;
+- a separate fixed-step swept-capsule gate delays deterministic task/patrol time
+  before presentation if a planner result is late, so actors cannot exchange
+  sides through one another between samples;
+- compound bottlenecks and command offsets from -450 ms through +450 ms are
+  permanent runtime regression cases;
+- replacement trajectories preserve incoming speed and use a legal cubic
+  heading join before the already-rounded path; ordinary walk animation follows
+  its tangent, while explicit turn clips remain reserved for pivots in place;
+- an occupied patrol anchor is skipped in favour of the following authored node
+  instead of becoming an impossible parking goal;
+- simulation owns each actor's resting pose; RealityKit entities only present it.
+
+The first fixed-step `GKAgent2D` steering adapter is also implemented behind a
+hard validation/fallback gate. Direct testing confirmed that `GKGoal(toAvoid:)`
+is a soft behavior and can enter the required body-clearance margin, so it is
+not production authority. A rejected Apple curve falls back to the validated
+deterministic core route; it never weakens collision safety.
+
+The shared character action layer now uses one GameplayKit-backed presentation
+state machine for every role. It resolves idle, start, walk, brake, short step,
+left/right/around turn, terminal alignment, interaction and blocked phases from
+authoritative mission time. Interactive retargets no longer clear the current
+task while a worker plans: the replacement starts atomically from the live
+pose, facing and speed. Repeated add/remove cycles for an already avoided cube
+validate the existing corridor instead of treating each revision as a new
+reason to replan. TurnLeft, TurnRight and TurnAround now have lower-body
+footwork on both rigs; downloaded prop posing, meshes and root yaw are stripped.
+
+The permanent modular grid is the authoring/import contract. The baked polygon
+topology is the production route backend; the dense grid remains its deterministic
+bake and validation field, not the per-tap movement algorithm.
 
 ## Summary
 
-The native iOS 27 project exists, builds, runs on the iOS 27 simulator, renders a
-real 3D office location under an orthographic top-down camera, bakes a navigation
-mesh at runtime, resolves screen taps to world positions, and walks an actor along
-a computed path around a solid wall at a constant speed.
+The native iOS 18 project builds and runs on the iOS 18.6 simulator. It renders a
+real 3D office through the current off-axis perspective tactical camera, resolves
+screen taps to semantic commands, plans paths without blocking `MainActor`, and
+drives the thief and guard from the same deterministic mission-time locomotion.
 
-One deliberate extension beyond the literal issue text: the test location is not
-hard-coded scene setup. It is built from a `LevelBlueprint` value through a
-reusable pipeline, so a second level costs data rather than Swift. This was agreed
-with the owner before implementation. See "Level authoring model" below.
+The test location is data-driven through `LevelBlueprint`.
+The current verified baseline is 184 HeistCore tests and 29 serialized RealityKit
+runtime scenarios. They include stationary and moving actors, occupied patrol
+nodes, sudden and repeated cubes, compound gaps, rapid retargeting and a
+sub-second timing matrix.
+
+Automatic door traversal detects a closed portal along a route, constrains the
+approach to the actor's current side, distinguishes guard key access from thief
+lockpicking, and resumes the original goal after each required action. Optional
+close-after-passage remains the next door-policy step.
+
+Animation orchestration is shared by every actor. Logical phases cover idle,
+start, walk, brake, arrival, left/right turn, turnaround, short step and
+interaction ownership. Asset coverage is reported separately. Five required
+clean clips remain missing in `ArtSource/Animations/actions-manifest.json`:
+StopWalking, ShortStep, CloseDoor, UnlockDoor and Lockpick.
 
 ## Toolchain actually used
 
@@ -93,8 +176,8 @@ Packages/HeistEngine/      local Swift package, where the engine lives
     Navigation/            NavigationSourceMeshBuilder
     Levels/                Level01 (office01) as data
   Sources/HeistKit/        RealityKit runtime
-    Components/            LevelEntity, NavigableSurface, PlayableActor, PathFollowing, Interactable
-    Systems/               PathFollowingSystem
+    Components/            LevelEntity, NavigableSurface, PlayableActor, AgentNavigation, Interactable
+    Systems/               AgentLocomotionSystem
     Scene/                 GreyboxKit, LevelSceneBuilder, TacticalCamera
     Navigation/            NavigationBaker
     Session/               GameSession
@@ -126,6 +209,13 @@ A level is a `LevelBlueprint` value:
 Coordinates are authored in **cells**, converted to meters in exactly one place
 (`LevelMetrics`). Default cell is 1.0 m, wall height 2.6 m, wall thickness 0.2 m,
 doorway 0.9 × 2.1 m, character 1.75 m tall / 0.6 m wide, walk speed 1.4 m/s.
+
+The grid remains the permanent modular placement system. A reusable prototype
+also resolves a `PlacementContract`: canonical bounds, pivot, translation and
+rotation snapping, import scale policy and distinct clearances for collision,
+navigation, interaction, door sweep and actor bodies. A continuous polygon
+navigation topology is baked from this data for natural paths; it does not
+replace or erase the authoring grid.
 
 Behaviour never lives in a level. A prototype in `PropCatalog` declares its
 footprint, surface, whether it blocks movement, which interactions it supports
@@ -206,9 +296,10 @@ when approaching at an angle. Two changes came out of that:
   warns when an opening is too narrow to survive the bake and errors when it is
   narrower than the character. office01's doorways are 1.2 m.
 
-`PathFollowingSystem` also carries a stall watchdog: an actor that makes no
-progress for 1.5 s logs which waypoint it is stuck at and abandons the path,
-rather than standing still with no explanation.
+`AgentNavigationTask` never silently abandons a semantic goal. A topology
+revision or another actor in the corridor causes deterministic replanning from
+the live mission-time pose; an unavailable route becomes an explicit blocked
+wait and retries when space changes.
 
 `NavigationMeshResource` also exposes `Area`, `Flag`, `Layer`, per-polygon marking
 and `OffMeshConnection`, plus `NavigationComponent.Filter` with area costs and
@@ -244,9 +335,14 @@ reachable point, producing a valid 11.54 m path rather than failing.
 
 ### Movement
 
-`PathFollowingSystem` interpolates along path nodes at a constant configured speed
-and yaws the actor toward travel. No physics forces, so arrival time is a pure
-function of path length and speed. Verified: 12.46 m at 1.4 m/s reported ETA 8.9 s.
+`AgentLocomotionSystem` presents both thieves and guards from the same
+mission-time task. `TrajectoryBuilder` rounds corners only where every inserted
+segment remains walkable and facing follows the local tangent. A replacement
+route begins with a C1-style cubic join aligned to the actor's live heading and
+inherits its live speed, so avoidance does not expose the planner as
+stop/pivot/restart. Near-180-degree changes still use an explicit turnaround.
+No physics forces, so arrival time remains a pure function of the deterministic
+trajectory and speed profile.
 
 ### RealityView on iOS
 
