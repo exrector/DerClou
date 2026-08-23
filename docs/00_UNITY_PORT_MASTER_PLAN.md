@@ -9,7 +9,12 @@
 - [x] **U0** — repository source of truth (`CLAUDE.md`/`AGENTS.md`/master plan). 2026-08-23.
 - [x] **U1** — Built-In → URP (`com.unity.render-pipelines.universal@17.5.0`, единственная версия под 6000.5.9f1; `Assets/Settings/DerClou_URP.asset` + `DerClou_Renderer.asset`; `Shader.Find("Standard")` → `"Universal Render Pipeline/Lit"` в `GameBootstrap.cs`/`LevelBuilder.cs` — других материалов в проекте не было, конвертировать было нечего). Проверено вживую: 0 ошибок консоли, playable-цепочка (select/move/door) не сломана. 2026-08-23.
 - [x] Этап 12 (камера) — закрыт отдельно, orthographic-камера остаётся, см. раздел ниже.
-- [ ] **U2** — deterministic simulation. Дизайн зафиксирован в `docs/U2_SIMULATION_DESIGN.md`, код ещё не писался.
+- [ ] **U2** — deterministic simulation (дизайн: `docs/U2_SIMULATION_DESIGN.md`).
+  - [x] 2a — Actor movement (`MissionState`/`ActorState`, `ActorMovementSystem`, `SimulationStep`, `SimulationService`, `ActorEntity`→`ActorView`). 2026-08-23.
+  - [ ] 2b — Guard patrol
+  - [ ] 2c — Security camera
+  - [ ] 2d — Door
+  - [ ] 2e — Safe
 - [ ] **U3** — real planning loop.
 - [ ] **U4** — deterministic guard vision, первая настоящая `plan → execute → fail/succeed → edit → retry` миссия.
 
