@@ -139,14 +139,24 @@ namespace DerClou.Core.Simulation
         public bool isCollected;
     }
 
+    /// Renamed from `SafeComponent` in U2 step 2e — live state in
+    /// `MissionState.Safes`, not the dead, never-read data it was before.
+    /// Carries `position` (unlike the door/camera states, which never needed
+    /// one) because `SafeSystem` itself now does the "is the cracking actor
+    /// still close enough" check that used to compare two Transforms
+    /// directly inside `InteractionSystem.Update()`.
     [System.Serializable]
-    public class SafeComponent
+    public class SafeState
     {
         public string id;
-        public bool locked = true;
+        public WorldPoint position;
+        public bool isLocked = true;
         public int difficulty;
         public float crackProgress; // 0..1
         public bool isOpen;
+        public float crackDurationSeconds = 20f;
+        public bool isBeingCracked;
+        public int crackingActorId = -1;
         public System.Collections.Generic.List<string> containedLootIds = new();
     }
 }

@@ -136,28 +136,19 @@ namespace DerClou.Gameplay.Props
         }
     }
 
-    public class Safe : MonoBehaviour
+    /// <summary>
+    /// Renamed from <c>Safe</c> in U2 step 2e (`docs/U2_SIMULATION_DESIGN.md`)
+    /// — the last of U2's five migration slices. All the cracking math
+    /// (progress accumulation, the proximity check that used to compare two
+    /// Transforms in <c>InteractionSystem.Update()</c>) moved to the pure-C#
+    /// <c>DerClou.Core.Systems.SafeSystem</c>. This class is now just an id
+    /// marker for <c>InteractionSystem</c> to find via
+    /// <c>GetComponent&lt;SafeView&gt;()</c> — same as before, a safe has no
+    /// visible change on opening, so there is nothing for a per-frame
+    /// Update/LateUpdate here to apply.
+    /// </summary>
+    public class SafeView : MonoBehaviour
     {
         public string SafeId;
-        public bool IsLocked = true;
-        public int Difficulty = 3;
-        public float CrackDuration = 20f;
-        public List<string> ContainedLootIds = new();
-        public bool IsOpen { get; private set; }
-        public float CrackProgress { get; private set; }
-
-        public void StartCracking(float dt)
-        {
-            if (!IsLocked || IsOpen) return;
-            CrackProgress = Mathf.Min(1f, CrackProgress + dt / CrackDuration);
-            if (CrackProgress >= 1f) Unlock();
-        }
-
-        public void Unlock()
-        {
-            IsLocked = false;
-            IsOpen = true;
-            // Spawn loot
-        }
     }
 }

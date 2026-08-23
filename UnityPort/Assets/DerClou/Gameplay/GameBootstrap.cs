@@ -179,7 +179,9 @@ namespace DerClou.Gameplay
             // `LevelBuilder.catalog` is private, so nothing outside it should
             // set that field directly.
             levelBuilder.Build(blueprint, catalog);
-            interactionSystem.DiscoverRegistries();
+            // `InteractionSystem.DiscoverRegistries` was removed in U2 step
+            // 2e — cameras (2c) and safes (this step) are both looked up
+            // through `MissionState` now, which is itself the registry.
         }
 
         private static Material SolidColorMaterial(Color color)

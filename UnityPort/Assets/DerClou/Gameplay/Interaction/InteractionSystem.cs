@@ -26,25 +26,14 @@ namespace DerClou.Gameplay.Interaction
         private ActorView pendingActor;
         private Interactable pendingTarget;
 
-        private ActorView crackingActor;
-        private Safe crackingSafe;
-
-        private readonly Dictionary<string, Safe> safesById = new();
+        // Tracked only for the player-facing log line when cracking stops —
+        // the actual progress/interrupt logic lives in `SafeSystem`, driven
+        // from `SimulationStep`, not from this MonoBehaviour's `Update()`.
+        private string crackingSafeId;
 
         public bool HasLoot { get; private set; }
         public bool MissionComplete { get; private set; }
         public event System.Action OnMissionComplete;
-
-        /// Scans the just-built level for the devices interactions need to
-        /// look up by id. Called once after `LevelBuilder.Build` — the
-        /// builder itself stays unaware this system exists. Cameras aren't
-        /// looked up this way any more (U2 step 2c) — `MissionState.Cameras`
-        /// is itself the registry, keyed by the same id.
-        public void DiscoverRegistries()
-        {
-            safesById.Clear();
-            foreach (var safe in FindObjectsOfType<Safe>()) safesById[safe.SafeId] = safe;
-        }
 
         public void RequestInteract(ActorView actor, Interactable target)
         {
@@ -75,23 +64,20 @@ namespace DerClou.Gameplay.Interaction
                 Perform(actor, target);
             }
 
-            if (crackingSafe != null)
+            // `SafeSystem.Tick` (from `SimulationStep`, not here) does the
+            // actual progress/interrupt-on-distance work now — this just
+            // watches for the state transition to log it for the player.
+            if (crackingSafeId != null)
             {
-                if (PlanarDistance(crackingActor.transform.position, crackingSafe.transform.position) > InteractRange)
+                var state = SimulationService.Current;
+                if (state == null || !state.Safes.TryGetValue(crackingSafeId, out var s))
                 {
-                    Debug.Log($"{crackingSafe.SafeId}: взлом прерван — слишком далеко.");
-                    crackingSafe = null;
-                    crackingActor = null;
+                    crackingSafeId = null;
                 }
-                else
+                else if (!s.isBeingCracked)
                 {
-                    crackingSafe.StartCracking(Time.deltaTime);
-                    if (crackingSafe.IsOpen)
-                    {
-                        Debug.Log($"{crackingSafe.SafeId}: взломан.");
-                        crackingSafe = null;
-                        crackingActor = null;
-                    }
+                    Debug.Log(s.isOpen ? $"{crackingSafeId}: взломан." : $"{crackingSafeId}: взлом прерван — слишком далеко.");
+                    crackingSafeId = null;
                 }
             }
         }
@@ -101,7 +87,7 @@ namespace DerClou.Gameplay.Interaction
             var door = target.GetComponent<DoorView>();
             if (door != null) { PerformDoor(door); return; }
 
-            var safe = target.GetComponent<Safe>();
+            var safe = target.GetComponent<SafeView>();
             if (safe != null) { PerformSafe(actor, safe); return; }
 
             if (target.Supports(InteractionKind.ToggleSwitch) || target.Supports(InteractionKind.Hack))
@@ -149,19 +135,23 @@ namespace DerClou.Gameplay.Interaction
             Debug.Log($"{panel.InteractableId}: камера '{controlledId}' теперь {(cam.powered ? "включена" : "выключена")}.");
         }
 
-        private void PerformSafe(ActorView actor, Safe safe)
+        private void PerformSafe(ActorView actor, SafeView safe)
         {
-            if (safe.IsOpen) { Debug.Log($"{safe.SafeId}: уже открыт."); return; }
-            crackingActor = actor;
-            crackingSafe = safe;
-            Debug.Log($"{safe.SafeId}: взлом начат (~{safe.CrackDuration:0}с, не отходи).");
+            var state = SimulationService.Current;
+            if (state == null || !state.Safes.TryGetValue(safe.SafeId, out var s)) return;
+
+            if (s.isOpen) { Debug.Log($"{safe.SafeId}: уже открыт."); return; }
+            SafeSystem.StartCracking(state, safe.SafeId, actor.ActorId);
+            crackingSafeId = safe.SafeId;
+            Debug.Log($"{safe.SafeId}: взлом начат (~{s.crackDurationSeconds:0}с, не отходи).");
         }
 
         private void PerformLoot(Interactable loot)
         {
             string requiredSafeId = loot.GetConfigString("requiresSafeId", "");
-            if (!string.IsNullOrEmpty(requiredSafeId)
-                && safesById.TryGetValue(requiredSafeId, out var safe) && !safe.IsOpen)
+            var state = SimulationService.Current;
+            if (!string.IsNullOrEmpty(requiredSafeId) && state != null
+                && state.Safes.TryGetValue(requiredSafeId, out var safe) && !safe.isOpen)
             {
                 Debug.Log($"{loot.InteractableId}: сначала вскрой '{requiredSafeId}'.");
                 return;

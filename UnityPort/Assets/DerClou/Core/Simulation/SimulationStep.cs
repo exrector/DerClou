@@ -36,6 +36,7 @@ namespace DerClou.Core.Simulation
             if (!clock.IsPaused) GuardPatrolSystem.Tick(state, fixedDt);
             SecurityCameraSystem.Tick(state, fixedDt);
             DoorSystem.Tick(state, fixedDt);
+            SafeSystem.Tick(state, fixedDt);
         }
     }
 }

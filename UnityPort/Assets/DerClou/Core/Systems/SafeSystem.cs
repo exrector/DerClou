@@ -1,0 +1,68 @@
+namespace DerClou.Core.Systems
+{
+    using System;
+    using System.Collections.Generic;
+    using DerClou.Core.Data;
+    using DerClou.Core.Simulation;
+
+    /// <summary>
+    /// Advances safe-cracking progress by one fixed step, for whichever safe
+    /// (if any) has <see cref="SafeState.isBeingCracked"/> set. Pure C# port
+    /// of <c>Safe.StartCracking(dt)</c> plus the proximity-interrupt check
+    /// that used to live in <c>InteractionSystem.Update()</c> comparing two
+    /// Transforms directly — both now against <see cref="SafeState"/> and a
+    /// step size <see cref="SimulationStep"/> controls. See
+    /// `docs/U2_SIMULATION_DESIGN.md` step 2e, the last of U2's five slices.
+    /// </summary>
+    public static class SafeSystem
+    {
+        // Matches `InteractionSystem.InteractRange` — the same "close enough
+        // to interact" distance governs both starting and continuing to
+        // crack a safe. Not read from there directly to avoid a pure-C#
+        // system depending on a Gameplay-side MonoBehaviour constant.
+        public const float InteractRange = 1.6f;
+
+        public static void Tick(MissionState state, float dt)
+        {
+            var ids = new List<string>(state.Safes.Keys);
+            foreach (var id in ids)
+            {
+                var s = state.Safes[id];
+                if (!s.isBeingCracked) continue;
+
+                bool actorGone = !state.Actors.TryGetValue(s.crackingActorId, out var actor);
+                if (actorGone || PlanarDistance(actor.Position, s.position) > InteractRange)
+                {
+                    s.isBeingCracked = false;
+                    s.crackingActorId = -1;
+                    state.Safes[id] = s;
+                    continue;
+                }
+
+                s.crackProgress = MathF.Min(1f, s.crackProgress + dt / s.crackDurationSeconds);
+                if (s.crackProgress >= 1f)
+                {
+                    s.isLocked = false;
+                    s.isOpen = true;
+                    s.isBeingCracked = false;
+                    s.crackingActorId = -1;
+                }
+                state.Safes[id] = s;
+            }
+        }
+
+        public static void StartCracking(MissionState state, string safeId, int actorId)
+        {
+            if (!state.Safes.TryGetValue(safeId, out var s) || s.isOpen) return;
+            s.isBeingCracked = true;
+            s.crackingActorId = actorId;
+            state.Safes[safeId] = s;
+        }
+
+        private static float PlanarDistance(WorldPoint a, WorldPoint b)
+        {
+            float dx = a.x - b.x, dz = a.z - b.z;
+            return MathF.Sqrt(dx * dx + dz * dz);
+        }
+    }
+}

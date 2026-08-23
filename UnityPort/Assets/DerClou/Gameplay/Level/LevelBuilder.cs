@@ -358,11 +358,24 @@ namespace DerClou.Gameplay.Level
             go.transform.localScale = new Vector3(prop.box.width, prop.box.height, prop.box.depth);
             go.layer = LayerMask.NameToLayer("Interactable");
 
-            var safe = go.GetComponent<Safe>() ?? go.AddComponent<Safe>();
-            safe.SafeId = prop.id;
-            safe.IsLocked = !prop.config.TryGetValue("locked", out var lk) || lk.type != LevelValue.Type.Bool || lk.boolValue;
-            safe.Difficulty = prop.config.TryGetValue("difficulty", out var d) && d.type == LevelValue.Type.Int ? d.intValue : 3;
-            safe.CrackDuration = prop.config.TryGetValue("crackSafeDuration", out var cd) && cd.type == LevelValue.Type.Float ? cd.floatValue : 20f;
+            var view = go.GetComponent<SafeView>() ?? go.AddComponent<SafeView>();
+            view.SafeId = prop.id;
+
+            // U2 step 2e: the safe's live state — lock, crack progress,
+            // which actor (if any) is cracking it — goes into
+            // `MissionState.Safes`, not onto this MonoBehaviour.
+            var state = SimulationService.Current;
+            if (state != null)
+            {
+                state.Safes[prop.id] = new SafeState
+                {
+                    id = prop.id,
+                    position = new WorldPoint(prop.box.centerX, 0, prop.box.centerZ),
+                    isLocked = !prop.config.TryGetValue("locked", out var lk) || lk.type != LevelValue.Type.Bool || lk.boolValue,
+                    difficulty = prop.config.TryGetValue("difficulty", out var d) && d.type == LevelValue.Type.Int ? d.intValue : 3,
+                    crackDurationSeconds = prop.config.TryGetValue("crackSafeDuration", out var cd) && cd.type == LevelValue.Type.Float ? cd.floatValue : 20f
+                };
+            }
 
             var interactable = go.GetComponent<Interactable>() ?? go.AddComponent<Interactable>();
             interactable.InteractableId = prop.id;

@@ -34,8 +34,8 @@ namespace DerClou.Core.Simulation
 
     /// <summary>
     /// The gameplay-authoritative state for the current mission. Grew
-    /// <see cref="Doors"/> in U2 step 2d — Safes are added by their own
-    /// migration step (2e), not pre-declared here as an unused placeholder.
+    /// <see cref="Safes"/> in U2 step 2e — the last of the five vertical
+    /// slices `docs/U2_SIMULATION_DESIGN.md` scoped for U2.
     /// </summary>
     public class MissionState
     {
@@ -43,6 +43,7 @@ namespace DerClou.Core.Simulation
         public Dictionary<int, GuardState> Guards = new();
         public Dictionary<string, CameraState> Cameras = new();
         public Dictionary<string, DoorState> Doors = new();
+        public Dictionary<string, SafeState> Safes = new();
 
         /// The grid every actor/guard paths against. Pure C# already
         /// (`NavGrid`), so it belongs on the simulation side rather than
@@ -114,6 +115,22 @@ namespace DerClou.Core.Simulation
                     closeDurationSeconds = kv.Value.closeDurationSeconds,
                     isLocked = kv.Value.isLocked,
                     lockDifficulty = kv.Value.lockDifficulty
+                };
+            }
+            foreach (var kv in Safes)
+            {
+                clone.Safes[kv.Key] = new SafeState
+                {
+                    id = kv.Value.id,
+                    position = kv.Value.position,
+                    isLocked = kv.Value.isLocked,
+                    difficulty = kv.Value.difficulty,
+                    crackProgress = kv.Value.crackProgress,
+                    isOpen = kv.Value.isOpen,
+                    crackDurationSeconds = kv.Value.crackDurationSeconds,
+                    isBeingCracked = kv.Value.isBeingCracked,
+                    crackingActorId = kv.Value.crackingActorId,
+                    containedLootIds = new List<string>(kv.Value.containedLootIds)
                 };
             }
             return clone;
