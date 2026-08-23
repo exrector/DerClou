@@ -1,94 +1,80 @@
 # AGENTS.md — Codex onboarding
 
-This repository is a native Apple game project. Before doing nontrivial work, read:
+## PRIORITY 0 — READ THIS FIRST
 
-- `README.md`
-- `CLAUDE.md`
-- `docs/GAME_DESIGN.md`
-- `docs/TECHNICAL_ARCHITECTURE.md`
-- `docs/ART_DIRECTION.md`
-- `docs/ORIGINAL_GAMES_RESEARCH.md`
-- `docs/IP_AND_LEGAL_BOUNDARIES.md`
-- `docs/CAMPAIGN_PLAN.md`
-- `docs/PLATFORM_COMPATIBILITY.md`
-- `docs/ROADMAP.md`
+Before any nontrivial work, read:
 
-## Project summary
+1. `docs/00_UNITY_PORT_MASTER_PLAN.md`
+2. `CLAUDE.md`
+3. `README.md`
+4. the supporting docs referenced by the master plan
 
-Build a polished **top-down / 2.5D burglary-planning puzzle game** for iPhone, inspired by the planning/execution mechanics of *Der Clou! 2 / The Sting!* but using entirely original IP and levels.
+`docs/00_UNITY_PORT_MASTER_PLAN.md` is the **authoritative current implementation plan**. If an older document conflicts with it about the active engine, migration state, rendering pipeline, current work order or Swift/Unity ownership, **the master plan wins** until the owner explicitly changes the decision.
 
-## Fixed technical choices
+## Current project source of truth
 
-- **iOS 18+**. **(Старый вариант: iOS 27+.)**
-- Swift
-- SwiftUI
-- RealityKit
-- Reality Composer Pro 3
-- Xcode
-- native Apple runtime stack only; external DCC tools and legally usable asset
-  sources are allowed in the offline art pipeline
-- true 3D world with a fixed high top-down tactical camera
-- use SwiftUI `RealityView` with a virtual RealityKit camera and `OrthographicCameraComponent` for the intended tactical projection
-- tap-to-move pathfinding must use a project-owned navigation abstraction backed by GameplayKit graph/pathfinding APIs or a validated deterministic custom A* implementation. **(Старый вариант: RealityKit Navigation Mesh / `NavigationController` from iOS 27.)**
+- **Active production target:** `UnityPort/`
+- **Engine:** Unity **6000.5.9f1 / Unity 6.5.9f1**
+- **Language:** C#
+- **Primary platform:** Apple ecosystem first, iPhone/iOS first
+- **Swift + SwiftUI + RealityKit codebase:** **FROZEN REFERENCE IMPLEMENTATION**. Keep it. Use it to recover validated behavior, algorithms, tests and design lessons. Do not treat it as active production code and do not delete it.
+- Do not migrate away from Unity unless the owner explicitly changes the decision.
 
-Do not migrate the project to Godot, Unity, SpriteKit, SceneKit or a web stack without an explicit owner decision.
+## Mandatory milestone order
 
-Supporting iOS 18 is an API-coverage decision, **not** a reason to reduce visual quality, animation quality, materials, lighting, level complexity or gameplay. If older supported hardware needs adaptation, use measured quality/performance tiers while preserving the production art direction.
+Follow the master plan in this order:
 
-## Fixed gameplay choices
+- **U0:** repository/docs source-of-truth cleanup.
+- **U1:** Built-In Render Pipeline → URP using Unity's official conversion path; preserve the current playable loop and zero Console errors.
+- **U2:** make `DerClou.Core` the sole gameplay authority; critical simulation must not depend on `Time.deltaTime` or GameObject transforms.
+- **U3:** implement actual planning/commit/execution/retry semantics around the existing `PlanAction`, `ActorPlan` and `MissionPlan` models.
+- **U4:** one deterministic guard, pure-C# vision and a visible cone driven by the same authoritative numbers, yielding a genuine `plan → execute → fail/succeed → edit → retry` mission.
 
-- full-screen tactical building view
-- no virtual joystick
-- tap floor/corridor/room to navigate there
-- tap objects for contextual interaction
-- constant base walking speed in the initial design
-- deterministic, learnable guard patrols
-- security cameras, alarms, lasers, switches, doors, safes, containers and loot form the puzzle
-- skills/tools mainly change what an actor can do, how long it takes, how much noise/damage it creates, and what can be carried
-- planning and execution are separate phases
-- execution should be deterministic enough that a corrected plan reliably produces a corrected outcome
-- game is not intended to become a reflex shooter/stealth action game
+Until U4 is complete, do not expand into extra characters, additional levels, polished materials, complex camera work or unrelated systems unless the owner explicitly asks for them.
 
-## Graphics
+## Core gameplay constraints
 
-Use reusable 3D models, not rendered sprite variants.
+- Real 3D world viewed from above; not a sprite game.
+- No virtual joystick.
+- Planning and execution are separate phases.
+- During Planning, taps create/modify plan actions; they must not immediately execute the final actor movement.
+- During Execution, restore the mission's initial snapshot and deterministically replay the immutable compiled plan.
+- Same state + same plan + same deterministic variables must produce the same relevant outcome.
+- Failures must report enough structured information to explain exactly what happened and when.
+- Guards and security systems must be deterministic and learnable.
+- Do not turn the project into reflex stealth/action gameplay.
 
-Examples:
+## Architecture constraints
 
-- one desk model can be rotated to any orientation;
-- camera rotates as a 3D object;
-- doors animate on hinges;
-- characters use skeletal Idle/Walk/interact animations;
-- lasers and alarm LEDs are material/shader/effect animations;
-- real lighting/shadows preserve the volumetric look while the camera reads like a tactical 2D map.
+`DerClou.Core` owns gameplay truth. Unity owns presentation.
+
+GameObject transforms, Animator state, visual camera motion, visual door rotation, particles, physics presentation and frame timing must not silently become the source of mission outcomes.
+
+The current custom grid/A* pathfinding is the validated migration backend. Do not silently replace it with nondeterministic `NavMeshAgent` local avoidance as gameplay authority.
+
+Do not blindly port the most complex Swift navigation machinery before the core planning loop is proven. Use the Swift implementation as reference and import only the behavior/contracts currently needed.
+
+## Rendering
+
+The Unity project recorded in the repository is Unity 6000.5.9f1 and currently needs the Built-In → URP migration specified by `docs/00_UNITY_PORT_MASTER_PLAN.md` before production rendering expands.
+
+Create a checkpoint before one-way render-pipeline conversion. Verify the existing door/panel/camera/safe/loot/extraction live slice still works afterward.
+
+Do not recreate the old RealityKit custom off-axis camera merely because it exists in the reference implementation. Keep camera work simple until the core game loop is proven unless the owner explicitly changes that priority.
+
+## Assets and animation
+
+Do not bulk-port all characters before U4. When character work resumes, validate one humanoid end-to-end first: correct scale, Humanoid rig, Idle/Walk, stable Animator behavior, no foot sliding, correct materials and shadows.
+
+## IP boundary
+
+`docs/IP_AND_LEGAL_BOUNDARIES.md` remains mandatory. Use the original games only to study abstract design grammar. Do not copy protected maps, layouts, characters, story/dialogue, art/audio, code or distinctive presentation.
 
 ## Agent behavior
 
 - Check the repository before asking the owner to repeat context.
-- Check current Apple documentation and the installed SDK before assuming API availability/behavior.
-- Use Xcode build/test feedback as part of implementation.
-- Prefer small, reusable RealityKit components and systems over level-specific scripts.
-- Do not create elaborate abstractions before the vertical slice needs them.
-- Keep core gameplay rules in maintainable Swift/data structures even when Reality Composer Pro visual graphs are used for authoring.
+- Verify recommendations against current Unity documentation and the actual project/editor version before recommending installs, packages, render pipelines, APIs or workflows.
 - Surface blockers immediately.
-- Never silently simplify the game merely to retain the iOS 18 deployment floor. Report the exact blocker first.
-- Preserve IP separation from the original games.
-- `docs/IP_AND_LEGAL_BOUNDARIES.md` is mandatory project policy for levels, characters, story, UI, assets, naming and any use of original-game research.
-- Extract abstract mechanics from the originals, then independently redesign geometry, timings, security graphs, story context and visual expression. Do not reconstruct specific original missions.
-
-## Immediate product goal
-
-A polished first vertical slice containing:
-
-1. high-quality top-down orthographic 3D room layout;
-2. one playable thief;
-3. deterministic tap-to-move pathfinding using the project navigation layer; **(Старый вариант: RealityKit Navigation Mesh.)**
-4. one deterministic patrol guard + vision;
-5. one rotating security camera;
-6. one interactive door;
-7. one alarm/laser/switch dependency;
-8. one safe/loot objective;
-9. extraction;
-10. minimal plan → commit → execute → retry loop.
-
-For more detail, `CLAUDE.md` is currently the most complete implementation brief.
+- Keep main/buildable checkpoints before destructive changes.
+- Do not silently change the engine, render pipeline strategy, gameplay model or milestone order.
+- Owner decisions after inspecting the running game outrank stale documentation; implement the decision and then make the docs truthful again.
