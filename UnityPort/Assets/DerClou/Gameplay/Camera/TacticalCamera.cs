@@ -3,16 +3,29 @@ namespace DerClou.Gameplay.Camera
     using UnityEngine;
 
     /// <summary>
-    /// Orthographic tactical camera with pan/zoom.
-    /// <para>
-    /// Not a pure top-down camera: <c>docs/ART_DIRECTION.md</c>'s settled
-    /// "tabletop diorama" look explicitly calls for a tilted view ("this is
-    /// what allows the view to be tilted far enough to have depth at all"),
-    /// with the straight-down look rejected as reading like a sealed box.
-    /// <paramref name="pitchDegrees"/> is the tilt: 90 is the old
-    /// straight-down look, lower values tip the view forward so wall faces,
-    /// shadows and character silhouettes are actually visible.
-    /// </para>
+    /// Tactical camera — resting pose and player-input contract both come
+    /// from <c>docs/UI_AND_CAMERA.md</c> (the owner: "everything in the
+    /// original docs stays valid, only the engine changes"), not invented
+    /// per-engine:
+    /// <list type="bullet">
+    /// <item>Resting tilt is fixed, not straight-down — <c>docs/ART_DIRECTION.md</c>'s
+    /// "tabletop diorama" direction: "angled, never overhead... this is what
+    /// allows the view to be tilted far enough to have depth at all." The
+    /// straight-down look was rejected as reading like a sealed box.</item>
+    /// <item>"Rotation is not offered — decided" and "Panning is not offered
+    /// — decided" (top table, <c>docs/UI_AND_CAMERA.md</c> §Camera). The only
+    /// player gesture that moves the camera at all is a one-finger drag,
+    /// documented as "Peek into the box" — a small, clamped lateral shift,
+    /// not a rotate/orbit and not a free pan.</item>
+    /// </list>
+    /// The Swift version additionally kept an off-axis projection matrix so
+    /// peeking never visibly moved the outer wall-top frame on screen — that
+    /// trick existed to work around a RealityKit-specific bug (straight-down
+    /// orthographic cameras threw no shadows there, forcing a contorted
+    /// perspective-camera-pretending-to-be-orthographic setup). Unity's
+    /// perspective camera at a real tilt has no such bug, so peek here is a
+    /// plain clamped position shift — same player-facing gesture and range,
+    /// simpler implementation.
     /// </summary>
     public class TacticalCamera : MonoBehaviour
     {
@@ -31,16 +44,25 @@ namespace DerClou.Gameplay.Camera
         public float minOrthoSize = 5f;
         public float maxOrthoSize = 30f;
         public float zoomSpeed = 10f;
-        public float panSpeed = 20f;
-        public float edgePanMargin = 50f;
-        public float edgePanSpeed = 25f;
+
+        [Header("Peek (docs/UI_AND_CAMERA.md: one-finger drag)")]
+        // How far the camera may shift sideways/forward off its framed
+        // position. Not derived from the documented "±20°, 0.09°/point"
+        // figure — that was an angular parameter of the off-axis projection
+        // trick above, which has no equivalent here. Tuned by feel instead.
+        public float maxPeekOffset = 4f;
+        public float peekSensitivity = 0.015f; // world units per screen pixel
 
         [Header("Bounds")]
         public Vector2 minWorldPos = new Vector2(-50, -50);
         public Vector2 maxWorldPos = new Vector2(50, 50);
 
-        private Vector3 dragOrigin;
-        private bool isDragging;
+        // The framed position `ClampToBounds`/`FocusOn` compute — peek is
+        // layered on top of this each frame, never baked into it, so
+        // re-framing (e.g. a future "fit whole mission" button) always
+        // starts from zero peek rather than compounding drift.
+        private Vector3 homePosition;
+        private Vector2 peekOffset;
 
         // How far "behind" (−Z) the camera must sit, at its current height
         // and pitch, for its view axis to still hit the ground point it is
@@ -53,7 +75,8 @@ namespace DerClou.Gameplay.Camera
         private void Awake()
         {
             transform.rotation = Quaternion.Euler(pitchDegrees, 0, 0);
-            transform.position = new Vector3(transform.position.x, height, transform.position.z);
+            homePosition = new Vector3(transform.position.x, height, transform.position.z);
+            transform.position = homePosition;
             // `GameBootstrap` creates this component via `AddComponent`, which
             // runs `Awake` immediately — before the very next line in
             // `GameBootstrap.CreateCoreSystems` gets to assign or create
@@ -77,8 +100,8 @@ namespace DerClou.Gameplay.Camera
         private void LateUpdate()
         {
             HandleZoom();
-            HandlePan();
-            ClampToBounds();
+            ClampHomeToBounds();
+            transform.position = homePosition + new Vector3(peekOffset.x, 0, peekOffset.y);
         }
 
         private void HandleZoom()
@@ -91,38 +114,22 @@ namespace DerClou.Gameplay.Camera
             }
         }
 
-        private void HandlePan()
+        /// Called from `InputManager` while a one-finger drag is in
+        /// progress — the *only* player gesture that moves this camera
+        /// (`docs/UI_AND_CAMERA.md`: rotation and free panning are both
+        /// explicitly "not offered — decided"). `screenDelta` is the
+        /// frame's mouse movement in pixels; `InputManager` is responsible
+        /// for telling a drag apart from a tap so ordinary clicks don't
+        /// also nudge the camera.
+        public void ApplyPeek(Vector2 screenDelta)
         {
-            // Middle mouse or two-finger drag
-            if (Input.GetMouseButtonDown(2) || (Input.touchCount == 2))
-            {
-                dragOrigin = mainCamera.ScreenToWorldPoint(Input.mousePosition);
-                isDragging = true;
-            }
-            if (Input.GetMouseButtonUp(2) || Input.touchCount != 2)
-                isDragging = false;
-
-            if (isDragging)
-            {
-                Vector3 diff = dragOrigin - mainCamera.ScreenToWorldPoint(Input.mousePosition);
-                transform.position += new Vector3(diff.x, 0, diff.z);
-            }
-
-            // Edge pan
-            Vector2 mousePos = Input.mousePosition;
-            Vector3 pan = Vector3.zero;
-            if (mousePos.x < edgePanMargin) pan.x -= 1;
-            if (mousePos.x > Screen.width - edgePanMargin) pan.x += 1;
-            if (mousePos.y < edgePanMargin) pan.z -= 1;
-            if (mousePos.y > Screen.height - edgePanMargin) pan.z += 1;
-
-            if (pan != Vector3.zero)
-                transform.position += pan.normalized * edgePanSpeed * Time.deltaTime;
+            peekOffset += screenDelta * peekSensitivity;
+            peekOffset = Vector2.ClampMagnitude(peekOffset, maxPeekOffset);
         }
 
-        private void ClampToBounds()
+        private void ClampHomeToBounds()
         {
-            Vector3 pos = transform.position;
+            Vector3 pos = homePosition;
             float halfH = mainCamera.orthographicSize;
             float halfW = halfH * mainCamera.aspect;
 
@@ -152,18 +159,21 @@ namespace DerClou.Gameplay.Camera
             lookAtZ = minZ <= maxZ ? Mathf.Clamp(lookAtZ, minZ, maxZ) : (minWorldPos.y + maxWorldPos.y) * 0.5f;
             pos.z = lookAtZ - zOffset;
 
-            transform.position = pos;
+            homePosition = pos;
         }
 
         public void SetBounds(Vector2 min, Vector2 max) { minWorldPos = min; maxWorldPos = max; }
 
         /// Frames the camera on `worldPos` (a ground point), accounting for
         /// the tilt so the look-at point — not the camera's own position —
-        /// lands on `worldPos`.
+        /// lands on `worldPos`. Also resets peek: re-framing is meant to
+        /// give a clean, predictable view, not compound whatever offset a
+        /// prior drag left behind.
         public void FocusOn(Vector3 worldPos, float size = -1f)
         {
             if (size > 0) { orthographicSize = size; mainCamera.orthographicSize = size; }
-            transform.position = new Vector3(worldPos.x, transform.position.y, worldPos.z - ZOffsetForTilt);
+            homePosition = new Vector3(worldPos.x, homePosition.y, worldPos.z - ZOffsetForTilt);
+            peekOffset = Vector2.zero;
         }
     }
 }

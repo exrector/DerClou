@@ -21,11 +21,25 @@ namespace DerClou.Gameplay.Input
         public Material selectionOutlineMaterial;
         public Color selectionColor = Color.cyan;
 
+        [Header("Tap vs. drag")]
+        // Beyond this many pixels of movement, a mouse-down is a drag (camera
+        // peek — docs/UI_AND_CAMERA.md's one-finger-drag gesture) rather than
+        // a tap (select/move/interact). Without this split, `HandleClick`
+        // used to fire on the down-frame regardless of what happened after,
+        // so peeking the camera would also issue a move/interact command at
+        // wherever the drag started.
+        public float dragThresholdPixels = 12f;
+
         private InputMode currentMode = InputMode.Planning;
         private ActorEntity selectedActor;
         private ActorEntity hoveredActor;
         private Interactable hoveredInteractable;
         private Dictionary<ActorEntity, Material[]> originalMaterials = new();
+
+        private bool pointerDown;
+        private bool isDragging;
+        private Vector2 pointerDownPos;
+        private Vector2 lastPointerPos;
 
         public InputMode CurrentMode => currentMode;
         public ActorEntity SelectedActor => selectedActor;
@@ -39,10 +53,44 @@ namespace DerClou.Gameplay.Input
             if (currentMode != InputMode.Planning) return;
 
             HandleHover();
-            if (Input.GetMouseButtonDown(0)) HandleClick();
+            HandlePointer();
         }
 
-        /// One raycast pass per click, dispatched to exactly one target
+        private void HandlePointer()
+        {
+            if (Input.GetMouseButtonDown(0))
+            {
+                pointerDown = true;
+                isDragging = false;
+                pointerDownPos = Input.mousePosition;
+                lastPointerPos = pointerDownPos;
+                return;
+            }
+
+            if (!pointerDown) return;
+
+            if (Input.GetMouseButton(0))
+            {
+                Vector2 current = Input.mousePosition;
+                if (!isDragging && (current - pointerDownPos).magnitude > dragThresholdPixels)
+                    isDragging = true;
+
+                if (isDragging)
+                    tacticalCamera.ApplyPeek(current - lastPointerPos);
+
+                lastPointerPos = current;
+                return;
+            }
+
+            if (Input.GetMouseButtonUp(0))
+            {
+                if (!isDragging) HandleClick();
+                pointerDown = false;
+                isDragging = false;
+            }
+        }
+
+        /// One raycast pass per tap, dispatched to exactly one target
         /// (actor > interactable > floor) — this replaced three separate
         /// handlers that each re-raycast and act independently on the same
         /// `GetMouseButtonDown(0)` frame: a floor click fired both the
@@ -53,7 +101,12 @@ namespace DerClou.Gameplay.Input
         /// the moment anything was already selected.
         private void HandleClick()
         {
-            Ray ray = tacticalCamera.mainCamera.ScreenPointToRay(Input.mousePosition);
+            Ray ray = tacticalCamera.mainCamera.ScreenPointToRay(pointerDownPos);
+            // Visible in the Console the instant a tap is recognized —
+            // without this, "nothing happened" and "the click never reached
+            // Unity's Input system" (e.g. because the Game view didn't have
+            // focus) look identical from outside the Editor.
+            Debug.Log($"[InputManager] tap at {pointerDownPos}");
 
             if (Physics.Raycast(ray, out var hit, 1000f, actorMask))
             {
@@ -72,7 +125,10 @@ namespace DerClou.Gameplay.Input
             if (Physics.Raycast(ray, out hit, 1000f, floorMask))
             {
                 OnFloorClicked?.Invoke(hit.point);
+                return;
             }
+
+            Debug.Log("[InputManager] tap hit nothing on any mask");
         }
 
         private void HandleHover()

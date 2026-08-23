@@ -120,7 +120,11 @@ namespace DerClou.Gameplay
 
         private void OnFloorClicked(Vector3 worldPos)
         {
-            if (CurrentPhase != GamePhase.Planning || inputManager.SelectedActor == null) return;
+            if (CurrentPhase != GamePhase.Planning || inputManager.SelectedActor == null)
+            {
+                Debug.Log($"[GameController] floor tap ignored (phase={CurrentPhase}, selected={inputManager.SelectedActor != null})");
+                return;
+            }
 
             // Move happens immediately — this slice keeps the world live
             // during "planning" (see `SetPhase`'s comment) rather than
