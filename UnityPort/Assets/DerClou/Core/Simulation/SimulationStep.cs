@@ -34,6 +34,7 @@ namespace DerClou.Core.Simulation
             // stopped freezing guards.
             ActorMovementSystem.Tick(state, fixedDt);
             if (!clock.IsPaused) GuardPatrolSystem.Tick(state, fixedDt);
+            SecurityCameraSystem.Tick(state, fixedDt);
         }
     }
 }

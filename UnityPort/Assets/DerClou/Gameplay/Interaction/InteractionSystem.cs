@@ -3,6 +3,7 @@ namespace DerClou.Gameplay.Interaction
     using DerClou.Core.Data;
     using DerClou.Gameplay.Actors;
     using DerClou.Gameplay.Props;
+    using DerClou.Gameplay.Simulation;
     using UnityEngine;
     using System.Collections.Generic;
 
@@ -27,7 +28,6 @@ namespace DerClou.Gameplay.Interaction
         private ActorView crackingActor;
         private Safe crackingSafe;
 
-        private readonly Dictionary<string, SecurityCamera> camerasById = new();
         private readonly Dictionary<string, Safe> safesById = new();
 
         public bool HasLoot { get; private set; }
@@ -36,12 +36,12 @@ namespace DerClou.Gameplay.Interaction
 
         /// Scans the just-built level for the devices interactions need to
         /// look up by id. Called once after `LevelBuilder.Build` — the
-        /// builder itself stays unaware this system exists.
+        /// builder itself stays unaware this system exists. Cameras aren't
+        /// looked up this way any more (U2 step 2c) — `MissionState.Cameras`
+        /// is itself the registry, keyed by the same id.
         public void DiscoverRegistries()
         {
-            camerasById.Clear();
             safesById.Clear();
-            foreach (var cam in FindObjectsOfType<SecurityCamera>()) camerasById[cam.CameraId] = cam;
             foreach (var safe in FindObjectsOfType<Safe>()) safesById[safe.SafeId] = safe;
         }
 
@@ -134,13 +134,15 @@ namespace DerClou.Gameplay.Interaction
         private void PerformPanel(Interactable panel)
         {
             string controlledId = panel.GetConfigString("controlsCameraId", "");
-            if (string.IsNullOrEmpty(controlledId) || !camerasById.TryGetValue(controlledId, out var cam))
+            var state = SimulationService.Current;
+            if (string.IsNullOrEmpty(controlledId) || state == null || !state.Cameras.TryGetValue(controlledId, out var cam))
             {
                 Debug.Log($"{panel.InteractableId}: не подключена ни к одному устройству.");
                 return;
             }
-            cam.Powered = !cam.Powered;
-            Debug.Log($"{panel.InteractableId}: камера '{controlledId}' теперь {(cam.Powered ? "включена" : "выключена")}.");
+            cam.powered = !cam.powered;
+            state.Cameras[controlledId] = cam;
+            Debug.Log($"{panel.InteractableId}: камера '{controlledId}' теперь {(cam.powered ? "включена" : "выключена")}.");
         }
 
         private void PerformSafe(ActorView actor, Safe safe)

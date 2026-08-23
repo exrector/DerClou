@@ -2,6 +2,7 @@ namespace DerClou.Gameplay.Props
 {
     using DerClou.Core.Data;
     using DerClou.Core.Simulation;
+    using DerClou.Gameplay.Simulation;
     using System.Collections.Generic;
     using UnityEngine;
 
@@ -96,28 +97,36 @@ namespace DerClou.Gameplay.Props
         }
     }
 
-    public class SecurityCamera : MonoBehaviour
+    /// <summary>
+    /// Renamed from <c>SecurityCamera</c> in U2 step 2c
+    /// (`docs/U2_SIMULATION_DESIGN.md`). The scan-sweep math that used to
+    /// run in this class's <c>Update()</c> now lives in the pure-C#
+    /// <c>DerClou.Core.Systems.SecurityCameraSystem</c>, ticked from
+    /// <see cref="Core.Simulation.SimulationStep"/>. This class only reads
+    /// <c>CameraState.currentYaw</c> back each frame to rotate the
+    /// transform/cone — it never decides whether the camera is powered or
+    /// where it's currently looking.
+    /// </summary>
+    public class CameraView : MonoBehaviour
     {
         public string CameraId;
-        public float Range = 8f;
-        public float FieldOfView = 90f;
-        public float ScanArc = 90f;
-        public float ScanPeriod = 8f;
-        public float MountHeight = 2.4f;
-        public bool Powered = true;
-
         public Transform ConeTransform;
         public Material ConeMaterial;
 
-        private float scanPhase;
+        // Editor-gizmo-only cosmetics — not gameplay-authoritative (that's
+        // `CameraState.range`/`fieldOfView`). Set once at spawn from the
+        // same source data so the gizmo still matches reality; kept
+        // separate so `OnDrawGizmosSelected` (which can run in Edit mode,
+        // before `SimulationService.Current` exists) never needs state.
+        public float GizmoRange = 8f;
+        public float GizmoFieldOfView = 90f;
 
-        private void Update()
+        private void LateUpdate()
         {
-            if (!Powered) return;
-            scanPhase += Time.deltaTime / ScanPeriod;
-            float yaw = Mathf.Sin(scanPhase * Mathf.PI * 2f) * ScanArc * 0.5f;
-            transform.rotation = Quaternion.Euler(0, yaw, 0);
+            var state = SimulationService.Current;
+            if (state == null || !state.Cameras.TryGetValue(CameraId, out var cam)) return;
 
+            transform.rotation = Quaternion.Euler(0, cam.currentYaw, 0);
             if (ConeTransform != null)
             {
                 ConeTransform.rotation = transform.rotation;
@@ -126,13 +135,12 @@ namespace DerClou.Gameplay.Props
 
         private void OnDrawGizmosSelected()
         {
-            if (!Powered) return;
             Gizmos.color = new Color(0, 1, 0, 0.2f);
             Vector3 dir = transform.forward;
-            Vector3 left = Quaternion.Euler(0, -FieldOfView * 0.5f, 0) * dir;
-            Vector3 right = Quaternion.Euler(0, FieldOfView * 0.5f, 0) * dir;
-            Gizmos.DrawRay(transform.position, left * Range);
-            Gizmos.DrawRay(transform.position, right * Range);
+            Vector3 left = Quaternion.Euler(0, -GizmoFieldOfView * 0.5f, 0) * dir;
+            Vector3 right = Quaternion.Euler(0, GizmoFieldOfView * 0.5f, 0) * dir;
+            Gizmos.DrawRay(transform.position, left * GizmoRange);
+            Gizmos.DrawRay(transform.position, right * GizmoRange);
         }
     }
 

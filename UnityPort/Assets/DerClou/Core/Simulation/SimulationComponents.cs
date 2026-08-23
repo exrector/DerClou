@@ -86,11 +86,14 @@ namespace DerClou.Core.Simulation
         public float openSpeed;    // degrees per second
     }
 
+    /// Renamed from `SecurityCameraComponent` in U2 step 2c — live state in
+    /// `MissionState.Cameras`, not the dead, never-read data it was before.
     [System.Serializable]
-    public class SecurityCameraComponent
+    public class CameraState
     {
         public string id;
-        public VisionConfig config;
+        public float range;
+        public float fieldOfView;
         public float mountHeight;
         public float scanArc;
         public float scanPeriod;

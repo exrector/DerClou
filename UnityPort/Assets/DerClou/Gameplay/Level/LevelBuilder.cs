@@ -304,16 +304,32 @@ namespace DerClou.Gameplay.Level
         private GameObject BuildCamera(PlacedProp prop, PropPrototype proto)
         {
             var go = cameraPrefab != null ? Instantiate(cameraPrefab) : new GameObject("Camera");
-            go.transform.position = new Vector3(prop.box.centerX, prop.config.TryGetValue("mountHeight", out var mh) && mh.type == LevelValue.Type.Float ? mh.floatValue : 2.4f, prop.box.centerZ);
+            float mountHeight = prop.config.TryGetValue("mountHeight", out var mh) && mh.type == LevelValue.Type.Float ? mh.floatValue : 2.4f;
+            go.transform.position = new Vector3(prop.box.centerX, mountHeight, prop.box.centerZ);
             go.transform.rotation = Quaternion.Euler(0, prop.box.yaw, 0);
 
-            var cam = go.GetComponent<SecurityCamera>() ?? go.AddComponent<SecurityCamera>();
-            cam.CameraId = prop.id;
-            cam.Range = prop.config.TryGetValue("range", out var r) && r.type == LevelValue.Type.Float ? r.floatValue : 8f;
-            cam.FieldOfView = prop.config.TryGetValue("fieldOfView", out var fov) && fov.type == LevelValue.Type.Float ? fov.floatValue : 90f;
-            cam.ScanArc = prop.config.TryGetValue("scanArc", out var sa) && sa.type == LevelValue.Type.Float ? sa.floatValue : 90f;
-            cam.ScanPeriod = prop.config.TryGetValue("scanPeriod", out var sp) && sp.type == LevelValue.Type.Float ? sp.floatValue : 8f;
-            cam.Powered = prop.config.TryGetValue("powered", out var p) && p.type == LevelValue.Type.Bool && p.boolValue;
+            var view = go.GetComponent<CameraView>() ?? go.AddComponent<CameraView>();
+            view.CameraId = prop.id;
+            view.GizmoRange = prop.config.TryGetValue("range", out var r) && r.type == LevelValue.Type.Float ? r.floatValue : 8f;
+            view.GizmoFieldOfView = prop.config.TryGetValue("fieldOfView", out var fov) && fov.type == LevelValue.Type.Float ? fov.floatValue : 90f;
+
+            // U2 step 2c: the camera's live state — the only thing that
+            // actually decides whether/how fast it scans — goes into
+            // `MissionState.Cameras`, not onto this MonoBehaviour.
+            var state = SimulationService.Current;
+            if (state != null)
+            {
+                state.Cameras[prop.id] = new CameraState
+                {
+                    id = prop.id,
+                    range = view.GizmoRange,
+                    fieldOfView = view.GizmoFieldOfView,
+                    mountHeight = mountHeight,
+                    scanArc = prop.config.TryGetValue("scanArc", out var sa) && sa.type == LevelValue.Type.Float ? sa.floatValue : 90f,
+                    scanPeriod = prop.config.TryGetValue("scanPeriod", out var sp) && sp.type == LevelValue.Type.Float ? sp.floatValue : 8f,
+                    powered = prop.config.TryGetValue("powered", out var p) && p.type == LevelValue.Type.Bool && p.boolValue
+                };
+            }
 
             return go;
         }
