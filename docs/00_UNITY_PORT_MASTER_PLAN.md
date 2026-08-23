@@ -11,7 +11,7 @@
 - [x] Этап 12 (камера) — закрыт отдельно, orthographic-камера остаётся, см. раздел ниже.
 - [ ] **U2** — deterministic simulation (дизайн: `docs/U2_SIMULATION_DESIGN.md`).
   - [x] 2a — Actor movement (`MissionState`/`ActorState`, `ActorMovementSystem`, `SimulationStep`, `SimulationService`, `ActorEntity`→`ActorView`). 2026-08-23.
-  - [ ] 2b — Guard patrol
+  - [x] 2b — Guard patrol (`GuardState`, pure-C# `Core.Systems.GuardPatrolSystem`, `GuardPatrolSystem`→`GuardView`, `ActorMovementSystem.RequestPath` shared by player+guard, `NavigationService` removed in favor of `MissionState.Grid`). 2026-08-23.
   - [ ] 2c — Security camera
   - [ ] 2d — Door
   - [ ] 2e — Safe
