@@ -34,8 +34,11 @@ namespace DerClou.Core.Simulation
 
     /// <summary>
     /// The gameplay-authoritative state for the current mission. Grew
-    /// <see cref="Safes"/> in U2 step 2e — the last of the five vertical
-    /// slices `docs/U2_SIMULATION_DESIGN.md` scoped for U2.
+    /// <see cref="HasLoot"/>/<see cref="MissionComplete"/>/
+    /// <see cref="CollectedLootIds"/> in U3 step 3b — mission outcome has to
+    /// live here too, not as private `InteractionSystem` fields, or Retry
+    /// can't cleanly reset it by restoring a `MissionState` snapshot
+    /// (`docs/U3_PLANNING_LOOP_DESIGN.md`).
     /// </summary>
     public class MissionState
     {
@@ -44,6 +47,10 @@ namespace DerClou.Core.Simulation
         public Dictionary<string, CameraState> Cameras = new();
         public Dictionary<string, DoorState> Doors = new();
         public Dictionary<string, SafeState> Safes = new();
+
+        public bool HasLoot;
+        public bool MissionComplete;
+        public HashSet<string> CollectedLootIds = new();
 
         /// The grid every actor/guard paths against. Pure C# already
         /// (`NavGrid`), so it belongs on the simulation side rather than
@@ -65,7 +72,14 @@ namespace DerClou.Core.Simulation
         /// at runtime, so cloning them would only cost memory for no benefit.
         public MissionState Clone()
         {
-            var clone = new MissionState { Grid = Grid, CurrentTime = CurrentTime };
+            var clone = new MissionState
+            {
+                Grid = Grid,
+                CurrentTime = CurrentTime,
+                HasLoot = HasLoot,
+                MissionComplete = MissionComplete,
+                CollectedLootIds = new HashSet<string>(CollectedLootIds)
+            };
             foreach (var kv in Actors)
             {
                 var copy = kv.Value;

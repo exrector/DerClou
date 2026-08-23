@@ -142,13 +142,33 @@ namespace DerClou.Gameplay.Props
     /// (progress accumulation, the proximity check that used to compare two
     /// Transforms in <c>InteractionSystem.Update()</c>) moved to the pure-C#
     /// <c>DerClou.Core.Systems.SafeSystem</c>. This class is now just an id
-    /// marker for <c>InteractionSystem</c> to find via
-    /// <c>GetComponent&lt;SafeView&gt;()</c> — same as before, a safe has no
+    /// marker for <c>GameController.OnInteractableClicked</c> (U3 step 3b) to
+    /// find via <c>GetComponent&lt;SafeView&gt;()</c> — same as before, a safe has no
     /// visible change on opening, so there is nothing for a per-frame
     /// Update/LateUpdate here to apply.
     /// </summary>
     public class SafeView : MonoBehaviour
     {
         public string SafeId;
+    }
+
+    /// <summary>
+    /// U3 step 3b: mirrors <c>MissionState.CollectedLootIds</c> — hides the
+    /// prop once <c>PlanExecutor</c>'s <c>TakeLoot</c> dispatch marks it
+    /// collected. Same "id marker + poll state" shape as <see cref="SafeView"/>,
+    /// except this one has one visible effect to apply.
+    /// </summary>
+    public class LootView : MonoBehaviour
+    {
+        public string LootId;
+
+        private void LateUpdate()
+        {
+            var state = SimulationService.Current;
+            if (state != null && gameObject.activeSelf && state.CollectedLootIds.Contains(LootId))
+            {
+                gameObject.SetActive(false);
+            }
+        }
     }
 }

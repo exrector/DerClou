@@ -441,6 +441,14 @@ namespace DerClou.Gameplay.Level
                 interactable.InteractableId = prop.id;
                 interactable.SupportedInteractions = proto.interactions;
                 interactable.RuntimeState = new InteractableComponent { id = prop.id, interactions = proto.interactions, config = prop.config };
+
+                // U3 step 3b: loot needs a presentation hook to disappear
+                // once `PlanExecutor` marks it collected in `MissionState`.
+                if (System.Array.IndexOf(proto.interactions, InteractionKind.TakeLoot) >= 0)
+                {
+                    var lootView = go.GetComponent<LootView>() ?? go.AddComponent<LootView>();
+                    lootView.LootId = prop.id;
+                }
             }
 
             return go;

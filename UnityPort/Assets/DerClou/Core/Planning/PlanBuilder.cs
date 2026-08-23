@@ -16,14 +16,18 @@ namespace DerClou.Core.Planning
     /// </summary>
     public static class PlanBuilder
     {
-        public static void QueueMove(MissionPlan plan, MissionState state, int actorId,
+        /// Returns whether a MoveTo was actually queued — `QueueInteract`
+        /// needs to know this before deciding whether to append the
+        /// interaction action after it (no point queuing "hack the panel" if
+        /// there is no route there at all).
+        public static bool QueueMove(MissionPlan plan, MissionState state, int actorId,
             ref PlanCursor cursor, WorldPoint destination)
         {
-            if (!state.Actors.TryGetValue(actorId, out var actor)) return;
-            if (state.Grid == null) return;
+            if (!state.Actors.TryGetValue(actorId, out var actor)) return false;
+            if (state.Grid == null) return false;
 
             var path = PathFinder.FindPath(state.Grid, cursor.Position, destination);
-            if (path.Length == 0) return;
+            if (path.Length == 0) return false;
 
             float distance = PathLength(path, cursor.Position);
             float duration = actor.Profile.walkSpeed > 0f ? distance / actor.Profile.walkSpeed : 0f;
@@ -40,6 +44,38 @@ namespace DerClou.Core.Planning
             plan.RecalculateDuration();
 
             cursor = new PlanCursor { Position = destination, Time = cursor.Time + duration };
+            return true;
+        }
+
+        /// Queues a MoveTo to `targetPos` (reusing <see cref="QueueMove"/>)
+        /// followed immediately by the interaction action itself —
+        /// `actionType`/`targetId`/`parameters` are already fully resolved
+        /// by the caller (Gameplay-side: which `*View` component the tapped
+        /// `Interactable` carries, and its config) since this pure-C# method
+        /// has no way to inspect a Unity component itself.
+        public static void QueueInteract(MissionPlan plan, MissionState state, int actorId,
+            ref PlanCursor cursor, WorldPoint targetPos, PlanActionType actionType, string targetId,
+            System.Collections.Generic.Dictionary<string, LevelValue> parameters,
+            IActionDurationProvider durationProvider)
+        {
+            if (!state.Actors.TryGetValue(actorId, out var actor)) return;
+            if (!QueueMove(plan, state, actorId, ref cursor, targetPos)) return;
+
+            float duration = durationProvider.GetDuration(actionType, actor.Profile, parameters);
+
+            plan.GetOrCreate(actorId).AddAction(new PlanAction
+            {
+                type = actionType,
+                actorId = actorId,
+                targetId = targetId,
+                targetPos = targetPos,
+                duration = duration,
+                earliestStart = cursor.Time,
+                parameters = parameters
+            });
+            plan.RecalculateDuration();
+
+            cursor.Time += duration;
         }
 
         /// Sum of segment lengths through `path`, starting from `from` (the

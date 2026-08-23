@@ -6,7 +6,6 @@ namespace DerClou.Gameplay
     using DerClou.Gameplay.Actors;
     using DerClou.Gameplay.Camera;
     using DerClou.Gameplay.Input;
-    using DerClou.Gameplay.Interaction;
     using DerClou.Gameplay.Level;
     using DerClou.Gameplay.Simulation;
     using DerClou.Core.Simulation;
@@ -26,7 +25,6 @@ namespace DerClou.Gameplay
         public InputManager inputManager;
         public TacticalCamera tacticalCamera;
         public GuardView patrolSystem;
-        public InteractionSystem interactionSystem;
         public Level01Builder level01Builder;
 
         [Header("Data Assets")]
@@ -102,10 +100,6 @@ namespace DerClou.Gameplay
             patrolGO.transform.SetParent(transform);
             patrolSystem = patrolGO.AddComponent<GuardView>();
 
-            var interactionGO = new GameObject("InteractionSystem");
-            interactionGO.transform.SetParent(transform);
-            interactionSystem = interactionGO.AddComponent<InteractionSystem>();
-
             var controllerGO = new GameObject("GameController");
             controllerGO.transform.SetParent(transform);
             gameController = controllerGO.AddComponent<GameController>();
@@ -141,7 +135,6 @@ namespace DerClou.Gameplay
             gameController.inputManager = inputManager;
             gameController.tacticalCamera = tacticalCamera;
             gameController.patrolSystem = patrolSystem;
-            gameController.interactionSystem = interactionSystem;
             gameController.catalog = catalog;
             gameController.blueprint = blueprint;
             gameController.currentPlan = currentPlan;
@@ -179,9 +172,6 @@ namespace DerClou.Gameplay
             // `LevelBuilder.catalog` is private, so nothing outside it should
             // set that field directly.
             levelBuilder.Build(blueprint, catalog);
-            // `InteractionSystem.DiscoverRegistries` was removed in U2 step
-            // 2e — cameras (2c) and safes (this step) are both looked up
-            // through `MissionState` now, which is itself the registry.
         }
 
         private static Material SolidColorMaterial(Color color)

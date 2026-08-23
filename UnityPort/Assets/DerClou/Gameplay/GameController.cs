@@ -7,7 +7,6 @@ namespace DerClou.Gameplay
     using DerClou.Gameplay.Level;
     using DerClou.Gameplay.Input;
     using DerClou.Gameplay.Camera;
-    using DerClou.Gameplay.Interaction;
     using DerClou.Gameplay.Props;
     using DerClou.Gameplay.Simulation;
     using DerClou.Core.Simulation;
@@ -25,7 +24,6 @@ namespace DerClou.Gameplay
         public InputManager inputManager;
         public TacticalCamera tacticalCamera;
         public GuardView patrolSystem;
-        public InteractionSystem interactionSystem;
 
         [Header("Data")]
         public PropCatalog catalog;
@@ -38,9 +36,6 @@ namespace DerClou.Gameplay
 
         public GamePhase CurrentPhase { get; private set; } = GamePhase.Recon;
 
-        private Dictionary<int, ActorView> actors = new();
-        private bool isExecuting = false;
-
         // U3 (`docs/U3_PLANNING_LOOP_DESIGN.md`): where each actor's next
         // planned action starts from. Lazily seeded from the actor's live
         // position the first time it's queued — valid because Planning taps
@@ -48,6 +43,14 @@ namespace DerClou.Gameplay
         // position" are the same thing until 3c (Retry) needs to rebuild
         // this from a preserved plan instead.
         private Dictionary<int, PlanCursor> planCursors = new();
+
+        // U3 step 3b: the state right after the level finished building,
+        // before any Planning tap could have touched it. Execute and every
+        // Retry restore from this same one — Planning taps never mutate
+        // MissionState (3a/3b both), so it never needs retaking.
+        private MissionState initialSnapshot;
+        private readonly PlanExecutor planExecutor = new();
+        private bool wasMissionComplete;
 
         private void Awake()
         {
@@ -73,7 +76,12 @@ namespace DerClou.Gameplay
                 inputManager.OnInteractableClicked += OnInteractableClicked;
             }
 
-            if (interactionSystem != null) interactionSystem.OnMissionComplete += HandleMissionComplete;
+            // U3 step 3b: the one-time snapshot Execute/Retry always restore
+            // from. Must happen here, not earlier — `GameBootstrap.Awake`
+            // (which builds the level and populates `SimulationService.Current`)
+            // runs before any `Start`, so this is the first point a fully
+            // built `MissionState` is guaranteed to exist.
+            initialSnapshot = SimulationService.Current.Clone();
 
             SetPhase(GamePhase.Planning);
             // `SetPhase(Planning)` pauses `missionClock`, which is what a
@@ -101,19 +109,30 @@ namespace DerClou.Gameplay
                 SimulationStep.Tick(SimulationService.Current, missionClock, fixedStep.FixedDt);
             }
 
-            if (isExecuting)
+            if (CurrentPhase == GamePhase.Execution)
             {
-                TickExecution(dt);
+                TickExecution();
             }
         }
 
-        private void TickExecution(float dt)
+        private void TickExecution()
         {
-            // Execute current plan
-            if (currentPlan != null)
+            var state = SimulationService.Current;
+            planExecutor.Tick(state, missionClock.CurrentTime);
+
+            if (planExecutor.LastFailure is FailureEvent failure)
             {
-                float t = missionClock.CurrentTime;
-                // TODO: execute actions based on time
+                Debug.Log($"=== ПРОВАЛ: actor {failure.actorId}, {failure.source}/{failure.reason}, t={failure.time:0.0}s ===");
+                missionClock.Pause();
+                CurrentPhase = GamePhase.Result;
+                inputManager.SetMode(InputMode.Inspecting);
+                return;
+            }
+
+            if (state.MissionComplete && !wasMissionComplete)
+            {
+                wasMissionComplete = true;
+                HandleMissionComplete();
             }
         }
 
@@ -162,7 +181,41 @@ namespace DerClou.Gameplay
         private void OnInteractableClicked(Interactable interactable)
         {
             if (CurrentPhase != GamePhase.Planning || inputManager.SelectedActor == null) return;
-            interactionSystem.RequestInteract(inputManager.SelectedActor, interactable);
+
+            // U3 step 3b: resolving "what does tapping this mean" is
+            // Gameplay-side work (it inspects Unity components — DoorView,
+            // SafeView — and MonoBehaviour config) that pure-C# PlanBuilder
+            // has no way to do itself. `PlanBuilder.QueueInteract` only
+            // takes the already-resolved result.
+            PlanActionType actionType;
+            if (interactable.GetComponent<DoorView>() != null) actionType = PlanActionType.OpenDoor;
+            else if (interactable.GetComponent<SafeView>() != null) actionType = PlanActionType.CrackSafe;
+            else if (interactable.Supports(InteractionKind.ToggleSwitch) || interactable.Supports(InteractionKind.Hack)) actionType = PlanActionType.Hack;
+            else if (interactable.Supports(InteractionKind.TakeLoot)) actionType = PlanActionType.TakeLoot;
+            else if (interactable.Supports(InteractionKind.Extract)) actionType = PlanActionType.Extract;
+            else
+            {
+                Debug.Log($"[GameController] {interactable.InteractableId}: нечего планировать.");
+                return;
+            }
+
+            var actor = inputManager.SelectedActor;
+            var cursor = GetCursor(actor.ActorId);
+            var targetPos = new WorldPoint(interactable.transform.position.x, 0, interactable.transform.position.z);
+            // The prop's own config already carries every duration key
+            // DefaultDurationProvider reads (hackDuration, crackSafeDuration,
+            // …) plus the panel→camera link (controlsCameraId) and the
+            // loot→safe gate (requiresSafeId) — reusing it directly resolves
+            // both at planning time instead of needing PlanExecutor to look
+            // anything else up later.
+            var parameters = new Dictionary<string, LevelValue>(interactable.RuntimeState.config);
+
+            PlanBuilder.QueueInteract(currentPlan, SimulationService.Current, actor.ActorId, ref cursor,
+                targetPos, actionType, interactable.InteractableId, parameters, durationProvider);
+            planCursors[actor.ActorId] = cursor;
+
+            Debug.Log($"[GameController] queued {actionType} on {interactable.InteractableId} for actor {actor.ActorId} " +
+                $"({currentPlan.GetOrCreate(actor.ActorId).actions.Count} actions queued, cursor time={cursor.Time:0.0}s)");
         }
 
         private void HandleMissionComplete()
@@ -179,21 +232,52 @@ namespace DerClou.Gameplay
         public void StartExecution()
         {
             if (CurrentPhase != GamePhase.Planning) return;
+
+            RestoreSnapshot();
+            missionClock.Reset();
+            wasMissionComplete = false;
+            planExecutor.Begin(currentPlan);
+
             SetPhase(GamePhase.Execution);
-            isExecuting = true;
             missionClock.Resume();
-            // TODO: start plan execution
         }
 
+        /// Retry, per U3 step 3c (`docs/U3_PLANNING_LOOP_DESIGN.md`): the
+        /// plan is deliberately *not* cleared — that is the entire point of
+        /// Retry versus starting over. Cursors rebuild from the plan's own
+        /// recorded end-state so further Planning taps append correctly
+        /// instead of replanning from the actor's (now snapshot-restored)
+        /// spawn position.
         public void StopExecution()
         {
-            if (CurrentPhase != GamePhase.Execution) return;
-            SetPhase(GamePhase.Planning);
-            isExecuting = false;
-            missionClock.Pause();
+            if (CurrentPhase != GamePhase.Execution && CurrentPhase != GamePhase.Result) return;
+
+            RestoreSnapshot();
             missionClock.Reset();
-            currentPlan = new MissionPlan();
-            // Reset actor positions
+            wasMissionComplete = false;
+            RebuildCursorsFromPlan();
+
+            SetPhase(GamePhase.Planning);
+            // Same reasoning as `Start()`: keep guard patrol visibly live
+            // during Planning rather than frozen on the snapshot.
+            missionClock.Resume();
+        }
+
+        private void RestoreSnapshot()
+        {
+            SimulationService.Current = initialSnapshot.Clone();
+        }
+
+        private void RebuildCursorsFromPlan()
+        {
+            planCursors.Clear();
+            foreach (var kv in currentPlan.actorPlans)
+            {
+                var actions = kv.Value.actions;
+                planCursors[kv.Key] = actions.Count > 0
+                    ? new PlanCursor { Position = actions[^1].targetPos, Time = actions[^1].EndTime }
+                    : GetCursor(kv.Key);
+            }
         }
 
         public void SetPhase(GamePhase phase)
@@ -220,7 +304,6 @@ namespace DerClou.Gameplay
                 inputManager.OnFloorClicked -= OnFloorClicked;
                 inputManager.OnInteractableClicked -= OnInteractableClicked;
             }
-            if (interactionSystem != null) interactionSystem.OnMissionComplete -= HandleMissionComplete;
         }
     }
 }
