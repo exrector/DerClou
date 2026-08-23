@@ -4,6 +4,15 @@
 >
 > Этот документ сохраняет план перехода Swift → Unity дословно. До завершения описанных ниже этапов он имеет приоритет над более старыми roadmap/onboarding-документами в части текущей реализации и порядка работ. Старый Swift/RealityKit-код не удаляется: он остаётся frozen reference implementation.
 
+## Ход выполнения (обновляется по мере работы)
+
+- [x] **U0** — repository source of truth (`CLAUDE.md`/`AGENTS.md`/master plan). 2026-08-23.
+- [x] **U1** — Built-In → URP (`com.unity.render-pipelines.universal@17.5.0`, единственная версия под 6000.5.9f1; `Assets/Settings/DerClou_URP.asset` + `DerClou_Renderer.asset`; `Shader.Find("Standard")` → `"Universal Render Pipeline/Lit"` в `GameBootstrap.cs`/`LevelBuilder.cs` — других материалов в проекте не было, конвертировать было нечего). Проверено вживую: 0 ошибок консоли, playable-цепочка (select/move/door) не сломана. 2026-08-23.
+- [x] Этап 12 (камера) — закрыт отдельно, orthographic-камера остаётся, см. раздел ниже.
+- [ ] **U2** — deterministic simulation. Дизайн зафиксирован в `docs/U2_SIMULATION_DESIGN.md`, код ещё не писался.
+- [ ] **U3** — real planning loop.
+- [ ] **U4** — deterministic guard vision, первая настоящая `plan → execute → fail/succeed → edit → retry` миссия.
+
 ---
 
 Порт идёт лучше, чем тебе сейчас кажется, но **Unity-версия пока портировала технический слой игры, а не её главную механику: `plan → execute → fail → edit → retry` фактически ещё отсутствует.** При этом я нашёл несколько конкретных вещей, которые сейчас надо исправить до дальнейшего наращивания проекта.
