@@ -11,10 +11,9 @@ namespace DerClou.Core.Simulation
     /// deterministic yet despite already having a clock and an accumulator
     /// (`docs/U2_SIMULATION_DESIGN.md`).
     /// <para>
-    /// Runs each system in a fixed order. As of U2 step 2a there is exactly
-    /// one system; steps 2b–2e append to this list, never reorder it ahead
-    /// of <see cref="ActorMovementSystem"/> (guard arrival checks read the
-    /// actor position this system just wrote).
+    /// Runs each system in a fixed order, never reordered ahead of
+    /// <see cref="ActorMovementSystem"/> — every other system reads the
+    /// actor position it just wrote (guard arrival checks in particular).
     /// </para>
     /// </summary>
     public static class SimulationStep
@@ -24,7 +23,17 @@ namespace DerClou.Core.Simulation
             clock.Tick(fixedDt);
             if (state == null) return;
 
+            state.CurrentTime = clock.CurrentTime;
+
+            // Actor movement stays live even while `clock.IsPaused` — the
+            // old MonoBehaviour version never gated it on the clock either
+            // (`GameController.SetPhase`'s own comment: "Keep the world live
+            // for this minimum slice"). Guard patrol did check
+            // `missionClock.IsPaused` before this step and is kept gated the
+            // same way, or pausing during Planning would have silently
+            // stopped freezing guards.
             ActorMovementSystem.Tick(state, fixedDt);
+            if (!clock.IsPaused) GuardPatrolSystem.Tick(state, fixedDt);
         }
     }
 }

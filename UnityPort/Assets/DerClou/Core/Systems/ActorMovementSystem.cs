@@ -2,6 +2,7 @@ namespace DerClou.Core.Systems
 {
     using System;
     using DerClou.Core.Data;
+    using DerClou.Core.Navigation;
     using DerClou.Core.Simulation;
 
     /// <summary>
@@ -16,6 +17,48 @@ namespace DerClou.Core.Systems
     public static class ActorMovementSystem
     {
         private const float ArrivalTolerance = 0.05f;
+        private const float RequestDedupSqr = 0.01f; // 0.1m — matches the old ActorEntity check
+
+        /// Pathfinds to `goal` and installs the result as the actor's
+        /// current path — the shared implementation behind both
+        /// `ActorView.SetDestination` (player taps) and
+        /// `Systems.GuardPatrolSystem` (patrol routing), so there is exactly
+        /// one place that decides how an actor gets from A to B. Idempotent
+        /// against repeated identical requests (see `ActorState.HasRequestedDestination`).
+        public static void RequestPath(MissionState state, int actorId, WorldPoint goal)
+        {
+            if (state == null || !state.Actors.TryGetValue(actorId, out var a)) return;
+
+            if (a.HasPath && a.HasRequestedDestination && SqrDistance(goal, a.LastRequestedDestination) < RequestDedupSqr)
+                return;
+
+            a.LastRequestedDestination = goal;
+            a.HasRequestedDestination = true;
+
+            if (state.Grid == null) { a.HasPath = false; state.Actors[actorId] = a; return; }
+
+            var path = PathFinder.FindPath(state.Grid, a.Position, goal);
+            if (path.Length == 0) { a.HasPath = false; state.Actors[actorId] = a; return; }
+
+            a.CurrentPath = path;
+            a.PathIndex = 0;
+            a.HasPath = true;
+            state.Actors[actorId] = a;
+        }
+
+        public static void Stop(MissionState state, int actorId)
+        {
+            if (state == null || !state.Actors.TryGetValue(actorId, out var a)) return;
+            a.HasPath = false;
+            a.CurrentPath = null;
+            state.Actors[actorId] = a;
+        }
+
+        private static float SqrDistance(WorldPoint a, WorldPoint b)
+        {
+            float dx = a.x - b.x, dz = a.z - b.z;
+            return dx * dx + dz * dz;
+        }
 
         public static void Tick(MissionState state, float dt)
         {

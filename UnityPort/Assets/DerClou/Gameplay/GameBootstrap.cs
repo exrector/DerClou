@@ -25,7 +25,7 @@ namespace DerClou.Gameplay
         public LevelBuilder levelBuilder;
         public InputManager inputManager;
         public TacticalCamera tacticalCamera;
-        public GuardPatrolSystem patrolSystem;
+        public GuardView patrolSystem;
         public InteractionSystem interactionSystem;
         public Level01Builder level01Builder;
 
@@ -98,9 +98,9 @@ namespace DerClou.Gameplay
             }
             tacticalCamera.ApplyCameraSettings();
 
-            var patrolGO = new GameObject("GuardPatrolSystem");
+            var patrolGO = new GameObject("GuardView");
             patrolGO.transform.SetParent(transform);
-            patrolSystem = patrolGO.AddComponent<GuardPatrolSystem>();
+            patrolSystem = patrolGO.AddComponent<GuardView>();
 
             var interactionGO = new GameObject("InteractionSystem");
             interactionGO.transform.SetParent(transform);
@@ -145,8 +145,6 @@ namespace DerClou.Gameplay
             gameController.catalog = catalog;
             gameController.blueprint = blueprint;
             gameController.currentPlan = currentPlan;
-
-            patrolSystem.missionClock = missionClock;
 
             inputManager.tacticalCamera = tacticalCamera;
             inputManager.floorMask = LayerMask.GetMask("Floor", "Default");

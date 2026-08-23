@@ -24,7 +24,7 @@ namespace DerClou.Gameplay
         public LevelBuilder levelBuilder;
         public InputManager inputManager;
         public TacticalCamera tacticalCamera;
-        public GuardPatrolSystem patrolSystem;
+        public GuardView patrolSystem;
         public InteractionSystem interactionSystem;
 
         [Header("Data")]
@@ -57,9 +57,6 @@ namespace DerClou.Gameplay
             // a second time on every session — including a second NavMesh
             // bake stacked on top of the first one.
 
-            // Wire up patrol system
-            if (patrolSystem != null) patrolSystem.missionClock = missionClock;
-
             // Subscribe to input events
             if (inputManager != null)
             {
@@ -73,7 +70,7 @@ namespace DerClou.Gameplay
             SetPhase(GamePhase.Planning);
             // `SetPhase(Planning)` pauses `missionClock`, which is what a
             // real planning UI should do once one exists — for now it has
-            // the side effect of freezing `GuardPatrolSystem` (it checks
+            // the side effect of freezing `GuardView` (it checks
             // `missionClock.IsPaused`) before the player ever sees it move.
             // Keep the world live for this minimum slice.
             missionClock.Resume();

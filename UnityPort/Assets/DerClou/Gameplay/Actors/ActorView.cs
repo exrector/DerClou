@@ -1,9 +1,8 @@
 namespace DerClou.Gameplay.Actors
 {
     using DerClou.Core.Data;
-    using DerClou.Core.Navigation;
     using DerClou.Core.Simulation;
-    using DerClou.Gameplay.Level;
+    using DerClou.Core.Systems;
     using DerClou.Gameplay.Simulation;
     using UnityEngine;
 
@@ -47,9 +46,6 @@ namespace DerClou.Gameplay.Actors
         private int idleHash = Animator.StringToHash("Idle");
         private int flashlightLayerIndex = 1;
 
-        private Vector3 lastRequestedDestination;
-        private bool hasRequestedDestination;
-
         public void Initialize(int actorId, ActorRole role, CharacterProfile profile, string appearanceKey)
         {
             ActorId = actorId;
@@ -92,32 +88,11 @@ namespace DerClou.Gameplay.Actors
 
         public void SetDestination(Vector3 worldPos)
         {
-            var state = SimulationService.Current;
-            if (state == null || !state.Actors.TryGetValue(ActorId, out var current)) return;
-
-            // Callers (`GuardPatrolSystem.TickGuard` in particular) call this
-            // every tick for as long as an actor is walking toward the same
-            // node — without this check, that is a full A* solve every
-            // frame for every walking actor, for a destination that hasn't
-            // moved.
-            if (current.HasPath && hasRequestedDestination
-                && (worldPos - lastRequestedDestination).sqrMagnitude < 0.01f) return;
-
-            lastRequestedDestination = worldPos;
-            hasRequestedDestination = true;
-
-            var grid = NavigationService.Grid;
-            if (grid == null) { current.HasPath = false; state.Actors[ActorId] = current; return; }
-
-            var start = current.Position;
-            var goal = new WorldPoint(worldPos.x, 0, worldPos.z);
-            var path = PathFinder.FindPath(grid, start, goal);
-            if (path.Length == 0) { current.HasPath = false; state.Actors[ActorId] = current; return; }
-
-            current.CurrentPath = path;
-            current.PathIndex = 0;
-            current.HasPath = true;
-            state.Actors[ActorId] = current;
+            // Thin wrapper — `ActorMovementSystem.RequestPath` is the single
+            // shared implementation (also used by the pure-C#
+            // `Systems.GuardPatrolSystem`), including the dedup guard that
+            // used to live here as private fields.
+            ActorMovementSystem.RequestPath(SimulationService.Current, ActorId, new WorldPoint(worldPos.x, 0, worldPos.z));
         }
 
         /// Snaps facing directly to `yawDegrees` (e.g. a patrol node's
@@ -134,14 +109,7 @@ namespace DerClou.Gameplay.Actors
             state.Actors[ActorId] = current;
         }
 
-        public void Stop()
-        {
-            var state = SimulationService.Current;
-            if (state == null || !state.Actors.TryGetValue(ActorId, out var current)) return;
-            current.HasPath = false;
-            current.CurrentPath = null;
-            state.Actors[ActorId] = current;
-        }
+        public void Stop() => ActorMovementSystem.Stop(SimulationService.Current, ActorId);
 
         private void LateUpdate()
         {

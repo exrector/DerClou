@@ -25,8 +25,11 @@ namespace DerClou.Core.Simulation
         public int NodeCount => nodes.Length;
     }
 
+    /// Renamed from `GuardComponent` in U2 step 2b — this is now genuinely
+    /// live simulation state (`MissionState.Guards`), not the dead,
+    /// never-read data it was before that step.
     [System.Serializable]
-    public class GuardComponent
+    public class GuardState
     {
         public int actorId;
         public PatrolRoute route;

@@ -5,6 +5,7 @@ namespace DerClou.Gameplay.Level
     using DerClou.Core.Simulation;
     using DerClou.Gameplay.Actors;
     using DerClou.Gameplay.Props;
+    using DerClou.Gameplay.Simulation;
     using UnityEngine;
     using System.Collections.Generic;
 
@@ -52,7 +53,13 @@ namespace DerClou.Gameplay.Level
             // Unity NavMesh involved. See `ActorView`'s doc comment for
             // why: determinism and testability, matching how the Swift
             // version split simulation from presentation.
-            NavigationService.Grid = NavGrid.BuildFromBlueprint(blueprint, catalog);
+            // Lives on `MissionState` since U2 step 2b (replaces the old
+            // `NavigationService` static) — `Build` also runs from
+            // `LevelBuilderEditor`'s button outside Play, where
+            // `GameBootstrap.Awake` never ran and `SimulationService.Current`
+            // would otherwise still be null.
+            if (SimulationService.Current == null) SimulationService.Current = new MissionState();
+            SimulationService.Current.Grid = NavGrid.BuildFromBlueprint(blueprint, catalog);
 
             BuildProps(blueprint);
             BuildActors(blueprint);
@@ -467,9 +474,11 @@ namespace DerClou.Gameplay.Level
                 appearanceKey: spec.appearance ?? proto.asset
             );
 
-            // Nothing ever called `GuardPatrolSystem.RegisterGuard` anywhere
-            // — the whole patrol system existed but had no guards fed into
-            // it, so "the guard patrols" was not actually happening.
+            // U2 step 2b: the guard's live state goes straight into
+            // `MissionState.Guards` — `Core.Systems.GuardPatrolSystem` reads
+            // and drives it from there. `GuardView` (the renamed
+            // MonoBehaviour) only needs to know which `ActorView` to animate
+            // for which actor id.
             if (proto.actorRole == ActorRole.Guard && spec.route != null && spec.route.Count > 0)
             {
                 var nodes = new PatrolNode[spec.route.Count];
@@ -483,9 +492,11 @@ namespace DerClou.Gameplay.Level
                     };
                 }
                 var route = new PatrolRoute { actorId = actorId, nodes = nodes, loop = true };
-                var guardComponent = new GuardComponent { actorId = actorId, route = route };
-                var patrolSystem = FindObjectOfType<GuardPatrolSystem>();
-                if (patrolSystem != null) patrolSystem.RegisterGuard(actorId, actor, guardComponent, route);
+                var state = SimulationService.Current;
+                if (state != null) state.Guards[actorId] = new GuardState { actorId = actorId, route = route };
+
+                var guardView = FindObjectOfType<GuardView>();
+                if (guardView != null) guardView.RegisterView(actorId, actor);
             }
 
             // Flashlight for Guard03
