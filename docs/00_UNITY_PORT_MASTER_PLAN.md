@@ -15,7 +15,7 @@
   - [x] 2c — Security camera (`CameraState`, pure-C# `SecurityCameraSystem`, `SecurityCamera`→`CameraView`, `InteractionSystem.PerformPanel` правит `MissionState.Cameras` напрямую).
   - [x] 2d — Door (`DoorState`, pure-C# `DoorSystem`, `Door`→`DoorView`; заодно починен реальный скрытый баг `Awake()`-ordering, считавший угол петли из ещё не настроенных дефолтов).
   - [x] 2e — Safe (`SafeState`, pure-C# `SafeSystem`, `Safe`→`SafeView`; `InteractionSystem`-реестры `camerasById`/`safesById` полностью убраны — `MissionState` сам себе реестр).
-- [ ] **U3** — real planning loop.
+- [x] **U3** — real planning loop (дизайн: `docs/U3_PLANNING_LOOP_DESIGN.md`). Планирование не двигает актёра (3a), `PlanExecutor` детерминированно проигрывает весь скомпилированный план без единого клика (3b), Retry восстанавливает снимок и сохраняет план (3c). Вживую подтверждено бит-в-бит: два независимых повтора одного плана завершились на ОДНОЙ И ТОЙ ЖЕ отметке `missionClock.CurrentTime` (75.38496с), несмотря на разную скорость реального времени между прогонами. `InteractionSystem` полностью упразднён — вся его работа переехала в `PlanExecutor`. 2026-08-23.
 - [ ] **U4** — deterministic guard vision, первая настоящая `plan → execute → fail/succeed → edit → retry` миссия.
 
 ---
