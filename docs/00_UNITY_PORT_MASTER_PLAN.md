@@ -9,12 +9,12 @@
 - [x] **U0** — repository source of truth (`CLAUDE.md`/`AGENTS.md`/master plan). 2026-08-23.
 - [x] **U1** — Built-In → URP (`com.unity.render-pipelines.universal@17.5.0`, единственная версия под 6000.5.9f1; `Assets/Settings/DerClou_URP.asset` + `DerClou_Renderer.asset`; `Shader.Find("Standard")` → `"Universal Render Pipeline/Lit"` в `GameBootstrap.cs`/`LevelBuilder.cs` — других материалов в проекте не было, конвертировать было нечего). Проверено вживую: 0 ошибок консоли, playable-цепочка (select/move/door) не сломана. 2026-08-23.
 - [x] Этап 12 (камера) — закрыт отдельно, orthographic-камера остаётся, см. раздел ниже.
-- [ ] **U2** — deterministic simulation (дизайн: `docs/U2_SIMULATION_DESIGN.md`).
-  - [x] 2a — Actor movement (`MissionState`/`ActorState`, `ActorMovementSystem`, `SimulationStep`, `SimulationService`, `ActorEntity`→`ActorView`). 2026-08-23.
-  - [x] 2b — Guard patrol (`GuardState`, pure-C# `Core.Systems.GuardPatrolSystem`, `GuardPatrolSystem`→`GuardView`, `ActorMovementSystem.RequestPath` shared by player+guard, `NavigationService` removed in favor of `MissionState.Grid`). 2026-08-23.
-  - [x] 2c — Security camera (`CameraState`, pure-C# `SecurityCameraSystem`, `SecurityCamera`→`CameraView`, `InteractionSystem.PerformPanel` flips `MissionState.Cameras` directly). 2026-08-23.
-  - [x] 2d — Door (`DoorState`, pure-C# `DoorSystem`, `Door`→`DoorView`; fixed a real latent `Awake()`-ordering bug computing the hinge rotation from unconfigured defaults along the way). 2026-08-23.
-  - [ ] 2e — Safe
+- [x] **U2** — deterministic simulation (дизайн: `docs/U2_SIMULATION_DESIGN.md`). Все 5 шагов закрыты 2026-08-23; полная миссия (дверь → панель/камера → сейф → добыча → эвакуация) пройдена целиком на новой детерминированной симуляции, `MissionComplete=True` подтверждён вживую.
+  - [x] 2a — Actor movement (`MissionState`/`ActorState`, `ActorMovementSystem`, `SimulationStep`, `SimulationService`, `ActorEntity`→`ActorView`).
+  - [x] 2b — Guard patrol (`GuardState`, pure-C# `Core.Systems.GuardPatrolSystem`, `GuardPatrolSystem`→`GuardView`, `ActorMovementSystem.RequestPath` shared by player+guard, `NavigationService` removed в пользу `MissionState.Grid`).
+  - [x] 2c — Security camera (`CameraState`, pure-C# `SecurityCameraSystem`, `SecurityCamera`→`CameraView`, `InteractionSystem.PerformPanel` правит `MissionState.Cameras` напрямую).
+  - [x] 2d — Door (`DoorState`, pure-C# `DoorSystem`, `Door`→`DoorView`; заодно починен реальный скрытый баг `Awake()`-ordering, считавший угол петли из ещё не настроенных дефолтов).
+  - [x] 2e — Safe (`SafeState`, pure-C# `SafeSystem`, `Safe`→`SafeView`; `InteractionSystem`-реестры `camerasById`/`safesById` полностью убраны — `MissionState` сам себе реестр).
 - [ ] **U3** — real planning loop.
 - [ ] **U4** — deterministic guard vision, первая настоящая `plan → execute → fail/succeed → edit → retry` миссия.
 
