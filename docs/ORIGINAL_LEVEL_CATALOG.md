@@ -1,819 +1,1185 @@
 # ORIGINAL LEVEL CATALOG — reconstruction dossier
 
-Status: **living research document**. First assembled 2026-08-25.
+Status: **living research master document**. Rebuilt and expanded 2026-08-25.
 
-Purpose: collect every recoverable fact about the burglary targets / missions in the original **Der Clou! / The Clue! (1994)**, the **Profidiskette** expansion, and **Der Clou! 2 / The Sting! (2001)** in one place, so future level design can reproduce the *functional puzzle structure* before deliberately redesigning it into original production content.
+Purpose: consolidate every publicly recoverable fact about the burglary targets / missions in **Der Clou! / The Clue! (1994)**, the **Profidiskette** expansion, and **Der Clou! 2 / The Sting! (2001)** so future level design can reconstruct the *functional puzzle structure* before deliberately redesigning it into original production content.
 
-This is **not permission to copy original maps, story, names, art, dialogue, exact patrol geometry or distinctive presentation into the commercial game**. `docs/IP_AND_LEGAL_BOUNDARIES.md` remains mandatory. The intended workflow is:
+> **LEGAL / PRODUCTION RULE — DO NOT SKIP**
+>
+> This document is an internal historical reconstruction dossier, **not** permission to copy original maps, story, names, art, dialogue, exact patrol geometry or distinctive presentation into the commercial game. `docs/IP_AND_LEGAL_BOUNDARIES.md` remains mandatory. Production levels must independently redesign geometry, patrol topology, exact timings, object placement, security graph, story context, names and visual expression.
 
-1. reconstruct the original level accurately enough to understand it;
-2. extract the abstract puzzle grammar;
-3. redesign geometry, patrol topology, timing, security graph, objective context, names and visual expression independently;
-4. keep the original reconstruction only as an internal research reference.
-
----
-
-# 1. Source hierarchy and confidence
-
-## A — primary / near-primary
-
-- Preserved original game data packages via COSP / SourceForge:
-  - https://sourceforge.net/projects/cosp/files/Original%20Game%20Files/
-  - German base + Profidisk:
-    https://sourceforge.net/projects/cosp/files/Original%20Game%20Files/Der%20Clou%21%20%2B%20Profidisk%20%28German%29/
-  - English base + Profidisk:
-    https://sourceforge.net/projects/cosp/files/Original%20Game%20Files/The%20Clue%21%20%2B%20Profidisk%20%28English%29/
-- Official Der Clou! 2 German manual:
-  https://www.ds.thqnordic.com/support/Clou2_Handbuch.pdf
-- English The Sting! manual:
-  https://www.gamewholesale.com/downloads/Sting_Manual.pdf
-
-## B — high-value walkthrough / technical reconstruction sources
-
-- The Clue! 1994 detailed GameFAQs guide by odino:
-  https://gamefaqs.gamespot.com/pc/583304-the-clue/faqs/80487
-  - unusually valuable because individual buildings include police response, total value, escape route, guard/security percentages, maximum noise, alarm types, blueprint links and loot lists;
-  - some later entries are incomplete/TODO in the guide, so missing facts must not be invented.
-- The Clue! walkthrough / guide 80167:
-  https://gamefaqs.gamespot.com/cd32/961705-the-clue/faqs/80167/introduction
-- The Sting! complete 18-job walkthrough by Kasey Chang:
-  https://gamefaqs.gamespot.com/pc/519682-the-sting/faqs/14674
-- Secondary The Sting! mirror:
-  https://www.mogelpower.de/cheats/loesung.php?id=38954
-- Secondary incomplete The Sting! guide:
-  https://gamefaqs.gamespot.com/pc/519682-the-sting/faqs/29111
-
-## C — metadata / corroboration
-
-- MobyGames The Clue!:
-  https://www.mobygames.com/game/2568/the-clue/
-- MobyGames Profidiskette:
-  https://www.mobygames.com/game/57184/der-clou-profidiskette/
-- MobyGames The Sting!:
-  https://www.mobygames.com/game/4295/the-sting/
-- Profidisk contemporary-review index / discussion:
-  https://www.kultboy.com/testbericht-uebersicht/7292/
-- 2026 playthrough articles with observed first-game behavior:
-  https://advgamer.blogspot.com/2026/02/game-167-clue-1994-introduction.html
-  https://advgamer.blogspot.com/2026/03/the-clue-das-kapital.html
-
-## Confidence labels
-
-- **CONFIRMED** — directly stated in primary/manual/walkthrough source or preserved game data.
-- **STRONG** — independently corroborated or sufficiently specific in a high-quality walkthrough.
-- **PARTIAL** — target is confirmed, but exact topology/security/timing is incomplete.
-- **UNKNOWN** — do not infer; requires original data extraction, blueprint capture or playthrough.
-
----
-
-# 2. Reconstruction template
-
-Every target should eventually have the following fields:
+The required workflow is:
 
 ```text
-Game / edition
-Target name
-Confidence
-Difficulty / progression position
-Exterior / entry topology
-Interior topology / floors
-Entry points
-Exit / extraction
-Mandatory objective
-Optional loot
-Guards / civilians
-Patrol topology
-Vision / inspection behavior
-Alarm systems
-Microphones / noise limits
-Searchlights / cameras / lasers / switches
-Doors / windows / locks
-Tools / skills required
-Crew constraints
-Timing constraints
-Persistent world-state / evidence
-Police response / escape route (first game)
-Special mechanic
-Canonical solution skeleton
-What makes the puzzle interesting
-Production abstraction to preserve
-Exact facts still missing
-Sources
+historical reconstruction
+        ↓
+abstract mechanic / dependency graph
+        ↓
+new geometry + new timings + new fiction
+        ↓
+production level
 ```
 
----
-
-# 3. Der Clou! / The Clue! (1994) — base game targets
-
-The first game is **not a simple linear list of missions**. Targets become available as the campaign advances and the player can choose among them. The heist layer is therefore best treated as a catalog of target buildings, plus story-specific jobs.
-
-## 3.1 Kiosk
-
-**Confidence:** STRONG.
-
-**Role in progression:** introductory burglary / simplest practical target.
-
-**Topology:** very small single-target commercial structure; minimal traversal compared with later buildings.
-
-**Security:** effectively the tutorial baseline: no sophisticated electronic dependency graph; the challenge is primarily learning planning, tools, entry and extraction.
-
-**Objective / loot:** basic cash / small valuables. The detailed guide notes that the payout is poor relative to later targets.
-
-**Design function:** teaches the complete macro-loop with almost no systemic noise: investigate → choose crew/vehicle/tools → record route/actions → execute → escape.
-
-**Reconstruction requirements:** capture exact blueprint, all containers and exact entry interaction from the archived blueprint/game data before treating geometry as known.
-
-**Production abstraction:** one tiny target, one obvious objective, one exit, no advanced security. Excellent template for a first playable planning tutorial.
-
-**Source:** GameFAQs 80487; MobyGames screenshots; 80167 walkthrough.
+Do not embed or redistribute copyrighted map images in production assets. Public blueprint links are useful research references; convert them into abstract facts, then redesign.
 
 ---
 
-## 3.2 Aunt Emma's Shop
+# 1. Confidence and source policy
 
-**Confidence:** STRONG.
+- **CONFIRMED** — directly supported by a primary/near-primary source, structured preserved data reference, or multiple independent sources.
+- **STRONG** — concrete high-quality walkthrough evidence; good enough for design research, but still re-measure exact simulation values before coding.
+- **PARTIAL** — target is certain, but public text does not currently expose enough topology/security detail.
+- **OPEN** — information must still be recovered from preserved data, original runtime or blueprint inspection.
 
-**Role:** early alternative to the Kiosk with more work and roughly more loot.
-
-**Topology:** small shop interior; multiple loot containers compared with the Kiosk.
-
-**Security / gameplay:** still early-game physical-entry logic rather than advanced electronic security. Main purpose is to introduce a slightly more involved route and inventory/loot choice without yet requiring a specialist-heavy plan.
-
-**Loot categories observed in source:** cash, delicatessen, a frozen lobster, articles for daily use.
-
-**Production abstraction:** same core system as the Kiosk, but with several loot nodes so route ordering and greed begin to matter.
-
-**Source:** GameFAQs 80487; 2026 Adventurers' Guild playthrough.
+When guides disagree on exact loot value, “best time” or route, this document prefers **topology, systems and causal relationships** over economy numbers. Differences are recorded rather than silently resolved.
 
 ---
 
-## 3.3 Old People's Home — Maida Vale
+# 2. Primary research sources
 
-**Confidence:** STRONG.
+## The Clue! / Der Clou! (1994)
 
-**Confirmed metrics from GameFAQs 80487:**
+- Odino, detailed 2023 GameFAQs PC guide:  
+  https://gamefaqs.gamespot.com/pc/583304-the-clue/faqs/80487
+- whowasphone404, 2022 GameFAQs guide/walkthrough:  
+  https://gamefaqs.gamespot.com/cd32/961705-the-clue/faqs/80167/introduction
+- Easy jobs:  
+  https://gamefaqs.gamespot.com/cd32/961705-the-clue/faqs/80167/easy-jobs
+- Hard jobs:  
+  https://gamefaqs.gamespot.com/cd32/961705-the-clue/faqs/80167/hard-jobs
+- Nasty jobs:  
+  https://gamefaqs.gamespot.com/amiga/937304-the-clue/faqs/80167/nasty-jobs
+- Impossible jobs:  
+  https://gamefaqs.gamespot.com/pc/583304-the-clue/faqs/80167/impossible-jobs
+- Planning system:  
+  https://gamefaqs.gamespot.com/cd32/961705-the-clue/faqs/80167/planning-a-robbery
+- Security / police investigation:  
+  https://gamefaqs.gamespot.com/cd32/961705-the-clue/faqs/80167/secruity-systems-and-police-investigations
+- Map/chart index:  
+  https://gamefaqs.gamespot.com/pc/583304-the-clue/faqs
+- MobyGames:  
+  https://www.mobygames.com/game/2568/the-clue/
+- COSP / preserved game-data lineage:  
+  https://sourceforge.net/projects/cosp/
 
-- police response distance/time: **10:00**;
-- nominal values: **1000**;
-- escape route: **city**;
-- degree of guard: **7%**;
-- radio communication: **0%**;
-- guards: **0%**;
-- maximum noise level: **39%**.
+GameFAQs separately hosts research maps for at least: Aunt Emma Shop, Chiswick House, Ham House, Jeweller's, Kenwood House, Natural Museum, Old Curiosity Shop, Old People's Home, Osterly Park House, Pink Villa and Suterby's. These are not embedded here.
 
-**Special mechanic:** a **check clock** is explicitly important; the guide recommends postponing the job until the player has the necessary capability/tool.
+## Profidiskette (1995)
 
-**Topology:** multi-object interior, but exact room graph should be recovered from the preserved blueprint rather than recreated from memory.
+- MobyGames expansion description:  
+  https://www.mobygames.com/game/57184/der-clou-profidiskette/
+- Preserved German base + Profidisk data:  
+  https://sourceforge.net/projects/cosp/files/Original%20Game%20Files/Der%20Clou%21%20%2B%20Profidisk%20%28German%29/
+- Preserved Profidisk data package:  
+  https://sourceforge.net/projects/cosp/files/DerClouProfiData.zip/download
+- COSP discussion identifying separate Profidisk databases (`DATA/OBJPROFI/BUILDING.PC`, `OBJECTS.PC`, `TCDATA.H`):  
+  https://sourceforge.net/p/cosp/discussion/25891/thread/db7965ff/
+- Preserved game-logic example for Westminster Abbey vehicle constraint:  
+  https://sourceforge.net/p/cosp/discussion/25891/thread/a0a818eb/
 
-**Difficulty lesson:** even with no conventional guard, a target can be constrained by a non-human security/inspection mechanic and a low noise allowance.
+## Der Clou! 2 / The Sting! (2001)
 
-**Production abstraction:** introduce a passive security system before adding patrol AI. The player must understand that “no guard” does not mean “no timing/security constraint.”
-
-**Source:** GameFAQs 80487 blueprint entry and target statistics.
-
----
-
-## 3.4 Pink Villa — Limehouse
-
-**Confidence:** STRONG.
-
-**Confirmed metrics:**
-
-- police response: **11:40**;
-- values: **430**;
-- escape route: **city**;
-- degree of guard: **3%**;
-- radio communication: **0%**;
-- guards: **0%**;
-- maximum noise: **86%**.
-
-**Topology:** residential/villa layout with multiple valuables and at least one extra door protecting low-value loot.
-
-**Loot examples from the guide:** valuables case and paintings.
-
-**Puzzle shape:** optional loot is explicitly not always worth the route/time cost. The guide recommends skipping low-value objects that require additional traversal.
-
-**Production abstraction:** teach that the shortest safe solution may intentionally leave loot behind; greed is a route-planning decision, not a mandatory checklist.
-
-**Source:** GameFAQs 80487.
-
----
-
-## 3.5 Old Curiosity Shop
-
-**Confidence:** STRONG / topology PARTIAL.
-
-**Progression:** becomes available very early and is recommended as a better early target than the Old People's Home once suitable tools/specialists are available.
-
-**Security:** alarm work matters; the walkthrough specifically recommends bringing an accomplice capable of disabling alarms.
-
-**Loot categories:** cash, Oscar Wilde autograph, curiosities, bronze statue, Sanskrit book.
-
-**Puzzle shape:** richer interior and specialized loot introduce two ideas: electronic/security specialist choice and fencing/value differences after the heist.
-
-**Production abstraction:** first compact level where “who comes with you” materially changes whether the plan is practical.
-
-**Source:** GameFAQs 80487 / 80167.
+- Kasey Chang complete 18-job guide/walkthrough:  
+  https://gamefaqs.gamespot.com/pc/519682-the-sting/faqs/14674
+- Preserved mirror:  
+  https://www.justadventure.com/walkthrough/the-sting-cheats/
+- Walkthrough page 2:  
+  https://www.justadventure.com/walkthrough/the-sting-cheats/2/
+- Modern independent Any% walkthrough:  
+  https://www.speedrun.com/The_Sting/guides/abw4o
+- Exact 18-level list:  
+  https://www.speedrun.com/The_Sting/levels
+- Official German manual:  
+  https://www.ds.thqnordic.com/support/Clou2_Handbuch.pdf
+- English manual:  
+  https://www.gamewholesale.com/downloads/Sting_Manual.pdf
 
 ---
 
-## 3.6 Karl Marx' Tomb — Highgate Cemetery
+# 3. Coverage summary
 
-**Confidence:** CONFIRMED / STRONG.
+## The Clue! / Der Clou! base game
 
-**Objective:** steal **Karl Marx' bones** for a story-linked buyer; the source records the bones at about 3.2 kg and a special sale value in the plot.
+The first game is nonlinear: after the introductory robbery the player can choose among available targets; story gates mainly care about the **number** of completed burglaries rather than a fixed mission order. The two detailed modern guides together support a catalog of **18 selectable burglary targets**, plus the scripted **Starford Barracks** final operation.
 
-**Exterior topology:** cemetery gate → outdoor concealment positions (bush/tree) → guard route → tomb → return to vehicle.
+The 18 selectable targets are:
 
-**Guard:** one watchman patrols the cemetery. A 2026 playthrough records a concrete successful timing skeleton:
+1. Fulham Newsagents / Kiosk
+2. Aunt Emma's Shop
+3. Old People's Home
+4. Pink Villa
+5. Old Curiosity Shop
+6. Highgate Cemetery / Karl Marx' Tomb
+7. Jeweller's
+8. Chiswick House
+9. Suterby's
+10. Ham House
+11. Osterly / Osterley Park House
+12. Natural History Museum / Natural Museum
+13. Kenwood House
+14. Victoria & Albert Museum
+15. Bank of England
+16. National Gallery
+17. British Museum
+18. Tower of London
 
-1. protagonist breaks the cemetery gate and waits near cover;
-2. accomplice enters later and hides;
-3. accomplice approaches the guard from behind and fights/neutralizes him around the third minute;
-4. protagonist passes the downed guard, opens the tomb and takes the bones;
-5. both return to the car.
+Story finale: **Starford Barracks**.
 
-The exact quoted timestamps from that playthrough are useful research observations, but should be re-measured directly from the original game before being treated as canonical simulation data.
+A mid-story “Jaguar + suitcase” event is **not a unique fixed target map**. The walkthrough states the event can be satisfied by doing a different burglary as long as the required Jaguar is used, so treat it as a campaign/loadout constraint rather than another level.
 
-**Crew constraint:** because the guard must be neutralized, an accomplice with fighting ability is needed; vehicle seat count can indirectly constrain crew choice.
+## Profidiskette
 
-**Special mechanic:** first strong example of a mission where crew composition, vehicle capacity, patrol timing and physical access all intersect.
+MobyGames confirms **8 new locations**. Four are explicitly named there: **Buckingham Palace, Madame Tussaud's, a valuables train/Post Train and 221B Baker Street**. COSP source/game-logic material independently proves **Westminster Abbey** is also a Profidisk building. Three remaining names found in preservation/community material are recorded below as **PARTIAL** until the actual Profidisk database is decoded.
 
-**Production abstraction:** outdoor patrol + two-actor synchronization + one actor creates a safe window while another performs the objective.
+## The Sting!
 
-**Sources:** GameFAQs 80487 / 80167; Adventurers' Guild “Das Kapital” playthrough.
+The Kasey Chang guide and Speedrun.com independently agree on exactly **18 jobs**:
 
----
-
-## 3.7 Jeweller's
-
-**Confidence:** STRONG / topology PARTIAL.
-
-**Progression:** high-value early/mid target. The guide explicitly notes that the safe cannot initially be opened until better tools become available.
-
-**Guarding:** one source recommendation says the Jeweller can be attractive because it has **no guard** at a point where other newly available buildings do.
-
-**Loot categories:** paintings, gold, cash, Cartier watch, jewels.
-
-**Security / constraint:** safe/tool gating is the central progression lock; the target may be known before the player owns the technology to exploit it fully.
-
-**Production abstraction:** show the player a tempting objective before they can efficiently solve it, encouraging later return with improved tools/crew.
-
-**Source:** GameFAQs 80487.
+Gas Station; Grocers; Cinema; Hotel; Greenhouse; Boxing Club; Printing Office; Undertaker; Mausoleum; Spam Factory; Villa; neo Office; Museum; Bank; Barracks; Harbour; Power Plant; Ministry of Light.
 
 ---
 
-## 3.8 Chiswick House
+# 4. Shared first-game reconstruction model
 
-**Confidence:** PARTIAL.
+A first-game target is not just a room plan. Reconstruct at least four layers:
 
-**Confirmed:** named base-game target; detailed blueprint exists in the GameFAQs reconstruction set, but the current textual source coverage available to this document is incomplete.
+```text
+SPACE
+rooms / doors / windows / stairs / valuables
 
-**What must be extracted before implementation:** exact floor count, room graph, access points, patrol count, electronic protection, loot-node placement, noise threshold, police response, escape route.
+TIME
+police patrol / guard route / check-clock deadline / action duration
 
-**Do not infer topology from the real historical Chiswick House.** The game map is the authority.
+SYSTEMS
+alarms / switchboxes / microphones / searchlights / locks
 
-**Source:** GameFAQs 80487 / blueprint set.
+EVIDENCE
+opened or damaged objects / fights / tool traces / witnesses
+```
 
----
+Before planning, the player cases a building. Around 50% knowledge is enough to target it; deeper investigation reveals more objects, security relations and guard routes. Guards follow regular patrols and may have to service Check Clocks. Noise has a per-building threshold. Alarms, switchboxes, microphones and searchlights can be linked. The post-burglary investigation also cares about traces and suspicious world states.
 
-## 3.9 Suterby's
-
-**Confidence:** STRONG / topology PARTIAL.
-
-**Loot categories documented:** paintings, cash, jewels, statues, curiosities, silver tableware, historical art, coin collection.
-
-**Puzzle implication:** unusually broad and valuable loot pool; weight/volume and fencing become meaningful optimization dimensions even before considering security.
-
-**Missing:** exact patrol/security topology must be recovered from the blueprint/game data.
-
-**Production abstraction:** optional-loot optimization level where the target contains far more value than the crew can safely or efficiently remove.
-
-**Source:** GameFAQs 80487.
+This is important for our game: the historical design already treats the building as a **time-dependent state graph**, not as a static maze.
 
 ---
 
-## 3.10 Ham House
+# PART I — DER CLOU! / THE CLUE! (1994)
 
-**Confidence:** PARTIAL.
+## C1. Fulham Newsagents / Kiosk
 
-The odino guide confirms the target but leaves its detailed loot section as **TODO**. Treat this as a known hole rather than filling it from assumptions.
+**Confidence:** STRONG  
+**Role:** canonical tutorial/first robbery.
 
-**Required reconstruction work:** original game-data inspection or direct playthrough capture for blueprint, security, patrols, loot and response metrics.
+**Known target data:** police response about **10:00**; estimated valuables about **£380**; no internal guard; low overall guard/security rating; maximum noise around **78** in the odino data.
 
-**Source:** GameFAQs 80487; preserved game data.
+**Topology:** tiny shop/kiosk footprint with the getaway vehicle immediately outside. Important nodes are the entry/window, cash register and a few optional small valuables. Spatial complexity is deliberately minimal.
 
----
+**Actors/security:** one predictable external police/cop patrol. The decisive rule is acoustic: crowbar work on the window/register is safe only when the patrol is far enough away.
 
-## 3.11 Osterly / Osterley Park House — Isleworth
+**Objective:** cash register. Walkthroughs also mention optional low-value objects such as a fire extinguisher and toilet paper.
 
-**Confidence:** STRONG.
+**Canonical solution skeleton:** wait for patrol window → breach → enter → wait again if needed → force register → take cash → exit → car.
 
-**Confirmed metrics:**
+**Why the puzzle works:** first demonstration that *when* an action happens is part of the route.
 
-- police response: **11:40**;
-- values: **25000**;
-- escape route: **motorway**;
-- degree of guard: **70%**;
-- radio communication: **0%**;
-- guards: **39%**;
-- maximum noise: **90%**.
-
-**Confirmed security:**
-
-- **Microphone**;
-- **Alarm System Z3**;
-- **Alarm System X3**.
-
-**Loot:** numerous paintings and additional high-value objects.
-
-**Puzzle shape:** major escalation from small shops: multiple security channels operate simultaneously. High nominal noise allowance does not make the target simple because microphones, alarms and patrol/security density create layered constraints.
-
-**Production abstraction:** first “systems stack” target where the player must reason about several independent detection technologies, not just a single patrol.
-
-**Source:** GameFAQs 80487.
+**Production abstraction:** one tiny shop, one external listener patrol, one noisy breach and one objective. Completely redesign the map/facade.
 
 ---
 
-## 3.12 Natural Museum
+## C2. Aunt Emma's Shop
 
-**Confidence:** PARTIAL.
+**Confidence:** STRONG
 
-Confirmed base-game target. Detailed section in the currently available guide is incomplete/TODO.
+**Known target data:** police response about **11:40**; no professional guard; low security; maximum noise about **47**. Exact loot totals differ between guides/versions, so do not treat one currency total as canonical.
 
-**Required extraction:** map topology, display cases, protection types, guard routes, exact objective/loot, police and noise parameters.
+**Topology:** compact retail interior with several ordinary fixtures/containers (refrigerator/cupboards/showcase-style nodes). A public GameFAQs map exists.
 
-**Production abstraction candidate:** museum/display-space security hierarchy, but do not freeze this until the original data is examined.
+**Security:** low formal security but noticeably lower noise tolerance than Kiosk. It teaches that “no guard” does not imply “loud tools are free.”
 
-**Source:** GameFAQs 80487; preserved game data.
+**Loot:** distributed low-value retail goods/cash rather than one protected vault.
 
----
+**Puzzle identity:** quietness/tool choice without guard-management complexity.
 
-## 3.13 Kenwood House — Hampstead Lane
-
-**Confidence:** STRONG.
-
-**Confirmed metrics:**
-
-- police response: **16:40**;
-- values: **50000**;
-- escape route: **motorway**;
-- degree of guard: **74%**;
-- radio communication: **0%**;
-- guards: **50%**;
-- maximum noise: **94%**.
-
-**Confirmed security:**
-
-- **Alarm System X3**;
-- **Alarm System Z3**;
-- **Switchbox**;
-- **Searchlights**, protected.
-
-**Loot examples:** cash box, multiple statues and paintings.
-
-**Puzzle shape:** mature first-game target combining guards, multiple alarm types, a control/switch relationship and searchlight visibility.
-
-**Production abstraction:** late-campaign compound security puzzle: disable/control a subsystem to alter another threat while preserving enough time for extraction.
-
-**Source:** GameFAQs 80487.
+**Production abstraction:** small retail level whose correct choice is a slower/quieter entry route.
 
 ---
 
-## 3.14 Additional / late base-game targets
+## C3. Old People's Home — Maida Vale
 
-**Status: UNKNOWN / requires complete data extraction.**
+**Confidence:** STRONG
 
-The public guide and screenshots establish that more advanced/famous targets appear as the campaign progresses. The current research pass has not yet produced a sufficiently reliable complete textual list with full reconstruction data for every late-game building. Before declaring the base-game catalog complete, parse the preserved game data and/or capture the target list from a full playthrough.
+**Known target data:** police response about **10:00**; values around **£1,000**; city escape; guard/security roughly **7%**; no professional guard; max noise about **39**. Public GameFAQs map exists.
 
-**Rule:** do not silently treat the 13 entries above as the complete base-game count.
+**Topology:** multiple interior rooms rather than one shop cell; guide routes use distinct staging and loot areas.
 
----
+**Actor hazard:** memorable threat is a resident/civilian rather than a conventional guard. The inhabitant's deterministic movement creates a practical deadline/window.
 
-# 4. Profidiskette expansion (1995)
+**Security/timing:** extremely low noise allowance plus occupant timing. Public material also associates the target with timing/check-clock-style security information; exact device placement should be verified from map/data before implementing.
 
-## 4.1 What is confirmed
+**Why it works:** broadens “security actor” to ordinary occupant/world routine.
 
-**Confidence:** CONFIRMED.
-
-Profidiskette adds **8 new locations/heists**, plus more vehicles and specialists and planning-phase improvements. It does not extend the main story.
-
-MobyGames explicitly names four examples:
-
-1. **Buckingham Palace**;
-2. **Madame Tussaud's wax museum**;
-3. **a train carrying valuables** (commonly referred to in German discussion as the **Postzug** / valuables train);
-4. **221B Baker Street**.
-
-Source:
-https://www.mobygames.com/game/57184/der-clou-profidiskette/
-
-A contemporary-review discussion independently confirms that the **Postzug** is available from the start of the expansion content and describes it as comparatively easy with one guard and very high payoff; treat the exact payout figure mentioned by a commenter as anecdotal until verified in-game.
-
-Source:
-https://www.kultboy.com/testbericht-uebersicht/7292/
-
-## 4.2 Profidisk target P1 — Buckingham Palace
-
-**Confidence:** target CONFIRMED; topology UNKNOWN.
-
-**Research significance:** palace-scale security target likely intended as one of the expansion's advanced puzzles.
-
-**Do not substitute the real Buckingham Palace floor plan.** Exact game topology, guards, alarm systems, loot and access points must be extracted from Profidisk game data.
+**Production abstraction:** residential/institutional building with a deterministic civilian cycle and safe side rooms.
 
 ---
 
-## 4.3 Profidisk target P2 — Madame Tussaud's
+## C4. Pink Villa — Limehouse
 
-**Confidence:** target CONFIRMED; topology UNKNOWN.
+**Confidence:** STRONG
 
-**Research significance:** museum/display-style target with potential object-inspection and security-layer design value.
+**Known target data:** police response **11:40**; estimated values about **£430**; city escape; very low guard rating; no internal guard; max noise about **86**. Public map exists.
 
-**Required:** extract original blueprint and device list before deriving mechanics.
+**Topology:** domestic/villa layout with several rooms and wall-mounted/small valuables.
 
----
+**Security:** little direct electronic/human security. This is a route/loot-selection target rather than a systems graph.
 
-## 4.4 Profidisk target P3 — valuables train / Postzug
+**Design lesson:** guide advice makes some optional loot inefficient because extra doors/time are not justified by value.
 
-**Confidence:** STRONG for target and broad difficulty note; topology PARTIAL.
-
-**Known:** moving/rail-themed valuables target; community discussion describes only **one guard** and disproportionately large reward compared with difficulty.
-
-**Research value:** unusual non-building heist topology; excellent reference for a compact linear level and for future train/convoy missions.
-
-**Required:** exact carriage graph, entry/extraction rules, guard patrol, containers and timing from original data/playthrough.
+**Production abstraction:** small house that teaches `objective success ≠ loot everything`.
 
 ---
 
-## 4.5 Profidisk target P4 — 221B Baker Street
+## C5. Old Curiosity Shop — Kensington Church Street
 
-**Confidence:** target CONFIRMED; topology UNKNOWN.
+**Confidence:** STRONG
 
-**Research value:** compact iconic-location burglary; exact game layout must be recovered rather than inferred from Sherlock Holmes fiction or real-world London.
+**Known target data:** police response **14:40**; values about **£900**; city escape; guard/security **35%**; no guard; max noise **66**; **Alarm System Z3**. Public map exists.
 
----
+**Topology:** compact antique/curiosity shop with many inspectable/value nodes.
 
-## 4.6 Profidisk targets P5–P8
+**Security/progression:** the building can become available before the player is well equipped to defeat its alarm. Guide progression later recommends an alarm/electronics-capable accomplice.
 
-**Confidence:** UNKNOWN.
+**Loot examples:** cash, curiosities, a bronze statue, book/autograph-type valuables.
 
-The expansion definitely contains eight locations, but the current reliable public text sources found during this pass name only the four above. Search results that merely speculate about Westminster Abbey, Downing Street, Tate Gallery, chemical factories, etc. are **not sufficient evidence** and are therefore deliberately excluded from the canonical list.
+**Why it works:** capability gating without locking the location itself.
 
-**Next required action:** inspect the preserved Profidisk data archive and extract the actual building identifiers / strings / blueprints. Until then P5–P8 remain explicit unknowns.
-
----
-
-# 5. Der Clou! 2 / The Sting! (2001) — all 18 jobs
-
-The sequel is much better documented than the first game. The Kasey Chang guide contains a complete walkthrough for all 18 jobs. The entries below are reconstruction briefs: enough to reproduce each puzzle's functional structure, while exact geometry should still be independently redrawn from screenshots/playthrough if an internal research replica is required.
-
-## 5.1 Gas Station
-
-**Role:** first real heist tutorial.
-
-**Topology:** compact service-station/commercial target with a short route from entry to money/loot and back to the getaway point.
-
-**Opposition:** one predictable patrol creates basic timing windows.
-
-**Mechanics:** basic entry, noise, waiting, simple loot interaction, extraction.
-
-**Canonical puzzle skeleton:** observe patrol → enter after patrol clears → perform short objective interaction → leave before patrol returns → reach vehicle.
-
-**Production abstraction:** one guard, one objective, one exit, one timing lesson.
+**Production abstraction:** show a solvable-looking target early; later tools/skills make it meaningfully practical.
 
 ---
 
-## 5.2 Grocery Store
+## C6. Highgate Cemetery / Karl Marx' Tomb
 
-**Topology:** multiple rooms plus vertical/floor movement in the original job.
+**Confidence:** STRONG
 
-**Opposition:** predictable civilian/patrol cycle.
+**Known target data:** police response **6:40**; values around **£1,000**; country-road escape; security **27%**; guard skill about **15%**; max noise **78**.
 
-**Mechanics:** hiding in rooms, moving behind a deterministic cycle, optional valuables, return traversal through the same building.
+**Topology:** outdoor cemetery/tomb rather than room network. Vault/tomb contains the special objective.
 
-**Puzzle skeleton:** use safe rooms as temporal buffers; ascent/descent means the patrol phase on the way out differs from the way in.
+**Guard:** one watchman patrol. Successful published routes use concealment/staging, a fighting-capable accomplice and a second actor moving to the tomb after the guard is neutralized or safely bypassed.
 
-**Production abstraction:** deterministic inhabitant movement + hiding spaces + repeated traversal of the same choke point.
+**Objective:** Karl-Marx-related remains/bones have special story/fence value beyond ordinary loot price.
 
----
+**Crew/vehicle interaction:** taking a fighter/driver and fitting the team into the getaway vehicle makes preparation part of the mission.
 
-## 5.3 Cinema
+**Puzzle identity:** outdoor patrol + two-actor synchronization + special-objective economy.
 
-**Topology:** main/alternate entry routes, internal hiding room/restroom, interaction between exterior and interior patrol space.
-
-**Mechanics:** alternate entrance, lockpicking, hiding, guard inspection of access points.
-
-**Important rule:** destructive or visibly changed entry can become dangerous later because a guard may inspect it.
-
-**Puzzle skeleton:** choose clean alternate entry → hide during patrol overlap → avoid leaving an inspectable door/window state that reveals the burglary → exit cleanly.
-
-**Production abstraction:** persistent evidence changes which tool is “best.”
+**Production abstraction:** outdoor memorial/garden location where actor A creates a temporary safe window for actor B.
 
 ---
 
-## 5.4 Hotel
+## C7. Jeweller's — Oxford Street
 
-**Topology:** multi-floor target; guard movement crosses floors.
+**Confidence:** STRONG
 
-**Crew:** safe-cracking specialist is important.
+**Known target data:** police response **15:00**; values about **£3,000**; inner-city escape; security **39%**; no guard; max noise **58**; **Alarm System Z3**. Public map exists.
 
-**Mechanics:** long-duration/noisy safe work, vertical patrol timing, optional loot.
+**Topology:** compact high-value shop centered around a high-security safe and protected showcases.
 
-**Puzzle skeleton:** identify a sufficiently long patrol absence → begin safe work only inside that window → resist optional loot if it destroys extraction timing.
+**Security/progression:** no human guard, but alarm + container difficulty gate the best loot. Guide progression explicitly notes that the safe is not practical until better tools become available.
 
-**Production abstraction:** long action duration + noise + vertical patrol clock.
+**Evidence/state:** guide advice emphasizes closing doors because outside patrols may inspect the area while the crew spends time on the safe.
 
----
+**Loot categories:** gold, cash, jewels, watch, painting.
 
-## 5.5 Greenhouse / Arboretum
+**Puzzle identity:** long-duration safe work under external inspection risk.
 
-**Topology:** alternate entry and objective area visited on a deterministic NPC routine.
-
-**Crew:** faster accomplice / role timing matters.
-
-**Mechanics:** delayed discovery of a missing object; alternate route; first meaningful coordination.
-
-**Puzzle skeleton:** act just after technician/NPC leaves → acquire objective → escape before the NPC returns and discovers the changed world state.
-
-**Production abstraction:** a theft can create a future deadline rather than immediate detection.
+**Production abstraction:** jewelry shop where the hard part is time spent stationary on the objective, not locomotion.
 
 ---
 
-## 5.6 Boxing Club
+## C8. Chiswick House — Turnham Green
 
-**Role:** first explicit alarm-work job in the walkthrough.
+**Confidence:** STRONG
 
-**Mechanics:** electronic/alarm bypass, specialist/tool requirement, safe/slow versus fast/risky approach, guard inspection of changed door state.
+**Known target data:** police response **14:20**; values about **£16,000**; motorway escape; security **54%**; radio 0; guard skill around **47%**; max noise **82**; **Alarm System Z3**; **Check Clock about 30 seconds** in odino's data. Public map exists.
 
-**Puzzle skeleton:** security specialist disables/bypasses alarm → another route/action occurs → restore or preserve correct state before inspector returns.
+**Topology:** historic-house/gallery-like target with multiple protected display cases/art objects.
 
-**Production abstraction:** physical access and security access are distinct layers.
+**Temporal system:** the check clock is the defining design fact. A guard/security routine must satisfy a repeated time obligation; blocking or delaying the route can expose the burglary even without immediate visual detection.
 
----
+**Why it works:** introduces a periodic “security heartbeat” independent of line of sight.
 
-## 5.7 Printing Office
-
-**Crew:** multiple accomplices and specialist roles.
-
-**Mechanics:** carrying capacity, safe cracking, alarm work, lockpicking, hiding idle crew, parallel tasks.
-
-**Puzzle skeleton:** distribute specialists to independent tasks → hide actors who are not currently moving → overlap actions to save shared mission time → extract in a safe order.
-
-**Production abstraction:** first true crew-composition puzzle.
+**Production abstraction:** one guard whose patrol is not merely cosmetic: it must touch a checkpoint on schedule.
 
 ---
 
-## 5.8 Undertaker / Funeral Home
+## C9. Suterby's — Bond Street
 
-**Topology:** alternate elevated/bridge-like route and multiple floors.
+**Confidence:** STRONG
 
-**Mechanics:** safe interaction, restoration/closing behavior, patrol inspection, parallel crew actions.
+**Known target data:** police response **4:00**; values about **£8,000**; city escape; security **82%**; guard skill around **35%**; max noise **70**; **Alarm System Z3**. Public map exists.
 
-**Puzzle skeleton:** one actor performs objective while another manages access/restoration → ensure opened/changed containers are returned to a safe state before later inspection.
+**Topology:** high-security auction/valuable interior with a steel-door choke point and broad loot pool.
 
-**Production abstraction:** “restore the scene” becomes a reusable puzzle primitive.
+**Critical persistent state:** guide material explicitly warns that the **steel door must be closed after entering**, otherwise a patrol can detect the abnormal state.
 
----
+**Loot:** paintings, cash, jewels, statues, curiosities, silverware, historical art, coin collection.
 
-## 5.9 Mausoleum
+**Why it works:** traversal itself changes world state; the plan must include restoration.
 
-**Security:** walkthrough explicitly discusses cross-wired alarms and a switch controlling a trip beam.
-
-**Mechanics:** remote control, timed access, cross-linked security, synchronized actors.
-
-**Puzzle skeleton:** actor A reaches/holds or triggers remote control → temporary beam/alarm window opens → actor B crosses and reaches second dependency → return path must also be solved.
-
-**Production abstraction:** timed switch + remote dependency + two-way synchronization.
+**Production abstraction:** monitored choke door where “open and pass” is incomplete — the door must return to a plausible state before inspection.
 
 ---
 
-## 5.10 Spam Factory
+## C10. Ham House — Richmond
 
-**Topology:** split actors across physically separate buildings/areas.
+**Confidence:** STRONG
 
-**Mechanics:** remote security assistance, specialist safe/objective work, multiple NPC route clocks.
+**Known target data:** police response **13:20**; values about **£34,000**; country-road escape; security **62%**; guard skill about **31%**; max noise **94**; **Alarm Z3 + Alarm X3 + Check Clock about 640 seconds**. Public map exists.
 
-**Puzzle skeleton:** actor A disables security in B's area → B advances and performs specialist objective → teams later rendezvous/extract while two patrol schedules remain compatible.
+**Topology:** larger historic property with multiple security zones and enough scale for route ordering to matter.
 
-**Production abstraction:** geographically separated teams coupled by security state.
+**Security:** two alarm types plus long-period check-clock obligation. This is not “one alarm protects one thing”; several state machines overlap across a long operation.
 
----
+**Puzzle identity:** early security-stack level.
 
-## 5.11 The Villa
-
-**Topology:** multiple viable approaches including an alternate high/roof route that can bypass cameras.
-
-**Mechanics:** mandatory objective vs large optional loot pool; solo/crew choice; risk/reward greed.
-
-**Puzzle skeleton:** select route based on camera coverage and crew; complete mandatory objective; decide whether optional valuables are worth the later extraction risk.
-
-**Production abstraction:** clean completion and maximum profit should be different optimization goals.
+**Production abstraction:** estate with two independent alarm networks plus a slow periodic guard/system heartbeat.
 
 ---
 
-## 5.12 Neo Office
+## C11. Osterly / Osterley Park House — Isleworth
 
-**Role:** major cause-and-effect security graph puzzle.
+**Confidence:** STRONG
 
-**Security:** multiple alarms, safes, layered laser barriers, switches controlling access for other team members.
+**Known data:** one guide reports patrol ~**23 min**, loot ~**£20,700**, police response ~**11:40**, noise **90**, security **70**, guard skill **39**. Odino's valuation is higher (~£25,000), so economy values are version/guide-sensitive. Public map exists.
 
-**Crew:** large team / specialists.
+**Security:** defining perimeter mechanic is a **microphone-protected entry**. A loud tool can trigger the site before the crew meaningfully enters. Interior layers include **Alarm Z3 + Alarm X3**, searchlight/control logic and a guard.
 
-**Puzzle skeleton:** solve dependency ordering rather than merely route around cones: control A changes barrier B, allowing actor C to reach control D, which changes another actor's path.
+**Crew/tool logic:** guide solutions expect quiet drilling/entry plus fighter/electronics coverage.
 
-**Production abstraction:** security graph must be inspectable and reversible enough that extraction remains possible.
+**Why it works:** the tool/noise decision is evaluated at the first boundary, then the target escalates into layered human/electronic security.
 
----
-
-## 5.13 Museum
-
-**Topology:** multiple floors and objective/display areas.
-
-**Security:** switches disabling cameras; security/control-room hierarchy.
-
-**Opposition:** guards inspect paintings/objects, not merely walk routes.
-
-**Mechanics:** multiple team objectives, carrying limits, optional-loot optimization.
-
-**Puzzle skeleton:** disable/route around camera layer → coordinate team across floors → account for guards who will later inspect altered displays → choose loot within capacity/time budget.
-
-**Production abstraction:** hierarchy of security systems plus evidence inspection.
+**Production abstraction:** acoustic perimeter sensor → quiet breach → internal multi-system puzzle.
 
 ---
 
-## 5.14 Bank
+## C12. Natural History Museum / Natural Museum — Cromwell Road
 
-**Role:** large capstone-style conventional heist.
+**Confidence:** STRONG
 
-**Topology:** asymmetric front/back routes; multi-stage interior/vault progression; different entry and exit may be preferable.
+**Known target data:** police response **3:40**; values about **£34,000**; inner-city escape; security **66%**; radio about **7%**; guard skill about **19%**; max noise **66**; **Alarm Z3 + protected switchbox/searchlights**. Public map exists.
 
-**Security:** lasers, alarms, multiple protected stages.
+**Topology:** museum/display space with multiple showcases and a security-control node.
 
-**Crew:** multiple specialized roles; split teams.
+**Security hierarchy:** switchbox/searchlight relation means the device that alters visibility is itself part of the protected graph.
 
-**Mechanics:** carrying capacity can affect mission completion, not only bonus score.
+**Why it works:** hierarchical security rather than independent hazards.
 
-**Puzzle skeleton:** divide crew by route/function → solve security stages in order → access safes/vault → allocate carrying responsibility → extract through safest remaining route.
-
-**Production abstraction:** broad, open-ended multi-role heist before special narrative mission types.
+**Production abstraction:** exhibition space where control-room access changes the visibility layer but the controller is itself dangerous to reach/use.
 
 ---
 
-## 5.15 Barracks
+## C13. Kenwood House — Hampstead Lane
 
-**Objective:** rescue rather than theft.
+**Confidence:** STRONG
 
-**Topology:** separated teams / controlled passages.
+**Known target data:** police response **16:40**; values about **£50,000**; motorway escape; security **74%**; radio 0; guard skill about **50%**; max noise **94**; **Alarm X3 + Alarm Z3 + protected switchbox/searchlights**. Public map exists.
 
-**Mechanics:** preselected rescue character, two remote switches, strict timing window, escort extraction.
+**Topology:** large historic-house target with distributed valuable objects.
 
-**Puzzle skeleton:** two teams coordinate remote access → reach/free rescue target → escort target through now-open dependency chain → extract everyone in correct order.
+**Security:** mature first-game layered stack: human guard + two alarm types + controller + searchlights.
 
-**Production abstraction:** same engine primitives support rescue without inventing a separate gameplay mode.
+**Why it works:** scale and layered protection force route ordering and crew-role planning.
+
+**Production abstraction:** large estate where disabling one subsystem changes the feasibility of another route.
 
 ---
 
-## 5.16 Harbor
+## C14. Victoria & Albert Museum
 
-**Mechanics:** mission-specific key acquisition; ship/club/warehouse dependency chain; alarm and safe specialists; runner/carrier roles.
+**Confidence:** STRONG
 
-**Canonical dependency skeleton:**
+**Known guide data:** patrol ~**17 min**; loot ~**£59,900**; police response **5:00**; noise **58**; security about **80**; radio **11**; guard skill **54**.
+
+**Topology:** museum with initial control/security node, guarded transition/back room, searchlight exposure and later loot area.
+
+**Security sequence:** published strategy disables an early control box, waits for a guard cycle, crosses into a searchlight-risk area, then neutralizes further control/alarm nodes before looting.
+
+**Crew:** driver + fighter + electrician profile; physical entry, electrical tools and guard-neutralization capability.
+
+**Puzzle identity:** security layers are solved in order; correct ordering temporarily converts a dangerous gallery into a loot zone.
+
+**Production abstraction:** perimeter controller → guarded transition → internal alarm/controller → objective zone.
+
+---
+
+## C15. Bank of England
+
+**Confidence:** STRONG
+
+**Known guide data:** patrol ~**13 min**; total loot ~**£430,000**; police response **2:00**; noise **62**; security **86**; radio **27**; guard skill **90**.
+
+**Critical timing:** **two check clocks**, roughly **250 s** and **280 s**. This creates overlapping temporal obligations rather than one countdown.
+
+**Human security:** initial guards are extremely difficult in the original and guide results can be probabilistic. Our deterministic design should not copy that randomness literally.
+
+**Topology/security:** multi-stage bank/vault structure with guarded and electronic barriers and extremely little alarm-response slack.
+
+**Why it works:** dual periodic obligations + high-value objective + tiny response window force real crew synchronization.
+
+**Production abstraction:** deterministic bank puzzle with two independent security heartbeats and a staged vault chain.
+
+---
+
+## C16. National Gallery
+
+**Confidence:** STRONG
+
+**Known guide data:** patrol **20 min**; loot about **£167,100**; police response **3:00**; noise **62**; security about **76**; radio **11**; guard skill **66**; **Check Clock about 500 s**.
+
+**Topology:** large protected-art target with multiple entry/room choices and central transitions.
+
+**Security:** guards plus alarm/electrical/searchlight-control vocabulary. Exact per-door microphone/controller relationships should be confirmed against the original map/data before coding.
+
+**Puzzle identity:** several route choices funnel into a shared timed security obligation.
+
+**Production abstraction:** large gallery with alternative ingress but one global periodic security deadline.
+
+---
+
+## C17. British Museum
+
+**Confidence:** STRONG
+
+**Known guide data:** patrol ~**18 min**; loot ~**£85,780**; police response **3:00**; noise **62**; security about **78**; radio **11**; guard skill **82**; guide “good time” around **10:30**; **Check Clock about 320 s**.
+
+**Topology:** guarded museum entry followed by internal areas where exact patrol timing/hiding matters.
+
+**Security:** a seemingly easy physical entry is dominated by a very dangerous guard and periodic check-clock requirement.
+
+**Why it works:** entry geometry says “open”, temporal security says “not yet”.
+
+**Production abstraction:** visually accessible entry controlled by one high-value patrol plus medium-period checkpoint timer.
+
+---
+
+## C18. Tower of London
+
+**Confidence:** STRONG
+
+**Role:** Crown Jewels story job / first-game systems capstone.
+
+**Known guide data:** patrol about **1:30**; loot value around **£850,000**; police response **2:00**; noise **58**; security ~**90**; radio ~**47**; guard skill ~**98**; guide “good time” ~**14:40**; **Check Clock about 380 s**.
+
+**Topology:** fortified multi-stage target with searchlights, alarms and several crew/security dependencies around the Crown Jewels.
+
+**Narrative state:** the broader story proceeds into betrayal/capture consequences around this job; “perfect stealth success” is not the only narrative outcome.
+
+**Puzzle identity:** culmination of crew composition, periodic timing, alarms, lights, guards, tools and extraction.
+
+**Production abstraction:** late-game fortress/vault where several parallel tasks converge on one final objective window.
+
+---
+
+## C-FINAL. Starford Barracks
+
+**Confidence:** STRONG
+
+**Role:** scripted final operation after the Tower storyline; structurally different from ordinary selectable robberies.
+
+**Key mechanic:** three accomplices already have authored routes/behavior. The player primarily adds Matt's route around those schedules. This is an **asymmetric synchronization puzzle**, not blank-slate plan authoring.
+
+**Topology:** multi-floor military/barracks complex with doors, stairs, control boxes, alarms, secured areas and gate searchlights.
+
+**Dependency skeleton:** teammate opens access → Matt disables control node → radio coordination advances teammate → upper-floor security/control work → safe-related teammate task → final alarms/doors → gate/searchlight state.
+
+**Narrative/mechanical twist:** desired resolution requires the accomplices to be exposed/caught by gate searchlights while Matt escapes separately. Detection of one actor therefore cannot be modeled as unconditional global mission failure.
+
+**Engine lesson:** mission success must support actor-specific outcome predicates and asymmetric extraction.
+
+**Production abstraction:** mission with pre-scripted allied schedules that the player's plan must interlock with.
+
+---
+
+# PART II — PROFIDISKETTE (1995)
+
+## What is definitely known
+
+MobyGames describes Profidiskette as an add-on adding **8 new locations**, more cars and specialists, plus planning improvements. COSP preserves separate Profidisk game data and explicitly references:
+
+```text
+DATA/OBJPROFI/BUILDING.PC
+DATA/OBJPROFI/OBJECTS.PC
+DATA/OBJPROFI/TCDATA.H
+```
+
+Public walkthrough prose is much thinner than for the base game. **Missing topology is intentionally marked OPEN rather than invented.**
+
+## P1. 221B Baker Street
+
+**Confidence:** CONFIRMED location; PARTIAL mechanics
+
+MobyGames explicitly names 221B Baker Street. German community/walkthrough material treats it as a sensible early Profidisk target and associates it with a Sherlock-Holmes-themed objective, commonly described as an opium pipe.
+
+**Likely progression role:** approachable expansion re-entry rather than a late security fortress.
+
+**Open:** exact floorplan, guards, alarm graph, response/noise values and object coordinates must be extracted from Profidisk data/runtime.
+
+**Production abstraction:** compact themed residence/office with one iconic objective.
+
+---
+
+## P2. Buckingham Palace
+
+**Confidence:** CONFIRMED location; OPEN detailed mechanics
+
+MobyGames explicitly names Buckingham Palace. COSP changelog independently records a fixed crash when **visiting Buckingham Palace**, confirming the preserved engine/data recognizes it.
+
+**Likely role:** high-profile/high-security landmark target.
+
+**Open:** exact map, guard routes, alarms, valuables, timing and entrances. Use Profidisk data/runtime, not the real palace plan.
+
+**Production abstraction:** ceremonial/high-profile compound; completely original geometry.
+
+---
+
+## P3. Madame Tussaud's / Wax Museum
+
+**Confidence:** CONFIRMED location; OPEN detailed mechanics
+
+MobyGames explicitly names the wax museum.
+
+**Design interest:** exhibit rooms naturally support dense sightline clutter, display-value inspection and security-control routing.
+
+**Open:** exact original topology, security and loot.
+
+**Production abstraction:** exhibition attraction with display obstacles and security hierarchy.
+
+---
+
+## P4. Post Train / valuables train (`Postzug`)
+
+**Confidence:** CONFIRMED concept/location; PARTIAL mechanics
+
+MobyGames explicitly states the expansion contains a **train carrying valuables**. German community material calls it `Postzug`.
+
+**Topology identity:** intrinsically linear/segmented vehicle layout with compartment choke points, unlike a normal building.
+
+**Community evidence:** recollections suggest strong payout and relatively simple guard setup, but this is not authoritative enough to encode as fact until runtime/data verification.
+
+**Engine/design lesson:** burglary target need not be a static rectangular building.
+
+**Production abstraction:** linear vehicle heist with compartment sequencing and constrained bypass routes.
+
+---
+
+## P5. Westminster Abbey
+
+**Confidence:** CONFIRMED target identity from preserved game logic; OPEN topology
+
+COSP discussion reproduces planning validation that checks `Building_Westminster_Abbey` and requires the selected vehicle to be one of two **Fiat 634 N** variants (1936/1943).
+
+**Important mechanic:** getaway vehicle is a **hard mission prerequisite**, not merely an escape stat.
+
+**Open:** exact building map/security and in-fiction reason for the vehicle requirement.
+
+**Production abstraction:** target with a hard preparation/loadout constraint that changes planning before the map opens.
+
+---
+
+## P6. Downing Street
+
+**Confidence:** PARTIAL identity; OPEN mechanics
+
+The name appears in Profidisk preservation/community/asset references, but the high-authority prose sources recovered in this pass do not enumerate all eight targets.
+
+**Do not treat as fully verified until `OBJPROFI/BUILDING.PC` is decoded.**
+
+**Production abstraction if confirmed:** government-office target with compartmentalized access/security.
+
+---
+
+## P7. Tate Gallery
+
+**Confidence:** PARTIAL identity; OPEN mechanics
+
+Recovered as part of Profidisk preservation/community asset references, but not among the four examples explicitly named by MobyGames.
+
+**Open:** confirm target ID/name and all security/topology from Profidisk data.
+
+**Production abstraction if confirmed:** gallery target extending display/security-control vocabulary.
+
+---
+
+## P8. Chemical Factory / Chemiefabrik
+
+**Confidence:** PARTIAL identity; OPEN mechanics
+
+Associated with Profidisk preservation/community asset references but not yet confirmed by a primary prose list in this research pass.
+
+**Open:** confirm identity and all map/security facts from `OBJPROFI` database/runtime.
+
+**Production abstraction if confirmed:** industrial topology with controlled/hazardous zones rather than museum/house geometry.
+
+---
+
+## Mandatory Profidisk follow-up
+
+To bring P1–P8 to the quality of the base-game entries:
+
+1. unpack preserved `DerClouProfiData.zip`;
+2. decode/enumerate `DATA/OBJPROFI/BUILDING.PC`, `OBJECTS.PC`, `TCDATA.H`;
+3. recover all eight building IDs/names;
+4. recover target stats, object/security relations and guard routes where encoded;
+5. run each target in COSP/original DOS build to verify topology;
+6. record differences between standard and Profidisk databases;
+7. replace every PARTIAL/OPEN statement above with sourced facts.
+
+This is currently the **largest hole** in the historical level archive.
+
+---
+
+# PART III — DER CLOU! 2 / THE STING! (2001): ALL 18 JOBS
+
+The complete Kasey Chang walkthrough is unusually useful because it describes working plans for every job. Speedrun.com independently confirms the exact 18-level set and supplies alternative routes, which proves several maps support multiple valid solutions. The summaries below extract topology/security grammar, not walkthrough prose.
+
+## S1. Gas Station
+
+**Confidence:** STRONG
+
+**Topology:** compact gas-station exterior + shop, breachable window, upstairs/restroom area and nearby getaway car.
+
+**Security:** one cop/guard patrol. Noise from window/register work is the central hazard.
+
+**Objective:** cash register; optional low-value items exist.
+
+**Plan skeleton:** wait until patrol is outside hearing window → breach → approach register → if needed wait through another cycle → force/take → exit.
+
+**Puzzle identity:** one moving listener + known noisy actions.
+
+**Production abstraction:** deterministic noise timing tutorial.
+
+---
+
+## S2. Grocers / Grocery Store
+
+**Confidence:** STRONG
+
+**Topology:** storefront with left-window entry, lower retail area and upper/intermediate floor used as staging/hiding space.
+
+**NPC:** old woman/granny runs a predictable cycle. The player must cross her route more than once.
+
+**Objective:** cash register plus another cash stash/stocking in common walkthrough routes.
+
+**Puzzle identity:** same patrol cycle must be respected inbound and outbound; upstairs zone becomes a safe waiting pocket.
+
+**Production abstraction:** patrol cycle + safe room + repeated crossing.
+
+---
+
+## S3. Cinema
+
+**Confidence:** STRONG
+
+**Topology:** exterior perimeter, alternate entrance near/behind hotdog stand, stairs to upper/projection area, hiding corner/room and outside patrol route.
+
+**Security:** indoor and outdoor patrol timing overlap. Alternate/quiet entry is superior to obvious destructive route.
+
+**Objective:** film reel in projection-related room.
+
+**Plan skeleton:** alternate ingress → start/finish lock work around guard cycle → hide → take reel → exit same side → avoid exterior patrol → car.
+
+**Puzzle identity:** alternate entry + two patrol domains + hiding + door/evidence considerations.
+
+---
+
+## S4. Hotel
+
+**Confidence:** STRONG
+
+**Topology:** multi-floor hotel with front-window/kitchen alternatives, stairs and bedroom/safe/loot rooms.
+
+**Security:** guard/resident cycles across floors. Safe-oriented solution requires long/noisy safe work while the guard is far away. Modern speed route demonstrates a different strategy: bedroom valuables timed around a resident cycle.
+
+**Crew:** safecracker specialist materially changes one solution family.
+
+**Puzzle identity:** long action duration + vertical patrol phase + optional objective strategy.
+
+**Production abstraction:** multi-floor target where loot choice changes which timing window matters.
+
+---
+
+## S5. Greenhouse / Arboretum
+
+**Confidence:** STRONG
+
+**Topology:** exterior/side-window approach, office/corridor/greenhouse spaces and vertical/stair transition.
+
+**NPC:** technician cycles predictably between objective area and another station/office.
+
+**Objective:** cashbox plus special plant/asparagus-like mission item in walkthrough material.
+
+**Key mechanic:** theft can be discovered **later**, when the technician returns to the changed world state.
+
+**Crew:** fast accomplice useful for exploiting the just-departed window.
+
+**Puzzle identity:** delayed discovery + future deadline.
+
+**Production abstraction:** deterministic returning NPC; player has a known escape deadline after changing an inspected object.
+
+---
+
+## S6. Boxing Club
+
+**Confidence:** STRONG
+
+**Progression role:** first explicit electronics/alarm job.
+
+**Topology:** club/locker/shower spaces plus upstairs protected area; side/shower room can stage/hide an actor.
+
+**Security:** alarm bypass uses electronics/soldering capability. Upstairs NPC later inspects a door; wrong door/lock state can expose the burglary after the crew has moved away.
+
+**Objective:** boxing-glove mission item plus optional valuables.
+
+**Puzzle identity:** electronics specialist + delayed inspection + state restoration.
+
+**Production abstraction:** alarmed access where “leave door as found” is part of correctness.
+
+---
+
+## S7. Printing Office
+
+**Confidence:** STRONG
+
+**Topology:** multi-floor printing/office target with alternate/rear access, protected rooms, patrols, safe and alarm work.
+
+**Objective:** two heavy printing plates/templates, around **35 kg each** in the guide.
+
+**Crew:** multiple specialists: locks, safe cracking, electronics/alarm and carrying capacity.
+
+**Evidence mechanic:** guide explicitly notes upstairs patrol checks **damaged locks**, not simply current locked/unlocked state.
+
+**Puzzle identity:** crew composition + parallel tasks + carrying + damage evidence.
+
+**Production abstraction:** heavy mission objects force assignment of the correct carrier while specialists solve separate access nodes.
+
+---
+
+## S8. Undertaker / Funeral Home
+
+**Confidence:** STRONG
+
+**Topology:** obvious front route is inferior; exterior stairs/skybridge-like connection reaches alternate upper entry. Multi-floor interior includes safe/drawer/casket-related loot.
+
+**Security:** patrol moves between floors. After safe/drawer work, closing/restoring the container allows the documented plan to survive a later patrol inspection.
+
+**Objective:** “Cremation of Elvis”/bible-like special item; optional watch/paintings.
+
+**Crew:** safecracker + second actor; useful parallel staging near exit.
+
+**Puzzle identity:** alternate vertical ingress + scene restoration + patrol inspection.
+
+---
+
+## S9. Mausoleum
+
+**Confidence:** STRONG
+
+**Topology:** entrance → B1 security area → deeper B2/corridor/stair route around a laser/trip beam.
+
+**Security graph:** two alarms are **cross-wired** and the guide explicitly warns against attacking them directly. A separate switch controls the trip beam.
+
+**Synchronization:** actor A stays at the switch while actor B approaches/crosses the remote barrier.
+
+**Phase change:** some guards appear only **after objective pickup**, so the escape is a different security state from ingress.
+
+**Puzzle identity:** timed remote switch + cross-linked security + post-objective state transition.
+
+**Production abstraction:** two actors control each other's accessibility; objective triggers phase 2.
+
+---
+
+## S10. Spam Factory
+
+**Confidence:** STRONG
+
+**Topology:** industrial/main building plus smaller office/side building across a compound/yard; operationally separate zones.
+
+**Security dependency:** one actor reaches a lever/control in one area that changes alarm/security access for another area.
+
+**Objective:** certificates/valuable documents in a safe in common guide routes.
+
+**Crew:** safe/lock capability plus remote-security assistance.
+
+**Puzzle identity:** split areas + remote disable + separate patrol clocks.
+
+**Production abstraction:** area A control → area B specialist objective → rendezvous/extraction.
+
+---
+
+## S11. Villa
+
+**Confidence:** STRONG
+
+**Story objective:** **Check Card**.
+
+**Topology:** large house with side-window entry, several floors, garden/exterior guard, internal guard, balcony/roof connection and objective desk room.
+
+**Security:** camera-protected direct routes can be bypassed by topology; internal guard can be followed. Balcony/roof route creates a timed cross-building shortcut.
+
+**Loot:** many optional valuables, but Check Card is the mission-critical object.
+
+**Puzzle identity:** mandatory objective vs greed + alternate vertical/roof route + topology-based camera bypass.
+
+**Production abstraction:** primary objective is simple; optional profit meaningfully changes risk/extraction timing.
+
+---
+
+## S12. neo Office
+
+**Confidence:** STRONG
+
+**Topology:** large corporate office with back/roof/window approaches, multiple internal security zones, safes and laser barriers.
+
+**Crew:** large/multi-role team recommended; lock, safe, electronics and carrying tasks can be split.
+
+**Security:** contemporary guide calls attention to **cause and effect**. Switches, alarms and lasers form dependencies; one actor changes another's route. Rooftop/window routes can bypass some camera exposure.
+
+**Objective/loot:** several neo documents/valuable objects; fuller routes include multiple/heavy targets.
+
+**Puzzle identity:** first true security dependency graph rather than isolated devices.
+
+**Production abstraction:** directed graph whose solution must preserve a reversible extraction path.
+
+---
+
+## S13. Museum
+
+**Confidence:** STRONG
+
+**Topology:** multi-floor museum with displays, patrol zones, control/security areas and multiple team objectives.
+
+**Security hierarchy:** switches/levers disable cameras/lasers; control areas gate protected exhibits. Guards inspect paintings/objects, creating delayed evidence detection.
+
+**Objective:** guide material references a shrunken-head-style mission target plus value/loot requirements; optional paintings create carrying optimization.
+
+**Crew:** multiple actors; locks, electronics/alarm and carrying all matter.
+
+**Puzzle identity:** local device → control area → protected system → exhibit, combined with inspection patrols.
+
+**Production abstraction:** multi-stage museum where optional exhibit greed consumes time/capacity.
+
+---
+
+## S14. Bank
+
+**Confidence:** STRONG
+
+**Topology:** large bank with asymmetric access, stairs, laser/alarm zones, basement/vault stages, steel doors and several control points.
+
+**Crew:** split team; lock, electronics/soldering and safe work distributed among actors; carrying matters for bullion.
+
+**Security graph:** switches/levers open barriers for another actor; steel/vault doors form staged dependencies. Guide routes often use different ingress/egress logic rather than simply reversing the route.
+
+**Objective:** diamond and gold bullion in modern speed route; fuller walkthrough emphasizes multiple safes/vault stages.
+
+**Puzzle identity:** large split-team vault heist.
+
+**Production abstraction:** remote controls + staged vault + asymmetric exit.
+
+---
+
+## S15. Barracks
+
+**Confidence:** STRONG
+
+**Objective type:** **rescue**, not loot.
+
+**Topology:** military compound/building with separated crew paths, guardhouse/restricted area and remote control points.
+
+**Crew/state:** Daisy is story-selected. Teams begin/operate in separate areas.
+
+**Security dependency:** two remote switches/levers must be coordinated in tight windows, more than once. After release, extraction becomes escort/synchronization rather than looting.
+
+**Engine lesson:** success conditions must support `rescue actor + extract`, not only `take object`.
+
+**Production abstraction:** remote switch pair → rescue state change → escort extraction.
+
+---
+
+## S16. Harbour
+
+**Confidence:** STRONG
+
+**Objective:** **Red and Blue power prisms**.
+
+**Topology:** harbour containing ship, tavern/club/office and warehouse/hangar areas. Crew operates across physically distinct structures.
+
+**Dependency chain:** ship desk/key → harbour office/alarmed room → remote lever → temporary hangar/camera/security state → safe alarms → safes → prisms → remote exit window.
+
+**Crew:** lock/key acquisition, electronics/alarm, safe cracking and carrying roles. One guide route repeatedly has Tucker operate a remote lever while another actor advances through the hangar.
+
+**Puzzle identity:** one of the clearest dependency chains in the sequel.
 
 ```text
 obtain key
-→ unlock secure room
+→ unlock control room
 → operate remote switch
-→ disable warehouse security
-→ specialist opens protected container/safe
-→ take mission object
-→ coordinated extraction
+→ create security window
+→ specialist enters
+→ disable safe alarms
+→ crack two safes
+→ take two mission items
+→ create exit window
 ```
 
-**Production abstraction:** explicit key → room → switch → security → objective chain.
+**Production abstraction:** long but legible directed security graph across separate buildings.
 
 ---
 
-## 5.17 Power Plant
+## S17. Power Plant
 
-**Objective:** placement/sabotage-style mission rather than ordinary theft.
+**Confidence:** STRONG
 
-**Topology:** several guarded zones / staged barriers; multiple teams.
+**Objective type:** **placement/sabotage**, not theft. The two prisms from Harbour are placed on two machines; the plant stops when the objective state is reached.
 
-**Mechanics:** one team's action creates access for another; tight deterministic timing dominates.
+**Topology:** industrial compound with several guard routines, towers/alternate entrances, internal plant floor and staged barriers/camera coverage.
 
-**Puzzle skeleton:** teams progress in relay through staged barriers → objective item is placed/used at target → dependencies are reopened or preserved for extraction.
+**Crew:** speed emphasized; one actor can carry both prisms while others manipulate access/security.
 
-**Production abstraction:** mission verbs can change while navigation/security/planning systems stay identical.
+**Security:** front door is not preferred; not every camera must be directly disabled. Alternate topology and timing matter.
+
+**Engine lesson:** same planning primitives support `place item at target` mission verbs.
+
+**Production abstraction:** staged multi-team sabotage + item placement + extraction.
 
 ---
 
-## 5.18 Ministry of Light
+## S18. Ministry of Light
+
+**Confidence:** STRONG
 
 **Role:** final integrated puzzle.
 
-**Topology:** multiple starting positions and interdependent routes.
+**Crew/state:** Daisy and Sinclair are story-selected; Sinclair begins imprisoned and cannot be normally equipped. Tucker/Daisy need electronics/soldering capability; lockpicks are not central in documented solutions.
 
-**Security/opposition:** cameras, lasers, guards, hiding/following, remote switches.
+**Topology:** multiple starting sides, front/back approaches, corridors, stairs/platforms, guarded rooms, prison/release area and multiple laser-controlled transitions.
 
-**Objective structure:** includes freeing/rescuing another actor and repeated cross-team dependencies.
+**Security:** guards, cameras, lasers and repeated remote switches. Tucker's progress opens Daisy's path; Daisy later opens Tucker's path; freeing Sinclair adds an actor needed for the final dependency.
 
-**Puzzle skeleton:** actor A advances and unlocks B's route → B reaches another control that changes A's route → characters repeatedly alternate progress through guards/security → final group objective/extraction.
-
-**Production abstraction:** finale combines established primitives rather than introducing arbitrary new rules.
-
----
-
-# 6. Coverage matrix
-
-| Set | Known count | Detailed enough for design abstraction | Exact geometry recovered | Status |
-|---|---:|---:|---:|---|
-| The Clue! base game | not yet fully verified | 13 documented targets + story observations | partial; blueprint links exist for many | **INCOMPLETE — must parse original data** |
-| Profidiskette | 8 confirmed | 4 publicly named, broad details for train | no | **INCOMPLETE — data extraction required** |
-| The Sting! | 18 | all 18 | not yet reconstructed room-by-room | **COMPLETE at mechanic level; geometry pass remains** |
-
----
-
-# 7. Required next research passes
-
-## Pass A — first-game data extraction
-
-From preserved COSP/original game packages, extract:
-
-- canonical target/building string table;
-- complete base-game target count;
-- all Profidisk P1–P8 names;
-- building/map identifiers;
-- object/loot placement data if encoded separately;
-- alarm/security type identifiers;
-- guard/patrol schedules if recoverable;
-- police response/noise/security parameters;
-- any blueprint/map assets that can be viewed internally as research reference.
-
-**Output:** replace every `UNKNOWN` above with measured data.
-
-## Pass B — blueprint capture
-
-For each first-game/Profidisk target:
-
-- preserve an internal map screenshot or redraw a neutral research schematic;
-- label rooms/nodes rather than copying production art;
-- mark all entrances, protected doors/windows, devices, guard route nodes and objective containers.
-
-## Pass C — The Sting! geometry pass
-
-For each of the 18 sequel jobs, capture:
-
-- number of floors / separated buildings;
-- room adjacency graph;
-- actor starting positions;
-- guard route nodes and wait/inspection nodes;
-- security-device positions and dependency edges;
-- objective and extraction positions;
-- significant action/timing windows.
-
-The complete walkthrough gives solution order, but a room-by-room map reconstruction still requires screenshots/video or direct play.
-
-## Pass D — production conversion
-
-For every reconstructed original target create a sibling **originalized design brief**:
+**Relay structure:** 
 
 ```text
-Original research target: [internal only]
-Abstract mechanic: [...]
-New setting: [...]
-New geometry: [...]
-New patrol topology: [...]
-New timings: [...]
-New security graph: [...]
-New objective/story: [...]
-What was deliberately changed to avoid map cloning: [...]
+Tucker advances
+→ switch helps Daisy
+→ Daisy advances
+→ switch helps Tucker
+→ team frees Sinclair
+→ Sinclair + others satisfy final switch dependency
+→ final access opens
+```
+
+**Puzzle identity:** finale recombines learned primitives rather than inventing arbitrary new rules.
+
+**Production abstraction:** multi-start, multi-actor dependency relay with rescue embedded in the security graph.
+
+---
+
+# 5. Cross-game mechanic matrix
+
+| Primitive | Early clear example | Advanced example |
+|---|---|---|
+| Noise window | Clue Kiosk / Sting Gas Station | Osterly microphone entry |
+| Deterministic patrol | Kiosk / Grocers | Museum / Ministry |
+| Safe waiting pocket | Grocers | Ministry guard-following/corners |
+| Long interaction duration | Jeweller's safe | Hotel / Bank vault |
+| World-state restoration | Suterby's steel door | Boxing Club / Undertaker |
+| Delayed discovery | Old People's Home | Greenhouse / Museum inspections |
+| Check-clock heartbeat | Chiswick | Bank of England dual clocks |
+| Electronics/alarm specialist | Old Curiosity Shop | neo Office / Bank |
+| Searchlight/controller graph | Natural Museum | Tower / late museums |
+| Remote switch | Mausoleum | Harbour / Ministry |
+| Cross-linked security | Mausoleum | neo Office |
+| Carrying capacity | Printing Office | Bank / Museum |
+| Key dependency | — | Harbour |
+| Alternate vertical route | Cinema / Hotel | Undertaker / Villa |
+| Split buildings | — | Spam Factory / Harbour |
+| Rescue objective | — | Barracks / Ministry |
+| Placement/sabotage objective | — | Power Plant |
+| Pre-scripted ally schedule | Starford Barracks | reusable future primitive |
+| Actor-specific success outcome | Starford Barracks | future narrative missions |
+| Vehicle/loadout gate | Westminster Abbey | reusable campaign-prep primitive |
+
+---
+
+# 6. Reconstruction data still worth extracting
+
+## 6.1 First-game blueprint pass
+
+For every public GameFAQs map, transcribe research facts — **not the image** — into an abstract graph:
+
+```text
+area / room nodes
+connections
+windows / doors
+stairs
+loot clusters
+guard/check-clock nodes
+alarm/switch/searchlight relations
+entry/extraction nodes
+```
+
+## 6.2 First-game/COSP data pass
+
+The surviving first-game source/data lineage can potentially reveal:
+
+- building IDs;
+- target statistics;
+- guard routes;
+- object categories;
+- security connections;
+- edition differences.
+
+COSP GPL code remains research-only unless a separate licensing decision is made. Reimplement behavior independently.
+
+## 6.3 Profidisk database pass — highest-priority historical gap
+
+Decode:
+
+```text
+DATA/OBJPROFI/BUILDING.PC
+DATA/OBJPROFI/OBJECTS.PC
+DATA/OBJPROFI/TCDATA.H
+```
+
+Goals:
+
+- prove all eight target names;
+- recover target stats;
+- recover security/object graph;
+- recover patrol paths if encoded;
+- verify map topology in runtime;
+- replace PARTIAL/OPEN Profidisk entries with sourced facts.
+
+## 6.4 The Sting! visual/runtime graph pass
+
+The walkthrough provides strong causal routes, but each sequel mission can still be normalized into a machine-readable research graph:
+
+```text
+areas
+vertical transitions
+entry/extraction
+patrol loops
+security devices
+switch targets
+objective nodes
+phase changes
+```
+
+That graph is the useful part to compare across missions; exact decorative geometry is not.
+
+---
+
+# 7. Mandatory format for future additions
+
+Whenever a new source reveals more about an original target, update the entry using this schema:
+
+```text
+Game / edition:
+Target name:
+Source confidence:
+Progression role:
+
+ENVIRONMENT / TOPOLOGY
+- areas / floors
+- entry candidates
+- exit candidates
+- choke points
+- alternate routes
+
+ACTORS
+- guards / civilians
+- patrol topology
+- inspections
+- state changes
+
+SECURITY GRAPH
+- alarms
+- cameras / searchlights
+- lasers / microphones
+- switches / control boxes
+- check-clock / timed dependencies
+
+OBJECTIVES
+- mandatory state/object
+- optional loot
+- carrying constraints
+
+TIME
+- action durations
+- patrol windows
+- delayed discovery
+- security heartbeats
+- police/alarm response
+
+TOOLS / CREW
+- required capabilities
+- meaningful alternatives
+
+FAILURE / EVIDENCE
+- immediate failure
+- delayed failure
+- state that must be restored
+
+DESIGN EXTRACTION
+- why the original puzzle works
+- abstract primitive(s) worth preserving
+
+PRODUCTION REDESIGN
+- geometry that must change
+- patrol topology that must change
+- timings that must change
+- fiction/names/art that must change
+
+OPEN QUESTIONS
+- facts still unverified
+
+SOURCES
+- URL + exactly what it supports
 ```
 
 ---
 
-# 8. Rules for agents using this catalog
+# 8. Agent rule for using this catalog
 
-1. **Never invent missing original facts.** Mark them UNKNOWN and research them.
-2. **Never copy an original map directly into production.** Reconstructing it internally for research is not the same as shipping it.
-3. The useful unit is the **puzzle grammar**, not the room coordinates.
-4. Preserve deterministic cause/effect: patrols, inspections, timers and security dependencies should remain explainable.
-5. When a source conflicts with another source, record both and prefer game data/direct measurement over a prose walkthrough.
-6. Keep exact source URLs beside every future addition so a later agent can audit it.
-7. The Swift/RealityKit and Unity implementations are irrelevant to historical truth; this document describes **game-design evidence**, not engine architecture.
-8. Any later discovery from original data should update this file rather than living only in a chat or coding-agent transcript.
+When asked to create a mission inspired by one of these targets, **do not translate the original map cell-for-cell**. First write an abstraction.
+
+Example:
+
+```text
+RESEARCH FACT
+Mausoleum:
+actor A controls a remote timed barrier for actor B;
+objective pickup changes guard state;
+return route is different.
+
+ABSTRACTION
+remote timed gate + two actors + phase change after objective.
+
+NEW LEVEL
+new fiction + new geometry + new route topology + new timings
++ different device placement + different objective + original art.
+```
+
+The point of reconstructing the originals in detail is to preserve **why the puzzles work**, not their copyrighted expression.
 
 ---
 
-# 9. Immediate practical conclusion
+# 9. Current research conclusion
 
-For implementation work today, **The Sting!'s 18 jobs are already sufficiently understood to drive the mechanic roadmap**, while the **first game + Profidisk still require a dedicated data/blueprint extraction pass** before anyone should claim that every original target can be reconstructed exactly.
+The archive is now strong for:
 
-The next research priority is therefore not another general web summary. It is:
+- the **18 selectable base-game targets** plus **Starford Barracks**;
+- the exact **18 The Sting! jobs** and their main route/security grammar;
+- Profidisk's existence as an **8-location** expansion and at least five strongly evidenced target identities.
 
-```text
-preserved original data
-→ enumerate every target
-→ extract every map/security record
-→ capture neutral research schematics
-→ fill the UNKNOWN fields in this catalog
-```
+The major remaining gap is **Profidisk exact topology/data**. The preserved data is online, so the correct next step is direct data/runtime extraction rather than further guessing from community prose.
