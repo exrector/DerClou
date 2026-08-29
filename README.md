@@ -4,7 +4,7 @@ An original modern heist-planning game that carries forward the design tradition
 
 > **Development update:** active production has moved to **Unreal Engine 5**. The earlier implementations are intentionally preserved below and in the repository history rather than being erased.
 
-The project is currently a playable vertical-slice prototype. Its first level demonstrates a compact 3D diorama, character movement, patrols, security observation and deterministic plan outcomes. The repository also preserves the earlier native Apple and Unity implementations as an engineering record of the project’s evolution.
+The project is currently only a **basic playable prototype** and vertical slice. Its first level demonstrates a compact 3D diorama, character movement, patrols, security observation and deterministic plan outcomes. The planned full game contains **180 levels of varying difficulty**; the current build is an early foundation for that larger campaign. The repository also preserves the earlier native Apple and Unity implementations as an engineering record of the project’s evolution.
 
 ## Implementations
 
