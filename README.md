@@ -15,12 +15,6 @@ The project is currently only a **basic playable prototype** and vertical slice.
 
 The complete, source-linked migration record is in [`docs/DEVELOPMENT_HISTORY.md`](docs/DEVELOPMENT_HISTORY.md).
 
-## Короткая демонстрация
-
-Видео автоматического прогона базового уровня (около 30 секунд): [скачать/посмотреть MP4](docs/media/derclou-grant-demo.mp4).
-
-[![Кадр демонстрации](docs/media/derclou-grant-demo-poster.jpg)](docs/media/derclou-grant-demo.mp4)
-
 ## Original project direction (archived)
 
 The repository began as a native Apple-platform **top-down / 2.5D heist-planning puzzle game** built with Swift, SwiftUI and RealityKit, and later moved through a Unity implementation. Its central concept remains unchanged:
