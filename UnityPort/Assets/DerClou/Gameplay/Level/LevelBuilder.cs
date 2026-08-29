@@ -4,9 +4,13 @@ namespace DerClou.Gameplay.Level
     using DerClou.Core.Navigation;
     using DerClou.Core.Simulation;
     using DerClou.Gameplay.Actors;
+    using DerClou.Gameplay.Lighting;
+    using DerClou.Gameplay.Navigation;
     using DerClou.Gameplay.Props;
     using DerClou.Gameplay.Simulation;
     using UnityEngine;
+    using UnityEngine.AI;
+    using UnityEngine.Rendering;
     using System.Collections.Generic;
 
     public class LevelBuilder : MonoBehaviour
@@ -31,12 +35,15 @@ namespace DerClou.Gameplay.Level
         public Material doorMaterial;
 
         private PropCatalog catalog;
+        private LevelBlueprint activeBlueprint;
         private Dictionary<string, GameObject> prefabCache = new();
         private List<GameObject> spawnedObjects = new();
+        public UnityNavMeshWorld NavMeshWorld { get; private set; }
 
         public void Build(LevelBlueprint blueprint, PropCatalog catalog)
         {
             this.catalog = catalog;
+            activeBlueprint = blueprint;
             Clear();
 
             // Before the building itself: `docs/ART_DIRECTION.md`'s settled
@@ -59,10 +66,24 @@ namespace DerClou.Gameplay.Level
             // `GameBootstrap.Awake` never ran and `SimulationService.Current`
             // would otherwise still be null.
             if (SimulationService.Current == null) SimulationService.Current = new MissionState();
-            SimulationService.Current.Grid = NavGrid.BuildFromBlueprint(blueprint, catalog);
+            // Bake for a real body, not a dimensionless point. The extra
+            // 8 cm is the validated comfort margin used by the Swift
+            // trajectory planner; authored door gaps are sized accordingly.
+            var immutableBaseGrid = NavGrid.BuildFromBlueprint(
+                blueprint, catalog, CharacterProfile.Standard.Radius, 0.08f);
+            SimulationService.Current.ImmutableBaseGrid = immutableBaseGrid;
+            SimulationService.Current.Grid = immutableBaseGrid.Clone();
+            SimulationService.Current.Topology = WorldTopology.Build(blueprint, catalog);
+            // Vision gets authored boxes, not scene colliders. This is the
+            // exact immutable geometry both detection and the visible cone
+            // use during deterministic replay.
+            SimulationService.Current.VisionOccluders = BuildVisionOccluders(blueprint, catalog);
 
             BuildProps(blueprint);
+            ApplyInitialDoorOccupancy(blueprint, SimulationService.Current);
+            BuildUnityNavMesh(blueprint);
             BuildActors(blueprint);
+            NavMeshWorld?.ValidateAuthoredRoutes(blueprint);
 
             // Everything above spawns at scene root with no parent, which is
             // why the hierarchy scattered floors/walls/props/actors as
@@ -91,8 +112,23 @@ namespace DerClou.Gameplay.Level
             }
         }
 
+        private static void ApplyInitialDoorOccupancy(LevelBlueprint blueprint, MissionState state)
+        {
+            if (state?.Grid == null || state.ImmutableBaseGrid == null) return;
+            foreach (var prop in blueprint.props)
+            {
+                if (!state.Doors.TryGetValue(prop.id, out var door) || door.isOpen) continue;
+                state.Grid.ApplyLocalBoxOccupancy(
+                    state.ImmutableBaseGrid,
+                    prop.box,
+                    true,
+                    CharacterProfile.Standard.Radius + 0.08f);
+            }
+        }
+
         private void Clear()
         {
+            NavMeshWorld = null;
             // `Build` runs both from Play (`GameBootstrap.Awake`) and from
             // the Editor (`LevelBuilderEditor`) — `DestroyImmediate` is only
             // safe outside Play; using it while playing is deprecated and
@@ -103,6 +139,43 @@ namespace DerClou.Gameplay.Level
                 if (Application.isPlaying) Destroy(obj); else DestroyImmediate(obj);
             }
             spawnedObjects.Clear();
+        }
+
+        private void BuildUnityNavMesh(LevelBlueprint blueprint)
+        {
+            var go = new GameObject("UnityNavMeshWorld");
+            go.transform.SetParent(transform, false);
+            NavMeshWorld = go.AddComponent<UnityNavMeshWorld>();
+            NavMeshWorld.Build(blueprint);
+            if (SimulationService.Current != null)
+                SimulationService.Current.SpatialCorridors = NavMeshWorld;
+            spawnedObjects.Add(go);
+        }
+
+        private static List<WorldBox> BuildVisionOccluders(
+            LevelBlueprint blueprint,
+            PropCatalog catalog)
+        {
+            var occluders = new List<WorldBox>(blueprint.walls.Count + blueprint.props.Count);
+            occluders.AddRange(blueprint.walls);
+            foreach (var prop in blueprint.props)
+            {
+                var prototype = catalog?.Get(prop.prototypeId);
+                if (prototype == null) continue;
+                bool isClosedDoor = prototype.mechanic == PropMechanic.HingedDoor
+                    && !(prop.config.TryGetValue("open", out var open)
+                        && open.type == LevelValue.Type.Bool && open.boolValue);
+                if (!prototype.blocksMovement && !isClosedDoor) continue;
+                // Glass and emissive markers do not cast an opaque gameplay
+                // shadow. Every other blocking footprint participates in
+                // the same analytic segment/box clipping as walls.
+                if (prototype.surface == SurfaceKey.Glass
+                    || prototype.surface == SurfaceKey.Emissive) continue;
+                var box = prop.box;
+                if (string.IsNullOrEmpty(box.sourceID)) box.sourceID = prop.id;
+                occluders.Add(box);
+            }
+            return occluders;
         }
 
         /// Grass, a paved apron and a scatter of trees around the building
@@ -267,23 +340,73 @@ namespace DerClou.Gameplay.Level
 
         private GameObject BuildDoor(PlacedProp prop, PropPrototype proto)
         {
-            // `new GameObject("Door")` with no fallback mesh, collider or
-            // visible surface — the door has never been anything but empty
-            // space to click through, whether or not `doorPrefab` is set.
-            var go = doorPrefab != null ? Instantiate(doorPrefab) : GameObject.CreatePrimitive(PrimitiveType.Cube);
-            go.transform.position = new Vector3(prop.box.centerX, prop.box.height * 0.5f, prop.box.centerZ);
-            go.transform.rotation = Quaternion.Euler(0, prop.box.yaw, 0);
-            go.transform.localScale = new Vector3(prop.box.width, prop.box.height, prop.box.depth);
-            go.layer = LayerMask.NameToLayer("Door");
-
             var hingeSide = prop.config.TryGetValue("hingeSide", out var h) && h.type == LevelValue.Type.String
                 ? (DoorHingeSide)System.Enum.Parse(typeof(DoorHingeSide), h.stringValue)
                 : DoorHingeSide.Left;
             var openAngle = prop.config.TryGetValue("openAngle", out var oa) && oa.type == LevelValue.Type.Float ? oa.floatValue : 90f;
 
-            var view = go.GetComponent<DoorView>() ?? go.AddComponent<DoorView>();
+            // A real door swings around its hinge edge, not its own center.
+            // Rotating the leaf's own transform in place (the old approach)
+            // spins it around the geometric middle of the doorway — visibly
+            // wrong regardless of which "hinge side" was authored, since
+            // that value only flipped the rotation's sign, never its pivot
+            // position. Fix: an empty "hinge" parent sits at the door's
+            // edge and is what actually rotates; the visual leaf is its
+            // child, offset by half the door's width so it still fills the
+            // original doorway when closed.
+            // The door's box isn't necessarily authored with the swinging
+            // dimension on the local-X ("width") axis — this sandbox's own
+            // door is 0.12m wide x 1.6m deep, i.e. the swing span is on
+            // local Z. Hinge on whichever axis actually holds the larger
+            // (spanning) dimension rather than assuming X.
+            bool spanIsWidth = prop.box.width >= prop.box.depth;
+            float halfSpan = (spanIsWidth ? prop.box.width : prop.box.depth) * 0.5f;
+            float sign = hingeSide == DoorHingeSide.Left ? -1f : 1f;
+            var hingeLocalOffset = spanIsWidth
+                ? new Vector3(halfSpan * sign, 0f, 0f)
+                : new Vector3(0f, 0f, halfSpan * sign);
+            var baseRot = Quaternion.Euler(0, prop.box.yaw, 0);
+            var doorCenter = new Vector3(prop.box.centerX, prop.box.height * 0.5f, prop.box.centerZ);
+            var hingeWorldPos = doorCenter + baseRot * hingeLocalOffset;
+
+            var hinge = new GameObject($"DoorHinge_{prop.id}");
+            hinge.transform.position = hingeWorldPos;
+            hinge.transform.rotation = baseRot;
+
+            // `new GameObject("Door")` with no fallback mesh, collider or
+            // visible surface — the door has never been anything but empty
+            // space to click through, whether or not `doorPrefab` is set.
+            var leaf = doorPrefab != null ? Instantiate(doorPrefab) : GameObject.CreatePrimitive(PrimitiveType.Cube);
+            leaf.transform.SetParent(hinge.transform, worldPositionStays: false);
+            leaf.transform.localPosition = -hingeLocalOffset;
+            leaf.transform.localRotation = Quaternion.identity;
+            leaf.transform.localScale = new Vector3(prop.box.width, prop.box.height, prop.box.depth);
+            leaf.layer = LayerMask.NameToLayer("Door");
+
+            var view = hinge.GetComponent<DoorView>() ?? hinge.AddComponent<DoorView>();
             view.DoorId = prop.id;
             view.SetHinge(hingeSide, openAngle);
+
+            // Official AI Navigation dynamic-obstacle path, on the leaf so
+            // the carved shape follows it as the hinge parent rotates. The
+            // static surface supplies room navigation; the closed leaf
+            // carves only its local footprint and DoorView disables it when
+            // opened.
+            var navObstacle = leaf.GetComponent<NavMeshObstacle>();
+            if (navObstacle == null) navObstacle = leaf.AddComponent<NavMeshObstacle>();
+            navObstacle.shape = NavMeshObstacleShape.Box;
+            navObstacle.center = Vector3.zero;
+            navObstacle.size = Vector3.one;
+            navObstacle.carving = true;
+            navObstacle.carveOnlyStationary = true;
+
+            // Standard Unity renderers cast the physical spotlight shadow.
+            // State/solver occlusion is kept separately in the 2D footprint.
+            foreach (var renderer in leaf.GetComponentsInChildren<Renderer>())
+            {
+                renderer.shadowCastingMode = ShadowCastingMode.On;
+                renderer.receiveShadows = true;
+            }
 
             // U2 step 2d: the door's live state — open/closed target,
             // animation progress, lock — goes into `MissionState.Doors`,
@@ -291,13 +414,18 @@ namespace DerClou.Gameplay.Level
             var state = SimulationService.Current;
             if (state != null)
             {
+                bool initiallyOpen = prop.config.TryGetValue("open", out var initialOpen)
+                    && initialOpen.type == LevelValue.Type.Bool && initialOpen.boolValue;
                 state.Doors[prop.id] = new DoorState
                 {
                     id = prop.id,
+                    footprint = prop.box,
                     hingeSide = hingeSide,
                     openAngleDegrees = openAngle,
                     openDurationSeconds = prop.config.TryGetValue("openDuration", out var od) && od.type == LevelValue.Type.Float ? od.floatValue : 1f,
                     closeDurationSeconds = prop.config.TryGetValue("closeDuration", out var cd) && cd.type == LevelValue.Type.Float ? cd.floatValue : 1f,
+                    isOpen = initiallyOpen,
+                    openProgress = initiallyOpen ? 1f : 0f,
                     isLocked = prop.config.TryGetValue("locked", out var lk) && lk.type == LevelValue.Type.Bool && lk.boolValue,
                     lockDifficulty = prop.config.TryGetValue("lockDifficulty", out var ld) && ld.type == LevelValue.Type.Int ? ld.intValue : 1
                 };
@@ -305,28 +433,72 @@ namespace DerClou.Gameplay.Level
 
             if (doorMaterial != null)
             {
-                var r = go.GetComponentInChildren<Renderer>();
+                var r = leaf.GetComponentInChildren<Renderer>();
                 if (r != null) r.material = doorMaterial;
             }
 
-            var interactable = go.GetComponent<Interactable>() ?? go.AddComponent<Interactable>();
+            var interactable = leaf.GetComponent<Interactable>() ?? leaf.AddComponent<Interactable>();
             interactable.InteractableId = prop.id;
             interactable.SupportedInteractions = proto.interactions;
             interactable.RuntimeState = new InteractableComponent { id = prop.id, interactions = proto.interactions, config = prop.config };
 
-            return go;
+            return hinge;
         }
 
         private GameObject BuildCamera(PlacedProp prop, PropPrototype proto)
         {
-            var go = cameraPrefab != null ? Instantiate(cameraPrefab) : new GameObject("Camera");
             float mountHeight = prop.config.TryGetValue("mountHeight", out var mh) && mh.type == LevelValue.Type.Float ? mh.floatValue : 2.4f;
-            go.transform.position = new Vector3(prop.box.centerX, mountHeight, prop.box.centerZ);
-            go.transform.rotation = Quaternion.Euler(0, prop.box.yaw, 0);
+            const float presentationPlaneY = 0.07f;
+            Vector3 planarPosition = ResolveCameraMountPosition(prop, 0.18f);
+
+            // Root = gameplay/presentation bridge at the authoritative X/Z
+            // source. The wall bracket and elevated 3D head are children;
+            // their Y never enters navigation or detection.
+            var go = new GameObject("SecurityCameraRoot");
+            go.transform.position = new Vector3(planarPosition.x, presentationPlaneY, planarPosition.z);
+            go.transform.rotation = Quaternion.identity;
+
+            var mount = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            mount.name = "WallMount";
+            mount.transform.SetParent(go.transform, false);
+            mount.transform.localPosition = new Vector3(0f, mountHeight - presentationPlaneY, 0f);
+            mount.transform.rotation = Quaternion.Euler(0f, prop.box.yaw, 0f);
+            mount.transform.localScale = new Vector3(0.16f, 0.16f, 0.42f);
+            var mountRenderer = mount.GetComponent<Renderer>();
+            if (mountRenderer != null) mountRenderer.material.color = new Color(0.10f, 0.11f, 0.12f);
+            var mountCollider = mount.GetComponent<Collider>();
+            if (mountCollider != null)
+            {
+                if (Application.isPlaying) Destroy(mountCollider);
+                else DestroyImmediate(mountCollider);
+            }
+
+            var head = cameraPrefab != null ? Instantiate(cameraPrefab) : GameObject.CreatePrimitive(PrimitiveType.Cube);
+            head.name = "CameraHead";
+            head.transform.SetParent(go.transform, false);
+            head.transform.localPosition = new Vector3(0f, mountHeight - presentationPlaneY, 0f);
+            head.transform.rotation = Quaternion.Euler(0, prop.box.yaw, 0);
+            if (cameraPrefab == null)
+            {
+                head.transform.localScale = new Vector3(0.38f, 0.24f, 0.48f);
+                var fallbackRenderer = head.GetComponent<Renderer>();
+                if (fallbackRenderer != null) fallbackRenderer.material.color = new Color(0.12f, 0.14f, 0.16f);
+                var fallbackCollider = head.GetComponent<Collider>();
+                if (fallbackCollider != null)
+                {
+                    if (Application.isPlaying) Destroy(fallbackCollider);
+                    else DestroyImmediate(fallbackCollider);
+                }
+            }
 
             var view = go.GetComponent<CameraView>() ?? go.AddComponent<CameraView>();
             view.CameraId = prop.id;
-            view.GizmoRange = prop.config.TryGetValue("range", out var r) && r.type == LevelValue.Type.Float ? r.floatValue : 8f;
+            view.YawPivot = head.transform;
+            // A wall camera covers the room it belongs to. Its range is
+            // derived once from that room's authored bounds (farthest floor
+            // corner), rather than hand-tuned independently per placement.
+            view.GizmoRange = ResolveCameraRoomRange(planarPosition,
+                prop.config.TryGetValue("range", out var r) && r.type == LevelValue.Type.Float ? r.floatValue : 8f);
             view.GizmoFieldOfView = prop.config.TryGetValue("fieldOfView", out var fov) && fov.type == LevelValue.Type.Float ? fov.floatValue : 90f;
 
             // U2 step 2c: the camera's live state — the only thing that
@@ -343,19 +515,111 @@ namespace DerClou.Gameplay.Level
                     mountHeight = mountHeight,
                     scanArc = prop.config.TryGetValue("scanArc", out var sa) && sa.type == LevelValue.Type.Float ? sa.floatValue : 90f,
                     scanPeriod = prop.config.TryGetValue("scanPeriod", out var sp) && sp.type == LevelValue.Type.Float ? sp.floatValue : 8f,
+                    baseYaw = prop.box.yaw,
+                    currentYaw = prop.box.yaw,
                     powered = prop.config.TryGetValue("powered", out var p) && p.type == LevelValue.Type.Bool && p.boolValue
                 };
+
+                int sourceId = GetActorId("camera:" + prop.id);
+                state.VisionSources[sourceId] = new VisionSourceState
+                {
+                    sourceId = sourceId,
+                    sourceLabel = prop.id,
+                    kind = VisionSourceKind.SecurityCamera,
+                    config = new VisionConfig
+                    {
+                        range = view.GizmoRange,
+                        fieldOfViewDegrees = view.GizmoFieldOfView
+                    },
+                    fixedPosition = new WorldPoint(planarPosition.x, 0f, planarPosition.z),
+                    // Presentation origin of the sloped beam. VisionSystem
+                    // deliberately ignores Y and solves its floor projection
+                    // from fixedPosition/currentFacingYaw only.
+                    eyeHeight = mountHeight,
+                    currentFacingYaw = prop.box.yaw,
+                    isEnabled = true
+                };
+                (go.GetComponent<WorldSpotlightView>() ?? go.AddComponent<WorldSpotlightView>())
+                    .Initialize(sourceId, head.transform);
             }
 
             return go;
         }
 
+        private float ResolveCameraRoomRange(Vector3 position, float fallback)
+        {
+            if (activeBlueprint == null) return fallback;
+            foreach (var room in activeBlueprint.rooms)
+            {
+                var box = room.bounds;
+                float radians = -box.yaw * Mathf.Deg2Rad;
+                float dx = position.x - box.centerX, dz = position.z - box.centerZ;
+                float localX = dx * Mathf.Cos(radians) - dz * Mathf.Sin(radians);
+                float localZ = dx * Mathf.Sin(radians) + dz * Mathf.Cos(radians);
+                if (Mathf.Abs(localX) > box.width * 0.5f + 0.25f
+                    || Mathf.Abs(localZ) > box.depth * 0.5f + 0.25f) continue;
+
+                float farthest = 0f;
+                for (int sx = -1; sx <= 1; sx += 2)
+                for (int sz = -1; sz <= 1; sz += 2)
+                {
+                    float lx = sx * box.width * 0.5f;
+                    float lz = sz * box.depth * 0.5f;
+                    float yaw = box.yaw * Mathf.Deg2Rad;
+                    float wx = box.centerX + lx * Mathf.Cos(yaw) - lz * Mathf.Sin(yaw);
+                    float wz = box.centerZ + lx * Mathf.Sin(yaw) + lz * Mathf.Cos(yaw);
+                    farthest = Mathf.Max(farthest,
+                        Mathf.Sqrt((wx - position.x) * (wx - position.x)
+                            + (wz - position.z) * (wz - position.z)));
+                }
+                return farthest + 0.25f;
+            }
+            return fallback;
+        }
+
+        private Vector3 ResolveCameraMountPosition(PlacedProp prop, float offsetIntoRoom)
+        {
+            var authored = new Vector3(prop.box.centerX, 0f, prop.box.centerZ);
+            if (activeBlueprint == null
+                || !prop.config.TryGetValue("mountWallId", out var wallValue)
+                || wallValue.type != LevelValue.Type.String) return authored;
+
+            WorldBox? wall = null;
+            foreach (var candidate in activeBlueprint.walls)
+            {
+                if (candidate.sourceID != wallValue.stringValue) continue;
+                wall = candidate;
+                break;
+            }
+            if (!wall.HasValue) return authored;
+
+            float radians = prop.box.yaw * Mathf.Deg2Rad;
+            var inward = new Vector3(Mathf.Sin(radians), 0f, Mathf.Cos(radians));
+            var w = wall.Value;
+            float support = Mathf.Abs(inward.x) * w.width * 0.5f
+                + Mathf.Abs(inward.z) * w.depth * 0.5f;
+            var wallCenter = new Vector3(w.centerX, 0f, w.centerZ);
+            float targetNormal = Vector3.Dot(wallCenter, inward) + support + offsetIntoRoom;
+            float authoredNormal = Vector3.Dot(authored, inward);
+            return authored + inward * (targetNormal - authoredNormal);
+        }
+
         private GameObject BuildSafe(PlacedProp prop, PropPrototype proto)
         {
-            var go = safePrefab != null ? Instantiate(safePrefab) : GameObject.CreatePrimitive(PrimitiveType.Cube);
-            go.transform.position = new Vector3(prop.box.centerX, prop.box.height * 0.5f, prop.box.centerZ);
-            go.transform.rotation = Quaternion.Euler(0, prop.box.yaw, 0);
-            go.transform.localScale = new Vector3(prop.box.width, prop.box.height, prop.box.depth);
+            string assetKey = prop.appearance ?? proto.asset;
+            bool usingRealMesh = safePrefab != null || (!string.IsNullOrEmpty(assetKey) && TryGetPrefab(assetKey, out _));
+            GameObject go;
+            if (safePrefab != null) go = Instantiate(safePrefab);
+            else if (!string.IsNullOrEmpty(assetKey) && TryGetPrefab(assetKey, out var fbxPrefab)) go = Instantiate(fbxPrefab);
+            else go = GameObject.CreatePrimitive(PrimitiveType.Cube);
+
+            if (usingRealMesh) PlaceRealMeshProp(go, prop);
+            else
+            {
+                go.transform.position = new Vector3(prop.box.centerX, prop.box.height * 0.5f, prop.box.centerZ);
+                go.transform.rotation = Quaternion.Euler(0, prop.box.yaw, 0);
+                go.transform.localScale = new Vector3(prop.box.width, prop.box.height, prop.box.depth);
+            }
             go.layer = LayerMask.NameToLayer("Interactable");
 
             var view = go.GetComponent<SafeView>() ?? go.AddComponent<SafeView>();
@@ -421,18 +685,32 @@ namespace DerClou.Gameplay.Level
         {
             GameObject go;
             string assetKey = prop.appearance ?? proto.asset;
-            if (!string.IsNullOrEmpty(assetKey) && TryGetPrefab(assetKey, out var prefab))
+            GameObject prefab = null;
+            bool usingRealMesh = !string.IsNullOrEmpty(assetKey) && TryGetPrefab(assetKey, out prefab);
+            go = usingRealMesh ? Instantiate(prefab) : GameObject.CreatePrimitive(PrimitiveType.Cube);
+
+            if (usingRealMesh)
             {
-                go = Instantiate(prefab);
+                PlaceRealMeshProp(go, prop);
             }
             else
             {
-                go = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            }
+                go.transform.position = new Vector3(prop.box.centerX, prop.box.height * 0.5f, prop.box.centerZ);
+                go.transform.rotation = Quaternion.Euler(0, prop.box.yaw, 0);
+                go.transform.localScale = new Vector3(prop.box.width, prop.box.height, prop.box.depth);
 
-            go.transform.position = new Vector3(prop.box.centerX, prop.box.height * 0.5f, prop.box.centerZ);
-            go.transform.rotation = Quaternion.Euler(0, prop.box.yaw, 0);
-            go.transform.localScale = new Vector3(prop.box.width, prop.box.height, prop.box.depth);
+                // Emissive-surface generic props (test stimuli, markers) have
+                // no dedicated prefab yet, so a plain default-material cube
+                // is invisible among real furniture. Bright orange is a
+                // deliberate "this is a test control, click me" cue, not a
+                // production look.
+                if (proto.surface == SurfaceKey.Emissive)
+                {
+                    var renderer = go.GetComponentInChildren<Renderer>();
+                    if (renderer != null)
+                        renderer.material = new Material(Shader.Find("Universal Render Pipeline/Lit")) { color = new Color(1f, 0.45f, 0f) };
+                }
+            }
 
             if (proto.interactions.Length > 0)
             {
@@ -452,6 +730,50 @@ namespace DerClou.Gameplay.Level
             }
 
             return go;
+        }
+
+        /// Shared positioning for any prop built from a real authored mesh
+        /// (Household Props FBX, a serialized prefab reference, etc.),
+        /// used by both BuildGenericProp and BuildSafe. Real meshes already
+        /// ship at real-world meter scale with the pivot at ground contact
+        /// under the model — confirmed directly by measuring renderer
+        /// bounds (minY == 0 for every prop tested). The level blueprint's
+        /// box is a gameplay footprint, not a sculpting target:
+        /// non-uniform-stretching a real mesh to exactly fill that box
+        /// (correct for the primitive-cube placeholder) would visibly
+        /// squash/stretch furniture not authored at the footprint's exact
+        /// proportions. Scale uniformly so the model's own height matches
+        /// the footprint's authored height instead, keeping proportions.
+        private static void PlaceRealMeshProp(GameObject go, PlacedProp prop)
+        {
+            var renderers = go.GetComponentsInChildren<Renderer>();
+            float meshHeight = 0f;
+            Bounds localBounds = default;
+            bool hasBounds = renderers.Length > 0;
+            if (hasBounds)
+            {
+                localBounds = renderers[0].bounds;
+                for (int i = 1; i < renderers.Length; i++) localBounds.Encapsulate(renderers[i].bounds);
+                meshHeight = localBounds.size.y;
+            }
+            float uniformScale = (meshHeight > 0.001f && prop.box.height > 0f)
+                ? prop.box.height / meshHeight : 1f;
+            go.transform.position = new Vector3(prop.box.centerX, 0f, prop.box.centerZ);
+            go.transform.rotation = Quaternion.Euler(0, prop.box.yaw, 0);
+            go.transform.localScale = Vector3.one * uniformScale;
+
+            // FBX imports carry no collider (only Unity primitives get one
+            // automatically) — without this, raycast picking (Interactable
+            // clicks) and physical blocking silently stop working the
+            // moment a real mesh replaces the placeholder cube.
+            // `localBounds` was measured at identity transform, so it's
+            // already the correct local-space collider size.
+            if (go.GetComponentInChildren<Collider>() == null && hasBounds)
+            {
+                var col = go.AddComponent<BoxCollider>();
+                col.center = localBounds.center;
+                col.size = localBounds.size;
+            }
         }
 
         private bool TryGetPrefab(string key, out GameObject prefab)
@@ -488,6 +810,70 @@ namespace DerClou.Gameplay.Level
             if (prefab != null)
             {
                 go = Instantiate(prefab);
+
+                // Real character meshes (e.g. a glTF import) aren't
+                // authored at this project's exact target height and carry
+                // no collider or animator controller of their own — same
+                // gap PlaceRealMeshProp closes for furniture, but actors
+                // also need a click/selection collider and their locomotion
+                // controller wired up (ActorView.UpdateAnimation expects
+                // "Walk"/"Idle" bools and a "Speed" float; see ActorView.cs).
+                var skinnedRenderers = go.GetComponentsInChildren<SkinnedMeshRenderer>();
+                if (skinnedRenderers.Length > 0)
+                {
+                    var bounds = skinnedRenderers[0].bounds;
+                    for (int i = 1; i < skinnedRenderers.Length; i++) bounds.Encapsulate(skinnedRenderers[i].bounds);
+                    float meshHeight = bounds.size.y;
+                    float targetHeight = proto.height > 0f ? proto.height : meshHeight;
+                    if (meshHeight > 0.001f)
+                        go.transform.localScale = Vector3.one * (targetHeight / meshHeight);
+
+                    // The click/selection collider lives on a dedicated
+                    // child, not this glTF import's own root: on this
+                    // particular hierarchy (root Animator + SkinnedMeshRenderers
+                    // under it), AddComponent<CapsuleCollider> on the root
+                    // reproducibly returns Unity's fake-null partway through
+                    // this method — confirmed reproducible in live Play Mode,
+                    // not reproducible in isolation. InputManager resolves
+                    // ActorView via GetComponentInParent, so the collider
+                    // doesn't need to share a GameObject with ActorView/Animator.
+                    var colliderGo = new GameObject("PhysicsCollider");
+                    colliderGo.transform.SetParent(go.transform, false);
+                    // Counter-scale so the collider's own dimensions can be
+                    // given directly in final world units, independent of
+                    // the parent's mesh-fit scale set just above.
+                    if (meshHeight > 0.001f)
+                        colliderGo.transform.localScale = Vector3.one * (meshHeight / targetHeight);
+                    var col = colliderGo.AddComponent<CapsuleCollider>();
+
+                    col.radius = 0.3f;
+                    col.height = targetHeight;
+                    col.center = new Vector3(0, targetHeight * 0.5f, 0);
+
+                    // glTFast bakes Idle/Walk as Generic clips (direct
+                    // transform curves) — it has no Humanoid AnimationMethod
+                    // at all, and a Humanoid Avatar on an Animator playing
+                    // those Generic clips directly breaks them outright
+                    // (confirmed live: Mecanim routes humanoid-mapped joint
+                    // rotations through its muscle solver regardless of the
+                    // driving clip's own type, and since these clips carry
+                    // no muscle data the joints just freeze at the avatar's
+                    // rest pose). A future accepted character may provide an
+                    // asset-specific Humanoid controller, but no provisional
+                    // controller or Avatar is retained in production Resources.
+                    var animator = go.GetComponentInChildren<Animator>();
+                    if (animator != null && animator.avatar == null)
+                    {
+                        var avatar = Resources.Load<Avatar>($"Characters/{assetKey}Avatar");
+                        if (avatar != null) animator.avatar = avatar;
+                    }
+                    if (animator != null && animator.runtimeAnimatorController == null)
+                    {
+                        var runtimeController = Resources.Load<RuntimeAnimatorController>($"Characters/{assetKey}ControllerHumanoid")
+                            ?? Resources.Load<RuntimeAnimatorController>($"Characters/{assetKey}Controller");
+                        if (runtimeController != null) animator.runtimeAnimatorController = runtimeController;
+                    }
+                }
             }
             else
             {
@@ -548,30 +934,88 @@ namespace DerClou.Gameplay.Level
                 var state = SimulationService.Current;
                 if (state != null) state.Guards[actorId] = new GuardState { actorId = actorId, route = route };
 
+                if (spec.config.TryGetValue("showPatrolRoute", out var showRoute)
+                    && showRoute.type == LevelValue.Type.Bool && showRoute.boolValue)
+                {
+                    BuildPatrolRouteLine(spec.id, nodes, route.loop);
+                }
+
                 var guardView = FindObjectOfType<GuardView>();
                 if (guardView != null) guardView.RegisterView(actorId, actor);
-            }
 
-            // Flashlight for Guard03
-            if (proto.actorRole == ActorRole.Guard && (spec.appearance == "guard03" || proto.asset == "guard03"))
-            {
-                actor.carryFlashlight = true;
-                actor.flashlightPrefab = flashlightPrefab;
-                // Find right hand bone. No character models are imported yet
-                // (a primitive capsule stands in — see the port README), so
-                // there is no Humanoid Avatar for `GetBoneTransform` to read;
-                // calling it without one throws, which used to abort this
-                // whole `BuildActors` loop partway through and silently drop
-                // every actor after guard03 in spec order.
-                var animator = go.GetComponent<Animator>();
-                if (animator != null && animator.isHuman)
+                bool visionEnabled = spec.config.TryGetValue("visionEnabled", out var enabled)
+                    && enabled.type == LevelValue.Type.Bool && enabled.boolValue;
+                if (state != null && visionEnabled)
                 {
-                    actor.rightHandBone = animator.GetBoneTransform(HumanBodyBones.RightHand);
+                    float range = spec.config.TryGetValue("visionRange", out var rangeValue)
+                        && rangeValue.type == LevelValue.Type.Float
+                            ? rangeValue.floatValue : VisionProfiles.guardActor.range;
+                    float fov = spec.config.TryGetValue("visionFov", out var fovValue)
+                        && fovValue.type == LevelValue.Type.Float
+                            ? fovValue.floatValue : VisionProfiles.guardActor.fieldOfViewDegrees;
+                    state.VisionSources[actorId] = new VisionSourceState
+                    {
+                        sourceId = actorId,
+                        sourceLabel = spec.id,
+                        actorId = actorId,
+                        kind = VisionSourceKind.GuardActor,
+                        config = new VisionConfig { range = range, fieldOfViewDegrees = fov },
+                        eyeHeight = profile.height * 0.88f,
+                        currentFacingYaw = spec.yaw,
+                        isEnabled = true
+                    };
+                    // Use the animation pack's matching right-hand Humanoid
+                    // hold clip and SK_Flashlight prop. ActorView extracts the
+                    // authored weapon_r socket instead of guessing a grip.
+                    var heldFlashlightPrefab = flashlightPrefab
+                        ?? Resources.Load<GameObject>("Props/FlashlightKit/StandardFlashlight");
+                    var lightOrigin = actor.ConfigureFlashlight(heldFlashlightPrefab, useLeftHand: false);
+                    if (lightOrigin == null)
+                    {
+                        lightOrigin = new GameObject("FlashlightOrigin").transform;
+                        lightOrigin.SetParent(go.transform, false);
+                        lightOrigin.localPosition = new Vector3(0.18f, profile.height * 0.78f, 0.42f);
+                    }
+                    (go.GetComponent<WorldSpotlightView>() ?? go.AddComponent<WorldSpotlightView>())
+                        .Initialize(actorId, lightOrigin);
                 }
-                actor.ApplyFlashlightPose();
             }
 
             return go;
+        }
+
+        /// Presentation-only authored patrol overlay. It reads the exact
+        /// PatrolNode positions already given to Core, so the line cannot
+        /// disagree with the route. No collider or gameplay component is
+        /// created: it never participates in taps, pathfinding or detection.
+        private void BuildPatrolRouteLine(string actorSpecId, PatrolNode[] nodes, bool loop)
+        {
+            if (nodes == null || nodes.Length < 2) return;
+
+            var routeObject = new GameObject($"PatrolRoute_{actorSpecId}");
+            var line = routeObject.AddComponent<LineRenderer>();
+            line.useWorldSpace = true;
+            line.loop = loop;
+            line.positionCount = nodes.Length;
+            line.startWidth = 0.09f;
+            line.endWidth = 0.09f;
+            line.numCornerVertices = 6;
+            line.numCapVertices = 4;
+            line.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            line.receiveShadows = false;
+
+            var routeColor = new Color(1f, 0.68f, 0.08f, 0.92f);
+            var shader = Shader.Find("Universal Render Pipeline/Unlit");
+            line.material = new Material(shader) { color = routeColor };
+            line.startColor = routeColor;
+            line.endColor = routeColor;
+
+            // Floor top is Y=0.05. Lift the overlay slightly to avoid
+            // z-fighting while keeping it visually painted on the floor.
+            for (int i = 0; i < nodes.Length; i++)
+                line.SetPosition(i, new Vector3(nodes[i].position.x, 0.075f, nodes[i].position.z));
+
+            spawnedObjects.Add(routeObject);
         }
 
         private int GetActorId(string specId)
@@ -587,7 +1031,11 @@ namespace DerClou.Gameplay.Level
             var resolved = proto.ResolvedConfig(spec.config);
             var profile = new CharacterProfile
             {
-                width = proto.footprint.width,
+                // Prop footprints are placement-grid cells, not shoulder
+                // widths. Treating actor.thief's 1x1 footprint as 1 metre
+                // made every pawn much fatter than both its capsule and the
+                // validated Swift CharacterProfile.
+                width = resolved.TryGetValue("bodyWidth", out var bw) && bw.type == LevelValue.Type.Float ? bw.floatValue : CharacterProfile.Standard.width,
                 height = proto.height,
                 walkSpeed = resolved.TryGetValue("walkSpeed", out var ws) && ws.type == LevelValue.Type.Float ? ws.floatValue : 1.4f,
                 acceleration = resolved.TryGetValue("acceleration", out var acc) && acc.type == LevelValue.Type.Float ? acc.floatValue : 2.8f,

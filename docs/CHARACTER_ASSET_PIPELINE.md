@@ -1,8 +1,42 @@
 # Character Asset Pipeline
 
-Status: production reference / character workflow
+Status: legacy production notes; canonical Unity policy is
+[`UNITY_FIRST_ARCHITECTURE.md`](UNITY_FIRST_ARCHITECTURE.md). Sections below
+that still mention RealityKit/USD are historical and must not drive new Unity
+implementation.
 
-Purpose: define how generated character concepts become real animated 3D characters in the RealityKit game.
+Purpose: define how character concepts and downloaded animation packs become reliable animated characters in the Unity game.
+
+## 0. Rig families are the compatibility boundary
+
+Do not force every character and every animation through one universal Humanoid retarget.
+The project supports explicit rig families:
+
+```text
+UE5 / Epic Skeleton content + VanillaLoop contact animations
+    -> Unity Generic
+    -> shared Generic Avatar
+    -> original hand, finger, IK and weapon-bone curves
+
+Mixamo-compatible content + ordinary locomotion
+    -> Unity Humanoid when exact prop contact is not required
+```
+
+For hand-to-prop actions such as Flashlight, the character and animation must
+share transform names and hierarchy. Acceptance order is mandatory:
+
+1. import character as `Generic / Create From This Model`;
+2. import animation-only FBX as `Generic / Copy From Other Avatar`;
+3. verify that every animation transform binding resolves on the character;
+4. inspect the animated hand and fingers in a live Game View without the prop;
+5. only then attach the prop to the authored `weapon_r` transform.
+
+Current production state:
+
+- no character has passed both visual acceptance and live animation/contact validation;
+- no character or Avatar asset is kept in production Resources;
+- gameplay uses neutral pawn proxies until a new candidate passes the complete acceptance sequence above;
+- the VanillaLoop source animation package remains available, but its animations are not treated as compatible with a candidate until the live binding and contact checks pass.
 
 This document prevents a common mistake: **a generated character image is a visual reference, not a game-ready character asset.**
 
@@ -496,5 +530,30 @@ Do not interrupt the current graybox/navigation work merely to produce the entir
 When the basic movement/camera/world scale is stable enough, the first character-specific experiment should be:
 
 > Replace one capsule with one fully rigged generic guard using Idle + Walk, while preserving the existing gameplay entity, navigation and deterministic simulation.
+
+---
+
+## 21. Unity marketplace-asset vetting checklist (added 2026-08-26)
+
+Sections 1–20 above describe building a character from scratch (concept → mesh → rig → USD/RealityKit). This section is different: it's for **buying an already-rigged character/animation pack** (Fab, or anywhere else) for the Unity port, which is what production actually does now.
+
+This section exists because of a real, wasted session: a downloaded "officer" character was declared "works" after only checking that its bones mapped to Unity's Humanoid rig. It did not actually work — under real animation, the head detached from the neck and clothing meshes deformed into a second, ghost pose overlapping the first. Root cause, confirmed by direct inspection, was in the **source file itself** (bad skin weights on the clothing/head submeshes, plus every material using a 3ds-Max-only shader that Unity/URP cannot read) — not introduced by the Unity import step, which was the same minimal "Humanoid, Create From This Model" setting used successfully on other files. The mistake was **declaring the asset good before checking the two things below**, not the import itself.
+
+### Before downloading
+
+- Prefer a listing that shows the character **posed or animated** in its preview (turntable/action GIF), not only a static T-pose render. A pack that only shows T-pose renders is a weak signal.
+- Look for "game-ready" / "rigged" / explicit engine compatibility in the listing, not "cinematic" or "3D print" framing.
+- ~~Prefer buying the character and its animations from the same author/pack.~~ **Retracted 2026-08-26**: this was written from one same-session pairing that happened to work, then wrongly presented as a general rule and even misattributed to `Guard01` (which it has nothing to do with). Author/pack matching is not something you can verify from the outside anyway. Don't use it as a filter — use the objective, file-level checks below instead, on whatever character you already have.
+- Prefer **FBX** as the delivery format for Unity. A `.glb`/`.gltf` character goes through a completely different importer (glTFast) than FBX (Unity's native `ModelImporter`); this project hit a glTFast-specific broken-avatar bug that FBX imports did not have.
+
+### After downloading, before accepting (2 minutes, do every time)
+
+1. Import, set **Animation Type = Humanoid**, **Avatar Definition = Create From This Model**. Confirm the avatar reports valid (no red error) — this only proves bone mapping exists, nothing about quality.
+2. **Check every material's shader in the Inspector.** It must be a Unity/URP shader (`Universal Render Pipeline/Lit`, `Standard`, etc.). If it says anything like `Shader Graphs/...3dsMax...` or another DCC-tool-specific shader name, the file was never prepared for a game engine — reject or expect to manually reassign shaders.
+3. **Check SkinnedMeshRenderer bounds per submesh**, in the rest pose, before applying any animation. A boot, glove, or head submesh with a bounding box comparable to the whole character's height/width is a broken skin binding, even if it looks fine in the T-pose screenshot. (`renderer.bounds` in a quick editor script is enough — no need to eyeball it.)
+4. **Actually sample a real animation clip on it** (Animator in Play mode, or `AnimationMode.SampleAnimationClip` in Edit mode) and look at it from a normal angle — not just Front/Top orthographic. A detached head or exploded clothing only shows up once the pose moves away from bind/T-pose.
+5. Only after steps 1–4 pass, say the asset "works." Bone-mapping success alone (step 1) is not sufficient and must never be reported as "confirmed working."
+
+If a candidate fails step 2 or 3, do not attempt to salvage it inside Unity — that means going back into the DCC source (Blender/Max) to fix shaders/skin weights, which is real, uncertain work, not an import-settings tweak. Prefer finding a clean replacement over patching a structurally broken file, per the acceptance criteria in section 16.
 
 That experiment will establish the real production rules for every later human character.

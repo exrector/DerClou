@@ -9,15 +9,6 @@ namespace DerClou.Core.Planning
     /// U4 (vision) is what actually reports a guard seeing the thief.
     /// `PlanExecutor` itself only ever raises the one case already in its own
     /// scope: a `MoveTo` that resolves to no path.
-    public struct FailureEvent
-    {
-        public float time;
-        public int actorId;
-        public string source;
-        public string reason;
-        public WorldPoint position;
-    }
-
     /// <summary>
     /// Turns a compiled <see cref="MissionPlan"/> into things actually
     /// happening, in mission-clock time, deterministically. Ticked explicitly
@@ -58,7 +49,12 @@ namespace DerClou.Core.Planning
             switch (action.type)
             {
                 case PlanActionType.MoveTo:
-                    ActorMovementSystem.RequestPath(state, action.actorId, action.targetPos);
+                case PlanActionType.TraversePortal:
+                    if (action.frozenTrajectory != null && action.frozenTrajectory.Length > 0)
+                        ActorMovementSystem.InstallFrozenTrajectory(
+                            state, action.actorId, action.targetPos, action.frozenTrajectory);
+                    else
+                        ActorMovementSystem.RequestPath(state, action.actorId, action.targetPos);
                     // The one failure case in this milestone's own scope —
                     // everything else (a guard seeing the thief) is U4's.
                     if (state.Actors.TryGetValue(action.actorId, out var moved) && !moved.HasPath)
@@ -71,6 +67,18 @@ namespace DerClou.Core.Planning
                             reason = "NoPath",
                             position = moved.Position
                         };
+                        state.Failure = LastFailure;
+                    }
+                    break;
+
+                case PlanActionType.Align:
+                    if (state.Actors.TryGetValue(action.actorId, out var aligned)
+                        && action.parameters != null
+                        && action.parameters.TryGetValue("facingYaw", out var yaw)
+                        && yaw.type == LevelValue.Type.Float)
+                    {
+                        aligned.FacingYawDegrees = yaw.floatValue;
+                        state.Actors[action.actorId] = aligned;
                     }
                     break;
 
@@ -81,6 +89,18 @@ namespace DerClou.Core.Planning
                     if (state.Doors.TryGetValue(action.targetId, out var d) && !d.isLocked)
                     {
                         DoorSystem.SetOpen(state, action.targetId, !d.isOpen);
+                    }
+                    break;
+
+                case PlanActionType.CloseDoor:
+                    DoorSystem.SetOpen(state, action.targetId, false);
+                    break;
+
+                case PlanActionType.Unlock:
+                    if (state.Doors.TryGetValue(action.targetId, out var unlocked))
+                    {
+                        unlocked.isLocked = false;
+                        state.Doors[action.targetId] = unlocked;
                     }
                     break;
 

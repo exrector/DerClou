@@ -5,6 +5,7 @@ namespace DerClou.Gameplay.Props
     using DerClou.Gameplay.Simulation;
     using System.Collections.Generic;
     using UnityEngine;
+    using UnityEngine.AI;
 
     public class Interactable : MonoBehaviour
     {
@@ -69,10 +70,15 @@ namespace DerClou.Gameplay.Props
         public string DoorId;
 
         private Quaternion closedRot, openRot;
+        private NavMeshObstacle navObstacle;
 
         private void Awake()
         {
             closedRot = transform.localRotation;
+            // The obstacle lives on the visual leaf (a child of this hinge
+            // transform) so its carved shape sweeps with the leaf as the
+            // hinge rotates — see LevelBuilder.BuildDoor.
+            navObstacle = GetComponentInChildren<NavMeshObstacle>();
         }
 
         public void SetHinge(DoorHingeSide hingeSide, float openAngleDegrees)
@@ -86,6 +92,12 @@ namespace DerClou.Gameplay.Props
             var state = SimulationService.Current;
             if (state == null || !state.Doors.TryGetValue(DoorId, out var d)) return;
             transform.localRotation = Quaternion.Slerp(closedRot, openRot, d.openProgress);
+            // Standard AI Navigation mirror. Core already schedules traverse
+            // only after openDuration, so removing carving at the open
+            // request cannot make deterministic execution cross early.
+            if (navObstacle == null) navObstacle = GetComponentInChildren<NavMeshObstacle>();
+            if (navObstacle != null && navObstacle.enabled == d.isOpen)
+                navObstacle.enabled = !d.isOpen;
         }
     }
 
@@ -95,15 +107,14 @@ namespace DerClou.Gameplay.Props
     /// run in this class's <c>Update()</c> now lives in the pure-C#
     /// <c>DerClou.Core.Systems.SecurityCameraSystem</c>, ticked from
     /// <see cref="Core.Simulation.SimulationStep"/>. This class only reads
-    /// <c>CameraState.currentYaw</c> back each frame to rotate the
-    /// transform/cone — it never decides whether the camera is powered or
-    /// where it's currently looking.
+    /// <c>CameraState.currentYaw</c> back each frame to rotate the model.
+    /// The shared <c>WorldSpotlightView</c> points the physical camera head
+    /// and its Unity Spot Light from the same source state.
     /// </summary>
     public class CameraView : MonoBehaviour
     {
         public string CameraId;
-        public Transform ConeTransform;
-        public Material ConeMaterial;
+        public Transform YawPivot;
 
         // Editor-gizmo-only cosmetics — not gameplay-authoritative (that's
         // `CameraState.range`/`fieldOfView`). Set once at spawn from the
@@ -113,26 +124,18 @@ namespace DerClou.Gameplay.Props
         public float GizmoRange = 8f;
         public float GizmoFieldOfView = 90f;
 
-        private void LateUpdate()
-        {
-            var state = SimulationService.Current;
-            if (state == null || !state.Cameras.TryGetValue(CameraId, out var cam)) return;
-
-            transform.rotation = Quaternion.Euler(0, cam.currentYaw, 0);
-            if (ConeTransform != null)
-            {
-                ConeTransform.rotation = transform.rotation;
-            }
-        }
-
         private void OnDrawGizmosSelected()
         {
+            // Runtime has one authoritative procedural danger mesh. Drawing
+            // editor rays on top of it looks like a second static beam.
+            if (Application.isPlaying) return;
             Gizmos.color = new Color(0, 1, 0, 0.2f);
-            Vector3 dir = transform.forward;
+            var pivot = YawPivot != null ? YawPivot : transform;
+            Vector3 dir = pivot.forward;
             Vector3 left = Quaternion.Euler(0, -GizmoFieldOfView * 0.5f, 0) * dir;
             Vector3 right = Quaternion.Euler(0, GizmoFieldOfView * 0.5f, 0) * dir;
-            Gizmos.DrawRay(transform.position, left * GizmoRange);
-            Gizmos.DrawRay(transform.position, right * GizmoRange);
+            Gizmos.DrawRay(pivot.position, left * GizmoRange);
+            Gizmos.DrawRay(pivot.position, right * GizmoRange);
         }
     }
 

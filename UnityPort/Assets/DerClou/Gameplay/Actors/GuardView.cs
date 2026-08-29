@@ -29,7 +29,7 @@ namespace DerClou.Gameplay.Actors
                 int actorId = kv.Key;
                 var view = kv.Value;
                 if (view == null || !state.Actors.TryGetValue(actorId, out var actor)) continue;
-                view.UpdateAnimation(actor.HasPath ? actor.Profile.walkSpeed : 0f);
+                view.UpdateAnimation(actor.CurrentSpeed);
             }
         }
     }

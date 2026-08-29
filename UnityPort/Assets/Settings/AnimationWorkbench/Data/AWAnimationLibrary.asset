@@ -1,0 +1,23 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: -994015979, guid: d2068dffa03fc114e899b3f6711badb0, type: 3}
+  m_Name: AWAnimationLibrary
+  m_EditorClassIdentifier: AnimationWorkbench.Editor.dll::AnimationWorkbench.Editor.AWAnimationLibrary
+  schemaVersion: 5
+  animations: []
+  searchFilter: 
+  filterHumanoidOnly: 0
+  filterLoopingOnly: 0
+  usageDataComplete: 0
+  usageStamp: 
+  verifierAssetHashes: []
+  _isInitialized: 0

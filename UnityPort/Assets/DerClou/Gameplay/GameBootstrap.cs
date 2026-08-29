@@ -8,6 +8,7 @@ namespace DerClou.Gameplay
     using DerClou.Gameplay.Input;
     using DerClou.Gameplay.Level;
     using DerClou.Gameplay.Simulation;
+    using DerClou.Gameplay.UI;
     using DerClou.Core.Simulation;
     using UnityEngine;
 
@@ -17,6 +18,10 @@ namespace DerClou.Gameplay
     /// </summary>
     public class GameBootstrap : MonoBehaviour
     {
+        public enum LaunchMode { DeveloperSandbox, PlannedMission }
+
+        [Header("Launch")]
+        public LaunchMode launchMode = LaunchMode.DeveloperSandbox;
         [Header("Auto-generated at runtime")]
         public GameController gameController;
         public MissionClock missionClock;
@@ -26,6 +31,10 @@ namespace DerClou.Gameplay
         public TacticalCamera tacticalCamera;
         public GuardView patrolSystem;
         public Level01Builder level01Builder;
+        public DeveloperSandboxLevelBuilder sandboxLevelBuilder;
+        public GreyboxControlHUD controlHUD;
+        public CameraJoystickHUD cameraJoystickHUD;
+        public TechnicalOverlayView technicalOverlay;
 
         [Header("Data Assets")]
         public PropCatalog catalog;
@@ -104,9 +113,25 @@ namespace DerClou.Gameplay
             controllerGO.transform.SetParent(transform);
             gameController = controllerGO.AddComponent<GameController>();
 
+            var hudGO = new GameObject("GreyboxControlHUD");
+            hudGO.transform.SetParent(transform);
+            controlHUD = hudGO.AddComponent<GreyboxControlHUD>();
+
+            var joystickGO = new GameObject("CameraJoystickHUD");
+            joystickGO.transform.SetParent(transform);
+            cameraJoystickHUD = joystickGO.AddComponent<CameraJoystickHUD>();
+
+            var technicalOverlayGO = new GameObject("TechnicalOverlayView");
+            technicalOverlayGO.transform.SetParent(transform);
+            technicalOverlay = technicalOverlayGO.AddComponent<TechnicalOverlayView>();
+
             var level01GO = new GameObject("Level01Builder");
             level01GO.transform.SetParent(transform);
             level01Builder = level01GO.AddComponent<Level01Builder>();
+
+            var sandboxGO = new GameObject("DeveloperSandboxLevelBuilder");
+            sandboxGO.transform.SetParent(transform);
+            sandboxLevelBuilder = sandboxGO.AddComponent<DeveloperSandboxLevelBuilder>();
         }
 
         private MissionPlan currentPlan;
@@ -123,8 +148,16 @@ namespace DerClou.Gameplay
             // actors as blueprint data but built zero of them: `LevelBuilder`
             // skips anything it can't resolve a prototype for.
             if (catalog == null || catalog.prototypes.Count == 0) catalog = PropCatalog.Standard;
-            level01Builder.Generate();
-            blueprint = level01Builder.blueprint;
+            if (launchMode == LaunchMode.DeveloperSandbox)
+            {
+                sandboxLevelBuilder.Generate();
+                blueprint = sandboxLevelBuilder.blueprint;
+            }
+            else
+            {
+                level01Builder.Generate();
+                blueprint = level01Builder.blueprint;
+            }
         }
 
         private void WireReferences()
@@ -138,9 +171,10 @@ namespace DerClou.Gameplay
             gameController.catalog = catalog;
             gameController.blueprint = blueprint;
             gameController.currentPlan = currentPlan;
+            gameController.DeveloperSandboxMode = launchMode == LaunchMode.DeveloperSandbox;
 
             inputManager.tacticalCamera = tacticalCamera;
-            inputManager.floorMask = LayerMask.GetMask("Floor", "Default");
+            inputManager.floorMask = LayerMask.GetMask("Floor");
             inputManager.interactableMask = LayerMask.GetMask("Interactable", "Door");
             inputManager.actorMask = LayerMask.GetMask("Actor");
             // Nothing ever assigned this — `HighlightActor` did
@@ -148,6 +182,13 @@ namespace DerClou.Gameplay
             // instant any actor was selected, crashing the very first click
             // on the thief.
             inputManager.selectionOutlineMaterial = SolidColorMaterial(inputManager.selectionColor);
+            inputManager.allowAnyActorSelection = launchMode == LaunchMode.DeveloperSandbox;
+            technicalOverlay.Initialize(false);
+            controlHUD.Initialize(gameController, inputManager, technicalOverlay);
+            cameraJoystickHUD.Initialize(tacticalCamera);
+            inputManager.IsPointerOverUI = screenPoint =>
+                controlHUD.IsPointerOverControls(screenPoint)
+                || cameraJoystickHUD.IsPointerOverJoystick(screenPoint);
 
             levelBuilder.floorPrefab = null; // will use primitives
             levelBuilder.wallPrefab = null;

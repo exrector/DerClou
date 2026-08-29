@@ -1,6 +1,7 @@
 namespace DerClou.Gameplay.Camera
 {
     using UnityEngine;
+    using UnityEngine.InputSystem;
 
     /// <summary>
     /// Tactical camera — resting pose and player-input contract both come
@@ -12,11 +13,9 @@ namespace DerClou.Gameplay.Camera
     /// "tabletop diorama" direction: "angled, never overhead... this is what
     /// allows the view to be tilted far enough to have depth at all." The
     /// straight-down look was rejected as reading like a sealed box.</item>
-    /// <item>"Rotation is not offered — decided" and "Panning is not offered
-    /// — decided" (top table, <c>docs/UI_AND_CAMERA.md</c> §Camera). The only
-    /// player gesture that moves the camera at all is a one-finger drag,
-    /// documented as "Peek into the box" — a small, clamped lateral shift,
-    /// not a rotate/orbit and not a free pan.</item>
+    /// <item>The visual diorama may yaw a little under a two-finger drag.
+    /// This changes only the rendering camera; simulation coordinates,
+    /// navigation and vision remain in the authoritative X/Z plane.</item>
     /// </list>
     /// The Swift version additionally kept an off-axis projection matrix so
     /// peeking never visibly moved the outer wall-top frame on screen — that
@@ -45,6 +44,17 @@ namespace DerClou.Gameplay.Camera
         public float maxOrthoSize = 30f;
         public float zoomSpeed = 10f;
 
+        [Header("Diorama orbit (two-finger horizontal drag)")]
+        public float maxYawDegrees = 20f;
+        public float yawSensitivity = 0.09f;
+        public float editorTrackpadYawSensitivity = 1.5f;
+
+        [Header("Diorama joystick (presentation only)")]
+        public float minPitchDegrees = 52f;
+        public float maxPitchDegrees = 82f;
+        public float joystickYawSpeedDegreesPerSecond = 42f;
+        public float joystickPitchSpeedDegreesPerSecond = 34f;
+
         [Header("Peek (docs/UI_AND_CAMERA.md: one-finger drag)")]
         // How far the camera may shift sideways/forward off its framed
         // position. Not derived from the documented "±20°, 0.09°/point"
@@ -63,6 +73,10 @@ namespace DerClou.Gameplay.Camera
         // starts from zero peek rather than compounding drift.
         private Vector3 homePosition;
         private Vector2 peekOffset;
+        private Vector3 focusPoint;
+        private float authoredYawDegrees;
+        private float yawOffsetDegrees;
+        private bool usesOrthographicProjection = true;
 
         // How far "behind" (−Z) the camera must sit, at its current height
         // and pitch, for its view axis to still hit the ground point it is
@@ -74,8 +88,11 @@ namespace DerClou.Gameplay.Camera
 
         private void Awake()
         {
-            transform.rotation = Quaternion.Euler(pitchDegrees, 0, 0);
-            homePosition = new Vector3(transform.position.x, height, transform.position.z);
+            authoredYawDegrees = transform.eulerAngles.y;
+            yawOffsetDegrees = 0f;
+            transform.rotation = Quaternion.Euler(pitchDegrees, CurrentYawDegrees, 0);
+            focusPoint = new Vector3(transform.position.x, 0f, transform.position.z + ZOffsetForTilt);
+            RebuildHomePosition();
             transform.position = homePosition;
             // `GameBootstrap` creates this component via `AddComponent`, which
             // runs `Awake` immediately — before the very next line in
@@ -93,24 +110,44 @@ namespace DerClou.Gameplay.Camera
         public void ApplyCameraSettings()
         {
             if (mainCamera == null) return;
-            mainCamera.orthographic = true;
-            mainCamera.orthographicSize = orthographicSize;
+            mainCamera.orthographic = usesOrthographicProjection;
+            if (usesOrthographicProjection) mainCamera.orthographicSize = orthographicSize;
         }
 
         private void LateUpdate()
         {
             HandleZoom();
-            ClampHomeToBounds();
+            ClampFocusToBounds();
+            RebuildHomePosition();
             transform.position = homePosition + new Vector3(peekOffset.x, 0, peekOffset.y);
+            SynchronizeRenderCameraTransform();
         }
 
         private void HandleZoom()
         {
-            float scroll = Input.mouseScrollDelta.y;
-            if (Mathf.Abs(scroll) > 0.01f)
+            // Input System scroll is reported in platform units (commonly
+            // 120 per wheel notch), while the previous API returned notches.
+            Vector2 scroll = Mouse.current == null
+                ? Vector2.zero
+                : Mouse.current.scroll.ReadValue() / 120f;
+#if UNITY_EDITOR || UNITY_STANDALONE_OSX
+            // A Mac trackpad's two-finger horizontal swipe arrives in the
+            // Editor as horizontal scroll, not as touch contacts. Treat it as
+            // the simulator equivalent of the iPhone two-finger orbit.
+            if (Mathf.Abs(scroll.x) > Mathf.Abs(scroll.y) && Mathf.Abs(scroll.x) > 0.01f)
             {
-                orthographicSize = Mathf.Clamp(orthographicSize - scroll * zoomSpeed * Time.deltaTime * 60f, minOrthoSize, maxOrthoSize);
-                mainCamera.orthographicSize = orthographicSize;
+                ApplyDioramaOrbit(scroll.x * editorTrackpadYawSensitivity / Mathf.Max(0.001f, yawSensitivity));
+                return;
+            }
+#endif
+            if (Mathf.Abs(scroll.y) > 0.01f)
+            {
+                if (usesOrthographicProjection)
+                {
+                    orthographicSize = Mathf.Clamp(orthographicSize - scroll.y * zoomSpeed * Time.deltaTime * 60f, minOrthoSize, maxOrthoSize);
+                    mainCamera.orthographicSize = orthographicSize;
+                }
+                else mainCamera.fieldOfView = Mathf.Clamp(mainCamera.fieldOfView - scroll.y * 2f, 20f, 80f);
             }
         }
 
@@ -127,9 +164,109 @@ namespace DerClou.Gameplay.Camera
             peekOffset = Vector2.ClampMagnitude(peekOffset, maxPeekOffset);
         }
 
-        private void ClampHomeToBounds()
+        /// Rotates only the observer around the fixed ground-plane focus.
+        /// No world transform and no simulation state is touched.
+        public void ApplyDioramaOrbit(float horizontalScreenDelta)
         {
-            Vector3 pos = homePosition;
+            yawOffsetDegrees = Mathf.Clamp(
+                yawOffsetDegrees + horizontalScreenDelta * yawSensitivity,
+                -maxYawDegrees,
+                maxYawDegrees);
+            transform.rotation = Quaternion.Euler(pitchDegrees, CurrentYawDegrees, 0f);
+            RebuildHomePosition();
+            // Apply in the gesture frame; waiting for LateUpdate makes direct
+            // touch motion visibly lag and complicates frame-by-frame checks.
+            transform.position = homePosition + new Vector3(peekOffset.x, 0f, peekOffset.y);
+            SynchronizeRenderCameraTransform();
+        }
+
+        /// <summary>
+        /// Applies the official Input System on-screen stick to the observer
+        /// rig only. The mission state, level and every gameplay transform
+        /// remain untouched, so looking around cannot change a replay.
+        /// </summary>
+        public void ApplyDioramaJoystick(Vector2 normalizedInput, float unscaledDeltaTime)
+        {
+            if (normalizedInput.sqrMagnitude < 0.0001f) return;
+
+            yawOffsetDegrees = Mathf.Clamp(
+                yawOffsetDegrees + normalizedInput.x * joystickYawSpeedDegreesPerSecond * unscaledDeltaTime,
+                -maxYawDegrees,
+                maxYawDegrees);
+            pitchDegrees = Mathf.Clamp(
+                pitchDegrees - normalizedInput.y * joystickPitchSpeedDegreesPerSecond * unscaledDeltaTime,
+                minPitchDegrees,
+                maxPitchDegrees);
+
+            RebuildHomePosition();
+            transform.position = homePosition + new Vector3(peekOffset.x, 0f, peekOffset.y);
+            SynchronizeRenderCameraTransform();
+        }
+
+        /// The joystick's centre is a one-shot home action. "Top" means the
+        /// highest readable diorama pitch allowed by this camera profile,
+        /// with authored yaw restored and all temporary peek removed.
+        public void ResetToTopView()
+        {
+            yawOffsetDegrees = 0f;
+            pitchDegrees = maxPitchDegrees;
+            peekOffset = Vector2.zero;
+            RebuildHomePosition();
+            transform.position = homePosition;
+            SynchronizeRenderCameraTransform();
+        }
+
+        public float CurrentYawDegrees => authoredYawDegrees + yawOffsetDegrees;
+
+        /// Editor authoring bridge: makes the runtime Game camera reproduce a
+        /// Scene View pose without moving any gameplay object. The copied
+        /// pose becomes the new neutral diorama angle; touch orbit remains a
+        /// small ±maxYawDegrees offset around it.
+        public void SetAuthoredView(
+            Vector3 cameraPosition,
+            Quaternion cameraRotation,
+            bool orthographic,
+            float projectionValue)
+        {
+            transform.SetPositionAndRotation(cameraPosition, cameraRotation);
+            pitchDegrees = NormalizeSignedAngle(cameraRotation.eulerAngles.x);
+            authoredYawDegrees = NormalizeSignedAngle(cameraRotation.eulerAngles.y);
+            yawOffsetDegrees = 0f;
+            height = Mathf.Max(0.1f, cameraPosition.y);
+
+            Vector3 forward = transform.forward;
+            float distanceToFloor = Mathf.Abs(forward.y) > 0.0001f
+                ? -cameraPosition.y / forward.y
+                : 0f;
+            focusPoint = distanceToFloor > 0f
+                ? cameraPosition + forward * distanceToFloor
+                : new Vector3(cameraPosition.x, 0f, cameraPosition.z);
+            focusPoint.y = 0f;
+            homePosition = cameraPosition;
+            peekOffset = Vector2.zero;
+
+            if (mainCamera != null)
+            {
+                usesOrthographicProjection = orthographic;
+                SynchronizeRenderCameraTransform();
+                mainCamera.orthographic = orthographic;
+                if (orthographic)
+                {
+                    orthographicSize = Mathf.Clamp(projectionValue, minOrthoSize, maxOrthoSize);
+                    mainCamera.orthographicSize = orthographicSize;
+                }
+                else mainCamera.fieldOfView = projectionValue;
+            }
+        }
+
+        private void ClampFocusToBounds()
+        {
+            if (!usesOrthographicProjection)
+            {
+                focusPoint.x = Mathf.Clamp(focusPoint.x, minWorldPos.x, maxWorldPos.x);
+                focusPoint.z = Mathf.Clamp(focusPoint.z, minWorldPos.y, maxWorldPos.y);
+                return;
+            }
             float halfH = mainCamera.orthographicSize;
             float halfW = halfH * mainCamera.aspect;
 
@@ -145,7 +282,7 @@ namespace DerClou.Gameplay.Camera
             // not a level-generation problem. Fall back to centering on the
             // level on any axis where the view doesn't fit inside it.
             float minX = minWorldPos.x + halfW, maxX = maxWorldPos.x - halfW;
-            pos.x = minX <= maxX ? Mathf.Clamp(pos.x, minX, maxX) : (minWorldPos.x + maxWorldPos.x) * 0.5f;
+            focusPoint.x = minX <= maxX ? Mathf.Clamp(focusPoint.x, minX, maxX) : (minWorldPos.x + maxWorldPos.x) * 0.5f;
 
             // Clamp the ground point the (possibly tilted) camera is
             // actually looking at, not the camera's own Z position — with a
@@ -153,13 +290,16 @@ namespace DerClou.Gameplay.Camera
             // camera Z would silently re-center the look-at point back to
             // the bounds' own center every frame, undoing whatever
             // `FocusOn` set the tilt offset to.
-            float zOffset = ZOffsetForTilt;
-            float lookAtZ = pos.z + zOffset;
             float minZ = minWorldPos.y + halfH, maxZ = maxWorldPos.y - halfH;
-            lookAtZ = minZ <= maxZ ? Mathf.Clamp(lookAtZ, minZ, maxZ) : (minWorldPos.y + maxWorldPos.y) * 0.5f;
-            pos.z = lookAtZ - zOffset;
+            focusPoint.z = minZ <= maxZ ? Mathf.Clamp(focusPoint.z, minZ, maxZ) : (minWorldPos.y + maxWorldPos.y) * 0.5f;
+        }
 
-            homePosition = pos;
+        private void RebuildHomePosition()
+        {
+            transform.rotation = Quaternion.Euler(pitchDegrees, CurrentYawDegrees, 0f);
+            Vector3 forward = transform.forward;
+            float distance = height / Mathf.Max(0.001f, -forward.y);
+            homePosition = focusPoint - forward * distance;
         }
 
         public void SetBounds(Vector2 min, Vector2 max) { minWorldPos = min; maxWorldPos = max; }
@@ -172,8 +312,27 @@ namespace DerClou.Gameplay.Camera
         public void FocusOn(Vector3 worldPos, float size = -1f)
         {
             if (size > 0) { orthographicSize = size; mainCamera.orthographicSize = size; }
-            homePosition = new Vector3(worldPos.x, homePosition.y, worldPos.z - ZOffsetForTilt);
+            focusPoint = new Vector3(worldPos.x, 0f, worldPos.z);
             peekOffset = Vector2.zero;
+            RebuildHomePosition();
+        }
+
+        private void SynchronizeRenderCameraTransform()
+        {
+            if (mainCamera == null || mainCamera.transform == transform) return;
+            if (mainCamera.transform.IsChildOf(transform))
+            {
+                mainCamera.transform.localPosition = Vector3.zero;
+                mainCamera.transform.localRotation = Quaternion.identity;
+                return;
+            }
+            mainCamera.transform.SetPositionAndRotation(transform.position, transform.rotation);
+        }
+
+        private static float NormalizeSignedAngle(float angle)
+        {
+            angle %= 360f;
+            return angle > 180f ? angle - 360f : angle;
         }
     }
 }

@@ -1,7 +1,6 @@
 namespace DerClou.Core.Systems
 {
     using System;
-    using System.Collections.Generic;
     using DerClou.Core.Simulation;
 
     /// <summary>
@@ -16,7 +15,10 @@ namespace DerClou.Core.Systems
     {
         public static void Tick(MissionState state, float dt)
         {
-            var ids = new List<string>(state.Cameras.Keys);
+            var ids = state.CameraIdScratch;
+            ids.Clear();
+            foreach (var id in state.Cameras.Keys) ids.Add(id);
+            ids.Sort(System.StringComparer.Ordinal);
             foreach (var id in ids)
             {
                 var cam = state.Cameras[id];
@@ -26,7 +28,8 @@ namespace DerClou.Core.Systems
                 if (cam.powered)
                 {
                     cam.scanPhase += dt / cam.scanPeriod;
-                    cam.currentYaw = MathF.Sin(cam.scanPhase * MathF.PI * 2f) * cam.scanArc * 0.5f;
+                    cam.currentYaw = cam.baseYaw
+                        + MathF.Sin(cam.scanPhase * MathF.PI * 2f) * cam.scanArc * 0.5f;
                 }
                 state.Cameras[id] = cam;
             }

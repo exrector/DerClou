@@ -1,7 +1,12 @@
 {
   "name": "DerClou.Gameplay",
   "rootNamespace": "DerClou.Gameplay",
-  "references": ["DerClou.Core"],
+  "references": [
+    "DerClou.Core",
+    "Unity.AI.Navigation",
+    "Unity.InputSystem",
+    "Unity.ugui"
+  ],
   "includePlatforms": [],
   "excludePlatforms": [],
   "allowUnsafeCode": false,

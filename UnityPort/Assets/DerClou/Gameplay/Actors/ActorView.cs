@@ -33,18 +33,24 @@ namespace DerClou.Gameplay.Actors
         public float CurrentSpeed =>
             SimulationService.Current != null
             && SimulationService.Current.Actors.TryGetValue(ActorId, out var s)
-            && s.HasPath
-                ? Profile.walkSpeed : 0f;
+                ? s.CurrentSpeed : 0f;
 
-        [Header("Flashlight (Guard03)")]
+        [Header("Flashlight")]
         public bool carryFlashlight = false;
-        public Transform rightHandBone;
+        public Transform flashlightHandBone;
         public GameObject flashlightPrefab;
         private GameObject flashlightInstance;
+        private Transform flashlightGripSocket;
+        private Transform flashlightLightOrigin;
+        private int flashlightLayerIndex = -1;
+        private int flashlightGripLayerIndex = -1;
+
+        public float flashlightPropScale = 1f;
+
+        public Transform FlashlightVisualOrigin => flashlightLightOrigin;
 
         private int walkHash = Animator.StringToHash("Walk");
         private int idleHash = Animator.StringToHash("Idle");
-        private int flashlightLayerIndex = 1;
 
         public void Initialize(int actorId, ActorRole role, CharacterProfile profile, string appearanceKey)
         {
@@ -53,7 +59,7 @@ namespace DerClou.Gameplay.Actors
             Profile = profile;
             AppearanceKey = appearanceKey;
 
-            Animator = GetComponent<Animator>();
+            Animator = GetComponentInChildren<Animator>();
 
             var state = SimulationService.Current;
             if (state != null)
@@ -67,22 +73,24 @@ namespace DerClou.Gameplay.Actors
                     FacingYawDegrees = transform.eulerAngles.y,
                     CurrentPath = null,
                     PathIndex = 0,
-                    HasPath = false
+                    HasPath = false,
+                    AvoidancePriority = role == ActorRole.Guard ? 10 : 50,
+                    TrajectoryCommittedAt = float.PositiveInfinity
                 };
             }
 
-            // Flashlight setup for Guard03
-            if (carryFlashlight && flashlightPrefab != null && rightHandBone != null)
+            // Supports authored prefabs that already opt into a flashlight.
+            // Runtime level construction normally calls ConfigureFlashlight
+            // after Initialize, once the guard vision source is known.
+            if (carryFlashlight && flashlightPrefab != null && flashlightHandBone != null)
             {
-                flashlightInstance = Instantiate(flashlightPrefab, rightHandBone);
+                bool useLeftHand = flashlightHandBone == Animator.GetBoneTransform(HumanBodyBones.LeftHand);
+                flashlightGripSocket = CreateFlashlightGripSocket(useLeftHand);
+                flashlightInstance = Instantiate(flashlightPrefab, flashlightGripSocket);
                 flashlightInstance.transform.localPosition = Vector3.zero;
                 flashlightInstance.transform.localRotation = Quaternion.identity;
-            }
-
-            // Ensure additive layer exists
-            if (Animator != null && Animator.layerCount > flashlightLayerIndex)
-            {
-                Animator.SetLayerWeight(flashlightLayerIndex, 1f);
+                flashlightInstance.transform.localScale = Vector3.one * flashlightPropScale;
+                flashlightLightOrigin = CreateFlashlightLightOrigin();
             }
         }
 
@@ -122,7 +130,7 @@ namespace DerClou.Gameplay.Actors
 
         public void UpdateAnimation(float speed)
         {
-            if (Animator != null)
+            if (HasAnimatorController)
             {
                 bool moving = speed > 0.1f;
                 Animator.SetBool(walkHash, moving);
@@ -134,28 +142,93 @@ namespace DerClou.Gameplay.Actors
         public void ApplyFlashlightPose()
         {
             if (!carryFlashlight || Animator == null) return;
-
-            // Use additive layer for right arm
-            Animator.SetLayerWeight(flashlightLayerIndex, 1f);
-
-            // The flashlight pose should be driven by an additive animation clip
-            // named "FlashlightPose" on layer 1. Ensure the clip targets only:
-            // RightShoulder, RightArm, RightForeArm, RightHand
-            // and is marked Additive in the import settings.
-            Animator.CrossFadeInFixedTime("FlashlightPose", 0.2f, flashlightLayerIndex);
+            if (flashlightLayerIndex >= 0)
+                Animator.SetLayerWeight(flashlightLayerIndex, 1f);
+            if (flashlightGripLayerIndex >= 0)
+                Animator.SetLayerWeight(flashlightGripLayerIndex, 1f);
         }
 
         public void RemoveFlashlightPose()
         {
-            if (Animator != null)
-            {
+            if (Animator != null && flashlightLayerIndex >= 0)
                 Animator.SetLayerWeight(flashlightLayerIndex, 0f);
+            if (Animator != null && flashlightGripLayerIndex >= 0)
+                Animator.SetLayerWeight(flashlightGripLayerIndex, 0f);
+        }
+
+        /// <summary>
+        /// Attaches one visual flashlight and enables the authored upper-body
+        /// IK pose. Returns the flashlight transform so the physical Unity
+        /// Spot Light can originate from the held object instead of a floating
+        /// proxy beside the actor.
+        /// </summary>
+        public Transform ConfigureFlashlight(GameObject prefab, bool useLeftHand = false)
+        {
+            if (Animator == null || !Animator.isHuman || prefab == null) return null;
+
+            carryFlashlight = true;
+            flashlightPrefab = prefab;
+            flashlightHandBone = Animator.GetBoneTransform(
+                useLeftHand ? HumanBodyBones.LeftHand : HumanBodyBones.RightHand);
+            if (flashlightHandBone == null) return null;
+
+            if (flashlightInstance == null)
+            {
+                flashlightGripSocket = CreateFlashlightGripSocket(useLeftHand);
+                flashlightInstance = Instantiate(flashlightPrefab, flashlightGripSocket);
+                flashlightInstance.name = "HeldFlashlight";
+                flashlightInstance.transform.SetLocalPositionAndRotation(Vector3.zero, Quaternion.identity);
+                flashlightInstance.transform.localScale = Vector3.one * flashlightPropScale;
+                flashlightLightOrigin = CreateFlashlightLightOrigin();
             }
+
+            // The animation pack supplies a Humanoid right-arm hold clip and
+            // an authored weapon_r track. Use the standard Animator layer;
+            // do not add a competing procedural IK solver.
+            flashlightLayerIndex = Animator.GetLayerIndex("Flashlight Hold");
+            flashlightGripLayerIndex = Animator.GetLayerIndex("Flashlight Grip");
+            if (flashlightLayerIndex >= 0)
+                Animator.SetLayerWeight(flashlightLayerIndex, 1f);
+            if (flashlightGripLayerIndex >= 0)
+                Animator.SetLayerWeight(flashlightGripLayerIndex, 1f);
+
+            return flashlightLightOrigin;
+        }
+
+        private Transform CreateFlashlightLightOrigin()
+        {
+            if (flashlightLightOrigin != null) return flashlightLightOrigin;
+
+            var originObject = new GameObject("FlashlightLightOrigin");
+            flashlightLightOrigin = originObject.transform;
+            flashlightLightOrigin.SetParent(flashlightInstance.transform, false);
+            // The matching SK_Flashlight prefab is authored along local Y;
+            // its front cap is approximately 0.152 m from the root.
+            flashlightLightOrigin.localPosition = new Vector3(0f, 0.155f, 0f);
+            flashlightLightOrigin.localRotation = Quaternion.identity;
+            return flashlightLightOrigin;
+        }
+
+        /// <summary>
+        /// Creates the target-avatar socket. Its final local transform is
+        /// captured after Mecanim has evaluated the standard hold animation.
+        /// </summary>
+        private Transform CreateFlashlightGripSocket(bool useLeftHand)
+        {
+            if (flashlightGripSocket != null) return flashlightGripSocket;
+
+            var socketObject = new GameObject("FlashlightGripSocket");
+            flashlightGripSocket = socketObject.transform;
+            flashlightGripSocket.SetParent(flashlightHandBone, false);
+            flashlightGripSocket.SetLocalPositionAndRotation(Vector3.zero, Quaternion.identity);
+            return flashlightGripSocket;
         }
 
         public void SetFlashlightActive(bool active)
         {
             if (flashlightInstance != null) flashlightInstance.SetActive(active);
         }
+
+        private bool HasAnimatorController => Animator != null && Animator.runtimeAnimatorController != null;
     }
 }

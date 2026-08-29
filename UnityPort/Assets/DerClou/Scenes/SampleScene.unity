@@ -245,12 +245,15 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 92330fe15e7e0427d91f01789f24f6d5, type: 3}
   m_Name: 
   m_EditorClassIdentifier: DerClou.Gameplay::DerClou.Gameplay.GameBootstrap
+  launchMode: 1
   gameController: {fileID: 0}
   levelBuilder: {fileID: 0}
   inputManager: {fileID: 0}
   tacticalCamera: {fileID: 0}
   patrolSystem: {fileID: 0}
   level01Builder: {fileID: 0}
+  sandboxLevelBuilder: {fileID: 0}
+  controlHUD: {fileID: 0}
   catalog:
     prototypes: []
   blueprint:

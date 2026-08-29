@@ -2,7 +2,6 @@ namespace DerClou.Core.Simulation
 {
     using DerClou.Core.Data;
     using DerClou.Core.Navigation;
-    using UnityEngine;
 
     [System.Serializable]
     public struct PatrolNode
@@ -40,30 +39,14 @@ namespace DerClou.Core.Simulation
         public bool isAlerted;
         public float alertLevel;  // 0..1
 
+        // U7 stimulus investigation: where the guard is walking while
+        // isAlerted, and when it arrived (0 = not yet arrived). Falling
+        // edge of isAlerted is still the single rejoin event handled by
+        // GuardPatrolSystem.ResumeAtNearestPatrolNode.
+        public WorldPoint investigateTarget;
+        public float investigateArrivedTime;
+
         public WorldPoint CurrentTarget => route.GetNode(currentNodeIndex).position;
-    }
-
-    [System.Serializable]
-    public class VisionComponent
-    {
-        public int sourceId;
-        public VisionSourceKind kind;
-        public VisionConfig config;
-        public float eyeHeight;
-        public float baseFacingYaw;
-        public float currentFacingYaw;
-        public float scanArc;
-        public float scanPeriod;
-        public float scanPhase;
-        public bool isEnabled = true;
-        public WorldPoint[] occluderBounds; // simplified AABB of walls
-
-        public bool CanSee(WorldPoint targetPos, float targetHeight, out float distance)
-        {
-            distance = Vector3.Distance(new Vector3(targetPos.x, targetHeight, targetPos.z),
-                                        new Vector3(0, eyeHeight, 0)); // simplified
-            return distance <= config.range;
-        }
     }
 
     [System.Serializable]
@@ -83,6 +66,10 @@ namespace DerClou.Core.Simulation
     public class DoorState
     {
         public string id;
+        // Authoritative 2D footprint. Closed doors use this same box for
+        // navigation and deterministic vision occlusion; the Unity renderer
+        // remains only the 3D presentation/shadow caster.
+        public WorldBox footprint;
         public DoorHingeSide hingeSide;
         public float openAngleDegrees;
         public bool isOpen;         // target
@@ -104,6 +91,7 @@ namespace DerClou.Core.Simulation
         public float mountHeight;
         public float scanArc;
         public float scanPeriod;
+        public float baseYaw;
         public bool powered = true;
         public float currentYaw;
         public float scanPhase;

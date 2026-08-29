@@ -1,10 +1,11 @@
 namespace DerClou.Core.Data
 {
     public enum SurfaceKey { Concrete, Plaster, Wood, Metal, DarkMetal, Glass, Fabric, Emissive }
-    public enum InteractionKind { Inspect, Search, Open, Close, Unlock, Lockpick, CrackSafe, Hack, ToggleSwitch, TakeLoot, Extract }
+    public enum InteractionKind { Inspect, Search, Open, Close, Unlock, Lockpick, CrackSafe, Hack, ToggleSwitch, TakeLoot, Extract, MakeNoise }
     public enum PropMechanic { HingedDoor, SecurityCamera, Safe }
     public enum ActorRole { Thief, Guard, Civilian }
     public enum PropKind { Scenery, Architecture, Furniture, Security, Container, Loot, Actor, Marker }
+    public enum PropMobility { Static, Movable, Articulated }
     public enum DoorHingeSide { Left, Right }
 
     [System.Serializable]
@@ -52,6 +53,11 @@ namespace DerClou.Core.Data
         public float height;
         public SurfaceKey surface;
         public bool blocksMovement = true;
+        // Movement consumes only the resolved 2D footprint. Mobility and
+        // mass describe whether gameplay may later change that footprint's
+        // occupancy; they never inject prop-specific code into an actor.
+        public PropMobility mobility = PropMobility.Static;
+        public float massKilograms;
         public InteractionKind[] interactions = System.Array.Empty<InteractionKind>();
         public System.Collections.Generic.Dictionary<string, LevelValue> defaults = new();
         public string asset;                    // Addressable key or Resources path
@@ -92,7 +98,7 @@ namespace DerClou.Core.Data
                 cat.prototypes.AddRange(new[]
                 {
                     // Architecture
-                    new PropPrototype { id="door.single", kind=PropKind.Architecture, footprint=new CellSize(1,0), height=2.1f, surface=SurfaceKey.Wood, blocksMovement=false,
+                    new PropPrototype { id="door.single", kind=PropKind.Architecture, footprint=new CellSize(1,0), height=2.1f, surface=SurfaceKey.Wood, blocksMovement=false, mobility=PropMobility.Articulated, massKilograms=28f,
                         interactions=new[]{InteractionKind.Open,InteractionKind.Close,InteractionKind.Unlock,InteractionKind.Lockpick},
                         defaults=new(){ {"locked",LevelValue.Bool(false)},{"lockDifficulty",LevelValue.Int(1)},{"open",LevelValue.Bool(false)},{"hingeSide",LevelValue.String("Left")},{"openAngle",LevelValue.Float(90f)},{"openDuration",LevelValue.Float(1f)},{"closeDuration",LevelValue.Float(1f)},{"unlockDuration",LevelValue.Float(0.8f)},{"lockpickDuration",LevelValue.Float(4f)} },
                         mechanic=PropMechanic.HingedDoor },
@@ -104,33 +110,38 @@ namespace DerClou.Core.Data
                     new PropPrototype { id="building.neighbour", kind=PropKind.Scenery, footprint=new CellSize(4,3), height=4.5f, surface=SurfaceKey.Concrete },
 
                     // Furniture
-                    new PropPrototype { id="desk.office", kind=PropKind.Furniture, footprint=new CellSize(2,1), height=0.75f, surface=SurfaceKey.Wood, interactions=new[]{InteractionKind.Search}, defaults=new(){ {"searchDuration",LevelValue.Float(3f)},{"searched",LevelValue.Bool(false)} } },
-                    new PropPrototype { id="chair.office", kind=PropKind.Furniture, footprint=new CellSize(1,1), height=1.0f, surface=SurfaceKey.Fabric, interactions=new[]{InteractionKind.Inspect}, defaults=new(){ {"inspectDuration",LevelValue.Float(1f)},{"inspected",LevelValue.Bool(false)} } },
-                    new PropPrototype { id="cabinet.filing", kind=PropKind.Furniture, footprint=new CellSize(1,1), height=1.35f, surface=SurfaceKey.Metal, interactions=new[]{InteractionKind.Open,InteractionKind.TakeLoot} },
-                    new PropPrototype { id="crate.storage", kind=PropKind.Container, footprint=new CellSize(1,1), height=0.9f, surface=SurfaceKey.Wood, interactions=new[]{InteractionKind.Open,InteractionKind.TakeLoot} },
-                    new PropPrototype { id="plant.potted", kind=PropKind.Furniture, footprint=new CellSize(1,1), height=1.2f, surface=SurfaceKey.Fabric },
+                    new PropPrototype { id="desk.office", kind=PropKind.Furniture, footprint=new CellSize(2,1), height=0.75f, surface=SurfaceKey.Wood, mobility=PropMobility.Movable, massKilograms=45f, interactions=new[]{InteractionKind.Search}, defaults=new(){ {"searchDuration",LevelValue.Float(3f)},{"searched",LevelValue.Bool(false)} }, asset="Desk" },
+                    new PropPrototype { id="chair.office", kind=PropKind.Furniture, footprint=new CellSize(1,1), height=1.0f, surface=SurfaceKey.Fabric, mobility=PropMobility.Movable, massKilograms=8f, interactions=new[]{InteractionKind.Inspect}, defaults=new(){ {"inspectDuration",LevelValue.Float(1f)},{"inspected",LevelValue.Bool(false)} }, asset="Chair" },
+                    new PropPrototype { id="cabinet.filing", kind=PropKind.Furniture, footprint=new CellSize(1,1), height=1.35f, surface=SurfaceKey.Metal, interactions=new[]{InteractionKind.Open,InteractionKind.TakeLoot}, asset="Cabinet" },
+                    new PropPrototype { id="crate.storage", kind=PropKind.Container, footprint=new CellSize(1,1), height=0.9f, surface=SurfaceKey.Wood, mobility=PropMobility.Movable, massKilograms=30f, interactions=new[]{InteractionKind.Open,InteractionKind.TakeLoot} },
+                    new PropPrototype { id="plant.potted", kind=PropKind.Furniture, footprint=new CellSize(1,1), height=1.2f, surface=SurfaceKey.Fabric, mobility=PropMobility.Movable, massKilograms=12f, asset="PottedPlant" },
 
                     // Security
-                    new PropPrototype { id="camera.ceiling", kind=PropKind.Security, footprint=new CellSize(1,1), height=0.25f, surface=SurfaceKey.DarkMetal, blocksMovement=false,
-                        defaults=new(){ {"powered",LevelValue.Bool(true)},{"visionSource",LevelValue.String("SecurityCamera")},{"range",LevelValue.Float(8f)},{"fieldOfView",LevelValue.Float(90f)},{"scanArc",LevelValue.Float(90f)},{"scanPeriod",LevelValue.Float(8f)},{"mountHeight",LevelValue.Float(2.4f)} },
+                    new PropPrototype { id="camera.wall", kind=PropKind.Security, footprint=new CellSize(1,1), height=0.25f, surface=SurfaceKey.DarkMetal, blocksMovement=false,
+                        defaults=new(){ {"powered",LevelValue.Bool(true)},{"visionSource",LevelValue.String("SecurityCamera")},{"range",LevelValue.Float(VisionProfiles.securityCamera.range)},{"fieldOfView",LevelValue.Float(VisionProfiles.securityCamera.fieldOfViewDegrees)},{"scanArc",LevelValue.Float(90f)},{"scanPeriod",LevelValue.Float(8f)},{"mountHeight",LevelValue.Float(2.4f)} },
                         mechanic=PropMechanic.SecurityCamera },
                     new PropPrototype { id="panel.security", kind=PropKind.Security, footprint=new CellSize(1,1), height=0.45f, surface=SurfaceKey.DarkMetal, blocksMovement=false,
                         interactions=new[]{InteractionKind.Hack,InteractionKind.ToggleSwitch},
                         defaults=new(){ {"difficulty",LevelValue.Int(2)},{"mountHeight",LevelValue.Float(1.3f)},{"hackDuration",LevelValue.Float(6f)},{"toggleSwitchDuration",LevelValue.Float(0.5f)} } },
 
                     // Containers & Loot
-                    new PropPrototype { id="safe.wall", kind=PropKind.Container, footprint=new CellSize(1,1), height=0.6f, surface=SurfaceKey.DarkMetal, interactions=new[]{InteractionKind.CrackSafe,InteractionKind.TakeLoot}, defaults=new(){ {"locked",LevelValue.Bool(true)},{"difficulty",LevelValue.Int(3)},{"crackSafeDuration",LevelValue.Float(20f)} }, mechanic=PropMechanic.Safe },
+                    new PropPrototype { id="safe.wall", kind=PropKind.Container, footprint=new CellSize(1,1), height=0.6f, surface=SurfaceKey.DarkMetal, interactions=new[]{InteractionKind.CrackSafe,InteractionKind.TakeLoot}, defaults=new(){ {"locked",LevelValue.Bool(true)},{"difficulty",LevelValue.Int(3)},{"crackSafeDuration",LevelValue.Float(20f)} }, mechanic=PropMechanic.Safe, asset="Safe" },
                     new PropPrototype { id="loot.cash", kind=PropKind.Loot, footprint=new CellSize(1,1), height=0.1f, surface=SurfaceKey.Fabric, blocksMovement=false, interactions=new[]{InteractionKind.TakeLoot}, defaults=new(){ {"value",LevelValue.Int(2500)},{"weight",LevelValue.Float(1.5f)} } },
 
                     // Actors
-                    new PropPrototype { id="actor.thief", kind=PropKind.Actor, footprint=new CellSize(1,1), height=1.75f, surface=SurfaceKey.Fabric, blocksMovement=false, defaults=new(){ {"walkSpeed",LevelValue.Float(1.4f)} }, asset="Thief", actorRole=ActorRole.Thief },
+                    new PropPrototype { id="actor.thief", kind=PropKind.Actor, footprint=new CellSize(1,1), height=1.75f, surface=SurfaceKey.Fabric, blocksMovement=false, defaults=new(){ {"walkSpeed",LevelValue.Float(1.4f)} }, actorRole=ActorRole.Thief },
                     new PropPrototype { id="actor.guard", kind=PropKind.Actor, footprint=new CellSize(1,1), height=1.8f, surface=SurfaceKey.Fabric, blocksMovement=false,
-                        defaults=new(){ {"walkSpeed",LevelValue.Float(1.2f)},{"turnSpeed",LevelValue.Float(180f)},{"visionSource",LevelValue.String("GuardActor")},{"range",LevelValue.Float(7f)},{"fieldOfView",LevelValue.Float(70f)} },
-                        asset="Guard01", actorRole=ActorRole.Guard },
-                    new PropPrototype { id="actor.civilian", kind=PropKind.Actor, footprint=new CellSize(1,1), height=1.7f, surface=SurfaceKey.Fabric, blocksMovement=false, defaults=new(){ {"walkSpeed",LevelValue.Float(1.1f)} }, asset="Civilian01", actorRole=ActorRole.Civilian },
+                        defaults=new(){ {"walkSpeed",LevelValue.Float(1.2f)},{"turnSpeed",LevelValue.Float(180f)},{"visionSource",LevelValue.String("GuardActor")},{"range",LevelValue.Float(VisionProfiles.guardActor.range)},{"fieldOfView",LevelValue.Float(VisionProfiles.guardActor.fieldOfViewDegrees)} },
+                        actorRole=ActorRole.Guard },
+                    new PropPrototype { id="actor.civilian", kind=PropKind.Actor, footprint=new CellSize(1,1), height=1.7f, surface=SurfaceKey.Fabric, blocksMovement=false, defaults=new(){ {"walkSpeed",LevelValue.Float(1.1f)} }, actorRole=ActorRole.Civilian },
 
                     // Markers
-                    new PropPrototype { id="marker.extraction", kind=PropKind.Marker, footprint=new CellSize(1,1), height=0.02f, surface=SurfaceKey.Emissive, blocksMovement=false, interactions=new[]{InteractionKind.Extract} }
+                    new PropPrototype { id="marker.extraction", kind=PropKind.Marker, footprint=new CellSize(1,1), height=0.02f, surface=SurfaceKey.Emissive, blocksMovement=false, interactions=new[]{InteractionKind.Extract} },
+
+                    // Stimuli — a single tappable test prop for U7's guard
+                    // investigation loop. Not a physical alarm mechanic yet,
+                    // just a deterministic noise-radius broadcast point.
+                    new PropPrototype { id="alarm.radio", kind=PropKind.Security, footprint=new CellSize(1,1), height=0.2f, surface=SurfaceKey.Emissive, blocksMovement=false, interactions=new[]{InteractionKind.MakeNoise}, defaults=new(){ {"noiseRadius",LevelValue.Float(18f)} }, asset="AlarmClock" }
                 });
                 return cat;
             }

@@ -2,6 +2,11 @@
 
 ## PRIORITY 0 — READ THIS BEFORE DOING ANYTHING
 
+**Before opening, controlling or editing Unity, read the root file
+`UNITY_CLAUDE_INSTRUCTIONS.md` completely.** It contains the actual local MCP
+relay, exact Unity/project paths, recovery commands, verification loop and the
+current implementation handoff. Do not improvise a second connection method.
+
 **The first and authoritative current implementation plan is:**
 
 `docs/00_UNITY_PORT_MASTER_PLAN.md`
@@ -51,6 +56,17 @@ Do not ask the owner to re-explain facts already present in the repository.
 ## Project in one sentence
 
 Build a polished top-down / 2.5D heist-planning puzzle game for iPhone, inspired by the **planning/execution grammar** of *Der Clou! 2 / The Sting!* while using original IP, with Unity as the active engine.
+
+## Scope discipline: classic vs premium
+
+Base levels (this master plan, U0–U9) are a faithful reproduction of the
+classic game's grammar. Anything that goes beyond the classic game
+(push/arrest, "tricks", other expanded mechanics) is **not** implemented
+into the base game — it's tracked as a backlog for later premium/expanded
+levels in `docs/PREMIUM_LEVEL_MECHANICS.md`. When designing a Core system,
+prefer a shape that backlog could plug into later, but do not build the
+premium mechanic itself now. Read that file before assuming a "missing"
+mechanic should be added — it may be intentionally deferred.
 
 ## Non-negotiable gameplay decisions
 

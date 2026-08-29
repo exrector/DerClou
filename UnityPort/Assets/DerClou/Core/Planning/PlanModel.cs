@@ -7,6 +7,8 @@ namespace DerClou.Core.Planning
     public enum PlanActionType
     {
         MoveTo,
+        Align,
+        TraversePortal,
         Wait,
         OpenDoor,
         CloseDoor,
@@ -29,6 +31,9 @@ namespace DerClou.Core.Planning
         public int actorId;
         public string targetId;      // door, safe, switch, loot, etc.
         public WorldPoint targetPos; // for MoveTo
+        // Immutable trajectory compiled during Planning. Execute installs a
+        // copy and never asks NavMesh/A* to reinterpret the same action.
+        public WorldPoint[] frozenTrajectory;
         public float duration;       // expected duration
         public float earliestStart;  // mission time when action can start
         // No field initializer: this project compiles at the C# 9 language
@@ -95,6 +100,8 @@ namespace DerClou.Core.Planning
     {
         public WorldPoint Position;
         public float Time;
+        public float FacingYawDegrees;
+        public bool HasFacing;
     }
 
     public interface IActionDurationProvider
@@ -109,6 +116,8 @@ namespace DerClou.Core.Planning
             return type switch
             {
                 PlanActionType.MoveTo => 0f, // computed from path distance
+                PlanActionType.Align => parameters.TryGetValue("duration", out var ad) && ad.type == LevelValue.Type.Float ? ad.floatValue : 0.2f,
+                PlanActionType.TraversePortal => 0f, // computed from slot distance
                 PlanActionType.Wait => parameters.TryGetValue("duration", out var d) && d.type == LevelValue.Type.Float ? d.floatValue : 1f,
                 PlanActionType.OpenDoor => parameters.TryGetValue("openDuration", out var od) && od.type == LevelValue.Type.Float ? od.floatValue : 1f,
                 PlanActionType.CloseDoor => parameters.TryGetValue("closeDuration", out var cd) && cd.type == LevelValue.Type.Float ? cd.floatValue : 1f,

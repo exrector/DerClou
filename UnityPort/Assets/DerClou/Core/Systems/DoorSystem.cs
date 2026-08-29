@@ -36,8 +36,38 @@ namespace DerClou.Core.Systems
         public static void SetOpen(MissionState state, string doorId, bool open)
         {
             if (!state.Doors.TryGetValue(doorId, out var d)) return;
+            if (d.isOpen == open) return;
             d.isOpen = open;
             state.Doors[doorId] = d;
+            SynchronizeNavigation(state, d);
+            SynchronizeVisionOccluder(state, d);
+            state.Topology?.PublishDoorChange(doorId);
+        }
+
+        /// One authoritative 2D mutation for every door transition. Unity's
+        /// hinge/obstacle are presentation and spatial-query mirrors; actors,
+        /// vision and deterministic retry all consume this state first.
+        public static void SynchronizeNavigation(MissionState state, DoorState door)
+        {
+            if (state?.Grid == null || state.ImmutableBaseGrid == null || door == null) return;
+            state.Grid.ApplyLocalBoxOccupancy(
+                state.ImmutableBaseGrid,
+                door.footprint,
+                !door.isOpen,
+                Data.CharacterProfile.Standard.Radius + 0.08f);
+        }
+
+        /// Closed doors are opaque gameplay geometry. Keeping this mutation
+        /// beside the authoritative state transition prevents navigation,
+        /// detection and the technical overlay from disagreeing.
+        public static void SynchronizeVisionOccluder(MissionState state, DoorState door)
+        {
+            if (state == null || state.VisionOccluders == null || door == null) return;
+            state.VisionOccluders.RemoveAll(box => box.sourceID == door.id);
+            if (door.isOpen) return;
+            var footprint = door.footprint;
+            footprint.sourceID = door.id;
+            state.VisionOccluders.Add(footprint);
         }
 
         private static float MoveTowards(float current, float target, float maxDelta)

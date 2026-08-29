@@ -21,6 +21,21 @@ namespace DerClou.Core.Simulation
         public WorldPoint[] CurrentPath;
         public int PathIndex;
         public bool HasPath;
+        public float CurrentSpeed;
+        public float TrajectoryCommittedAt;
+        public int AvoidancePriority;
+        public int RouteRevision;
+        // Room/portal dependencies captured when the route is committed.
+        // A door event can reject unrelated actors without inspecting their
+        // paths; an actor that already passed the portal simply refreshes the
+        // revision after its remaining corridor proves legal.
+        public string[] PortalDependencies;
+        public uint[] PortalDependencyRevisions;
+        public bool ManualControl;
+        public bool HasAvoidanceRecord;
+        public int LastAvoidedActorId;
+        public WorldPoint LastAvoidedActorPosition;
+        public WorldPoint LastAvoidanceDestination;
 
         // Dedup guard for `ActorMovementSystem.RequestPath` — without it,
         // a caller that re-requests the same destination every tick (guard
@@ -47,6 +62,23 @@ namespace DerClou.Core.Simulation
         public Dictionary<string, CameraState> Cameras = new();
         public Dictionary<string, DoorState> Doors = new();
         public Dictionary<string, SafeState> Safes = new();
+        public Dictionary<int, VisionSourceState> VisionSources = new();
+        public List<WorldBox> VisionOccluders = new();
+
+        // Reused fixed-step work buffers. Movement, patrol, camera and vision
+        // run many times per second; allocating a fresh key list in each
+        // system tick creates avoidable GC spikes and battery cost. These
+        // buffers are execution machinery, not mission state, so snapshots
+        // intentionally start with empty buffers of their own.
+        internal readonly List<int> ActorIdScratch = new();
+        internal readonly List<int> GuardIdScratch = new();
+        internal readonly List<int> VisionSourceIdScratch = new();
+        internal readonly List<string> CameraIdScratch = new();
+
+        // Explicit execution gate: planning may preview a moving patrol, but
+        // it can never fail the mission before the player presses Execute.
+        public bool DetectionEnabled;
+        public FailureEvent? Failure;
 
         public bool HasLoot;
         public bool MissionComplete;
@@ -58,6 +90,12 @@ namespace DerClou.Core.Simulation
         /// pure-C# systems would otherwise need to reach into `Gameplay.*`
         /// for. Replaces the old `Gameplay.Level.NavigationService`.
         public NavGrid Grid;
+        public NavGrid ImmutableBaseGrid;
+        public WorldTopology Topology;
+        // Runtime service boundary, not serializable mission data. A planning
+        // query may use Unity NavMesh through this interface, but the result
+        // is copied into the plan/actor state before deterministic execution.
+        public ISpatialCorridorProvider SpatialCorridors;
 
         /// Mirrors `MissionClock.CurrentTime`, set once per fixed step by
         /// `SimulationStep.Tick` before running any system — lets systems
@@ -74,10 +112,16 @@ namespace DerClou.Core.Simulation
         {
             var clone = new MissionState
             {
-                Grid = Grid,
+                Grid = Grid?.Clone(),
+                ImmutableBaseGrid = ImmutableBaseGrid,
+                Topology = Topology?.Clone(),
+                SpatialCorridors = SpatialCorridors,
                 CurrentTime = CurrentTime,
                 HasLoot = HasLoot,
                 MissionComplete = MissionComplete,
+                DetectionEnabled = DetectionEnabled,
+                Failure = Failure,
+                VisionOccluders = new List<WorldBox>(VisionOccluders),
                 CollectedLootIds = new HashSet<string>(CollectedLootIds)
             };
             foreach (var kv in Actors)
@@ -85,6 +129,12 @@ namespace DerClou.Core.Simulation
                 var copy = kv.Value;
                 copy.CurrentPath = kv.Value.CurrentPath != null
                     ? (WorldPoint[])kv.Value.CurrentPath.Clone()
+                    : null;
+                copy.PortalDependencies = kv.Value.PortalDependencies != null
+                    ? (string[])kv.Value.PortalDependencies.Clone()
+                    : null;
+                copy.PortalDependencyRevisions = kv.Value.PortalDependencyRevisions != null
+                    ? (uint[])kv.Value.PortalDependencyRevisions.Clone()
                     : null;
                 clone.Actors[kv.Key] = copy;
             }
@@ -101,6 +151,21 @@ namespace DerClou.Core.Simulation
                     alertLevel = kv.Value.alertLevel
                 };
             }
+            foreach (var kv in VisionSources)
+            {
+                clone.VisionSources[kv.Key] = new VisionSourceState
+                {
+                    sourceId = kv.Value.sourceId,
+                    sourceLabel = kv.Value.sourceLabel,
+                    actorId = kv.Value.actorId,
+                    kind = kv.Value.kind,
+                    config = kv.Value.config,
+                    fixedPosition = kv.Value.fixedPosition,
+                    eyeHeight = kv.Value.eyeHeight,
+                    currentFacingYaw = kv.Value.currentFacingYaw,
+                    isEnabled = kv.Value.isEnabled
+                };
+            }
             foreach (var kv in Cameras)
             {
                 clone.Cameras[kv.Key] = new CameraState
@@ -111,6 +176,7 @@ namespace DerClou.Core.Simulation
                     mountHeight = kv.Value.mountHeight,
                     scanArc = kv.Value.scanArc,
                     scanPeriod = kv.Value.scanPeriod,
+                    baseYaw = kv.Value.baseYaw,
                     powered = kv.Value.powered,
                     currentYaw = kv.Value.currentYaw,
                     scanPhase = kv.Value.scanPhase
@@ -121,6 +187,7 @@ namespace DerClou.Core.Simulation
                 clone.Doors[kv.Key] = new DoorState
                 {
                     id = kv.Value.id,
+                    footprint = kv.Value.footprint,
                     hingeSide = kv.Value.hingeSide,
                     openAngleDegrees = kv.Value.openAngleDegrees,
                     isOpen = kv.Value.isOpen,

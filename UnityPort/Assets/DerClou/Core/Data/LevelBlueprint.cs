@@ -10,8 +10,13 @@ namespace DerClou.Core.Data
     public struct WorldBox
     {
         public float centerX, centerZ, width, depth, height, yaw;
+        // Most level boxes stand on the floor, so zero remains the authored
+        // default. Keeping the lower edge explicitly lets vision represent a
+        // doorway lintel (or any elevated occluder) without inventing Unity
+        // colliders on the presentation side.
+        public float bottomY;
         public string sourceID;
-        public float centerY => height * 0.5f;
+        public float centerY => bottomY + height * 0.5f;
     }
 
     [System.Serializable]
@@ -72,6 +77,8 @@ namespace DerClou.Core.Data
         public System.Collections.Generic.List<WorldBox> walls = new();
         public System.Collections.Generic.List<PlacedProp> props = new();
         public System.Collections.Generic.List<ActorSpec> actors = new();
+        public System.Collections.Generic.List<RoomSpec> rooms = new();
+        public System.Collections.Generic.List<PortalSpec> portals = new();
     }
 
     [System.Serializable]
@@ -83,19 +90,12 @@ namespace DerClou.Core.Data
 
     public enum VisionSourceKind { GuardActor, SecurityCamera, LaserTripwire }
 
-    [System.Serializable]
-    public struct VisionProfile
-    {
-        public float range;
-        public float fieldOfViewDegrees;
-
-        public static VisionProfile GuardActor => new VisionProfile { range = 7f, fieldOfViewDegrees = 70f };
-        public static VisionProfile SecurityCamera => new VisionProfile { range = 8f, fieldOfViewDegrees = 90f };
-    }
-
     public static class VisionProfiles
     {
-        public static VisionProfile guardActor => VisionProfile.GuardActor;
-        public static VisionProfile securityCamera => VisionProfile.SecurityCamera;
+        // Human guards see farther but through a narrower cone; fixed cameras
+        // cover a shorter, wider slice. Return the exact config type consumed
+        // by solver and presentation — no parallel "profile" representation.
+        public static VisionConfig guardActor => new VisionConfig { range = 20f, fieldOfViewDegrees = 28f };
+        public static VisionConfig securityCamera => new VisionConfig { range = 14f, fieldOfViewDegrees = 60f };
     }
 }

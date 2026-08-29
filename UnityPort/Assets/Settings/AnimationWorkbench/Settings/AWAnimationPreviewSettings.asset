@@ -1,0 +1,91 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 159475618, guid: d2068dffa03fc114e899b3f6711badb0, type: 3}
+  m_Name: AWAnimationPreviewSettings
+  m_EditorClassIdentifier: AnimationWorkbench.Editor.dll::AnimationWorkbench.Editor.AWSettings
+  versionDatabase: {fileID: 0}
+  maxVersionsPerClip: 25
+  previewCharacterPrefab: {fileID: 5454276820133367230, guid: 198b0e98c01a42a45be1c621244257b9, type: 3}
+  orbitBackgroundColor: {r: 0.132, g: 0.132, b: 0.132, a: 1}
+  orbitGridMinorColor: {r: 0.085, g: 0.085, b: 0.085, a: 0.3}
+  orbitGridMajorColor: {r: 0.341, g: 0.341, b: 0.341, a: 0.3}
+  orbitGridStyle: 0
+  orbitCircularRings: 20
+  orbitCircularSegments: 36
+  orbitCircularMajorEvery: 5
+  orbitShowAxisLines: 1
+  orbitGridXAxisColor: {r: 0.85, g: 0.25, b: 0.25, a: 0.9}
+  orbitGridZAxisColor: {r: 0.25, g: 0.45, b: 0.85, a: 0.9}
+  orbitAxisLineThickness: 2
+  orbitUseRadialFade: 1
+  orbitRadialFadeStart: 0.3
+  orbitRadialFadePower: 1.5
+  orbitShowGroundGradient: 1
+  orbitGroundCenterColor: {r: 0.15, g: 0.15, b: 0.15, a: 0.5}
+  orbitGroundEdgeColor: {r: 0.4, g: 0.4, b: 0.4, a: 0}
+  orbitGroundRadius: 75
+  orbitEnableLighting: 1
+  orbitKeyLightColor: {r: 1, g: 0.97, b: 0.92, a: 1}
+  orbitKeyLightIntensity: 0.6
+  orbitFillLightColor: {r: 0.6, g: 0.7, b: 0.9, a: 1}
+  orbitFillLightIntensity: 0.4
+  orbitRimLightColor: {r: 1, g: 0.95, b: 0.8, a: 1}
+  orbitRimLightIntensity: 0.8
+  orbitEnableShadows: 0
+  orbitShadowStrength: 0.6
+  orbitUseSkyboxInspector: 0
+  orbitSkyboxMaterial: {fileID: 0}
+  orbitCameraFOV: 35
+  clipOpenTarget: 0
+  clipOpenTargetChosen: 0
+  playModeClipHudEnabled: 1
+  sceneDropAction: 0
+  clipInspectorEnabled: 1
+  animatorControllerInspectorEnabled: 1
+  animatorStateInspectorEnabled: 1
+  inspectorPropertyMenuEnabled: 1
+  inspectorPropertyHighlightEnabled: 1
+  inspectorPoseCaptureEnabled: 1
+  poseEditFocusChain: 1
+  poseEditShowSkeletonDuringPlayback: 0
+  poseEditBodyStabilization: 0
+  poseEditBoneXRay: 0
+  poseEditClickCycling: 1
+  poseEditBoneDrawMode: 1
+  poseEditBoneColorScheme: 1
+  poseEditBoneSolidity: 1
+  poseEditOctahedronWidth: 0.03
+  poseEditOctahedronSolid: 1
+  poseEditOctahedronFillAlpha: 0.2
+  poseEditOctahedronShading: 1
+  poseEditOctahedronWireAlpha: 0.5
+  poseEditOctahedronJointScale: 1.25
+  poseEditSphereJointScale: 1.25
+  poseEditSphereShowLinks: 1
+  poseEditSphereLinkWidth: 3
+  poseEditSphereLinkAlpha: 1
+  poseEditBackgroundEnabled: 0
+  poseEditBackgroundPreset: 0
+  poseEditBackgroundStrength: 0.4
+  poseEditBackgroundCustomColor: {r: 0.4, g: 0.5, b: 0.9, a: 1}
+  rigEditAskBeforeCommit: 1
+  rigEditRotationSnapDegrees: 15
+  qualityPreset: 1
+  thumbnailResolutionOverride: 0
+  targetFPSOverride: 0
+  thumbnailCameraDistance: 4
+  thumbnailZoomFactor: 0.8
+  thumbnailBackgroundColor: {r: 0, g: 0, b: 0, a: 0}
+  externalAnimationPaths: []
+  assetInventoryExtractedFolderOverride: 
+  lastExternalScanTimeTicks: 0
+  lastAssetInventoryScanTimeTicks: 0

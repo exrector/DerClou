@@ -22,6 +22,12 @@ namespace DerClou.Core.Systems
         // system depending on a Gameplay-side MonoBehaviour constant.
         public const float InteractRange = 1.6f;
 
+        // U7: the mechanical clunk of the bolt disengaging, not the quiet
+        // work leading up to it — the moment worth a guard's attention.
+        // Loud enough to carry through one open doorway to a guard on
+        // patrol nearby, not loud enough to reach the far side of the map.
+        private const float SafeOpenNoiseRadius = 16f;
+
         public static void Tick(MissionState state, float dt)
         {
             var ids = new List<string>(state.Safes.Keys);
@@ -40,6 +46,7 @@ namespace DerClou.Core.Systems
                 }
 
                 s.crackProgress = MathF.Min(1f, s.crackProgress + dt / s.crackDurationSeconds);
+                bool justOpened = s.crackProgress >= 1f && !s.isOpen;
                 if (s.crackProgress >= 1f)
                 {
                     s.isLocked = false;
@@ -48,6 +55,7 @@ namespace DerClou.Core.Systems
                     s.crackingActorId = -1;
                 }
                 state.Safes[id] = s;
+                if (justOpened) StimulusSystem.EmitNoise(state, s.position, SafeOpenNoiseRadius);
             }
         }
 
@@ -57,6 +65,23 @@ namespace DerClou.Core.Systems
             s.isBeingCracked = true;
             s.crackingActorId = actorId;
             state.Safes[safeId] = s;
+        }
+
+        /// Developer-sandbox test entry point: skips the walk-there/wait
+        /// duration and proximity requirement that `Tick` enforces for a
+        /// real crack, but fires through the exact same "just opened"
+        /// noise event a real crack does — for verifying guard reaction
+        /// without waiting out crackDurationSeconds.
+        public static void ForceOpenForTest(MissionState state, string safeId)
+        {
+            if (state == null || !state.Safes.TryGetValue(safeId, out var s) || s.isOpen) return;
+            s.isLocked = false;
+            s.isOpen = true;
+            s.isBeingCracked = false;
+            s.crackingActorId = -1;
+            s.crackProgress = 1f;
+            state.Safes[safeId] = s;
+            StimulusSystem.EmitNoise(state, s.position, SafeOpenNoiseRadius);
         }
 
         private static float PlanarDistance(WorldPoint a, WorldPoint b)

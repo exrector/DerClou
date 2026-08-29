@@ -44,16 +44,18 @@ namespace DerClou.Gameplay.Level
             blueprint.walls.Add(new WorldBox { sourceID = "wall_w", centerX = -hw, centerZ = 0, width = 0.3f, depth = 20, height = wh, yaw = 0 });
             // East wall
             blueprint.walls.Add(new WorldBox { sourceID = "wall_e", centerX = hw, centerZ = 0, width = 0.3f, depth = 20, height = wh, yaw = 0 });
-            // Internal divider
-            blueprint.walls.Add(new WorldBox { sourceID = "wall_div", centerX = 0, centerZ = 0, width = 0.3f, depth = 10, height = wh, yaw = 0 });
+            // Internal divider, split around the actual portal. A door is a
+            // gap in planar topology, never a mesh laid across a solid wall.
+            blueprint.walls.Add(new WorldBox { sourceID = "wall_div.north", centerX = 0, centerZ = -5.4f, width = 0.3f, depth = 8.8f, height = wh, yaw = 0 });
+            blueprint.walls.Add(new WorldBox { sourceID = "wall_div.south", centerX = 0, centerZ = 5.4f, width = 0.3f, depth = 8.8f, height = wh, yaw = 0 });
 
             // ─── Door in divider ───
             blueprint.props.Add(new PlacedProp
             {
                 id = "door_div",
                 prototypeId = "door.single",
-                box = new WorldBox { centerX = 0, centerZ = 0, width = 0.9f, depth = 0.06f, height = 2.1f, yaw = 90 },
-                yaw = 90,
+                box = new WorldBox { centerX = 0, centerZ = 0, width = 0.12f, depth = 1.6f, height = 2.1f, yaw = 0 },
+                yaw = 0,
                 config = new Dictionary<string, LevelValue>
                 {
                     { "locked", LevelValue.Bool(false) },
@@ -62,18 +64,40 @@ namespace DerClou.Gameplay.Level
                 }
             });
 
+            blueprint.rooms.Add(new RoomSpec
+            {
+                id = "room.west",
+                bounds = new WorldBox { sourceID = "room.west", centerX = -7.5f, centerZ = 0f, width = 14.7f, depth = 19.7f }
+            });
+            blueprint.rooms.Add(new RoomSpec
+            {
+                id = "room.east",
+                bounds = new WorldBox { sourceID = "room.east", centerX = 7.5f, centerZ = 0f, width = 14.7f, depth = 19.7f }
+            });
+            blueprint.portals.Add(new PortalSpec
+            {
+                id = "portal.divider",
+                roomAId = "room.west",
+                roomBId = "room.east",
+                doorId = "door_div",
+                position = new WorldPoint(0f, 0f, 0f),
+                width = 1.6f,
+                baseCost = 1f
+            });
+
             // ─── Security Camera ───
             blueprint.props.Add(new PlacedProp
             {
                 id = "cam_hall",
-                prototypeId = "camera.ceiling",
+                prototypeId = "camera.wall",
                 box = new WorldBox { centerX = -5, centerZ = -5, width = 0.5f, depth = 0.5f, height = 0.25f, yaw = 0 },
                 yaw = 0,
                 config = new Dictionary<string, LevelValue>
                 {
                     { "powered", LevelValue.Bool(true) },
                     { "scanArc", LevelValue.Float(120f) },
-                    { "scanPeriod", LevelValue.Float(10f) }
+                    { "scanPeriod", LevelValue.Float(10f) },
+                    { "mountWallId", LevelValue.String("wall_n") }
                 }
             });
 
@@ -161,7 +185,11 @@ namespace DerClou.Gameplay.Level
                 },
                 config = new Dictionary<string, LevelValue>
                 {
-                    { "appearance", LevelValue.String("guard01") }
+                    // U4 proves one complete watcher end-to-end before
+                    // multiplying the system across every guard.
+                    { "visionEnabled", LevelValue.Bool(true) },
+                    { "visionRange", LevelValue.Float(VisionProfiles.guardActor.range) },
+                    { "visionFov", LevelValue.Float(VisionProfiles.guardActor.fieldOfViewDegrees) }
                 }
             });
 
@@ -177,10 +205,7 @@ namespace DerClou.Gameplay.Level
                     new CellPoint(2, 1), new CellPoint(13, 1),
                     new CellPoint(13, 8), new CellPoint(2, 8)
                 },
-                config = new Dictionary<string, LevelValue>
-                {
-                    { "appearance", LevelValue.String("guard02") }
-                }
+                config = new Dictionary<string, LevelValue>()
             });
 
             // Guard 3 (with flashlight!) — the long diagonal, most likely to
@@ -196,10 +221,7 @@ namespace DerClou.Gameplay.Level
                     new CellPoint(2, -8), new CellPoint(13, -8),
                     new CellPoint(13, 8), new CellPoint(2, 8)
                 },
-                config = new Dictionary<string, LevelValue>
-                {
-                    { "appearance", LevelValue.String("guard03") }
-                }
+                config = new Dictionary<string, LevelValue>()
             });
 
             Debug.Log($"Level01 generated: {blueprint.floors.Count} floors, {blueprint.walls.Count} walls, {blueprint.props.Count} props, {blueprint.actors.Count} actors");

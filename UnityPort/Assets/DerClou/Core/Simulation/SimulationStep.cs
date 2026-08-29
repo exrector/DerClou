@@ -1,5 +1,6 @@
 namespace DerClou.Core.Simulation
 {
+    using System;
     using DerClou.Core.Systems;
     using DerClou.Core.Time;
 
@@ -18,12 +19,21 @@ namespace DerClou.Core.Simulation
     /// </summary>
     public static class SimulationStep
     {
-        public static void Tick(MissionState state, MissionClock clock, float fixedDt)
+        public static void Tick(
+            MissionState state,
+            MissionClock clock,
+            float fixedDt,
+            Action<MissionState, float> afterClockBeforeSystems = null)
         {
             clock.Tick(fixedDt);
             if (state == null) return;
 
             state.CurrentTime = clock.CurrentTime;
+            // Plan actions due at this exact simulation timestamp must exist
+            // before movement and vision inspect the state. Dispatching them
+            // before clock.Tick delays non-grid-aligned actions by a whole
+            // step; dispatching after this method makes timing render-bound.
+            afterClockBeforeSystems?.Invoke(state, state.CurrentTime);
 
             // Actor movement stays live even while `clock.IsPaused` — the
             // old MonoBehaviour version never gated it on the clock either
@@ -35,6 +45,12 @@ namespace DerClou.Core.Simulation
             ActorMovementSystem.Tick(state, fixedDt);
             if (!clock.IsPaused) GuardPatrolSystem.Tick(state, fixedDt);
             SecurityCameraSystem.Tick(state, fixedDt);
+            // Detection and presentation read this step's camera direction,
+            // never the previous fixed step's orientation.
+            VisionSystem.Tick(state);
+            // Same pause gate as GuardPatrolSystem — a guard should not
+            // notice evidence while the world is frozen for Planning.
+            if (!clock.IsPaused) EvidenceSystem.Tick(state);
             DoorSystem.Tick(state, fixedDt);
             SafeSystem.Tick(state, fixedDt);
         }
