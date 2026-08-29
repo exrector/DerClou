@@ -57,3 +57,46 @@ __pycache__/
 # memory) — superseded files get moved here instead of hard-deleted, but
 # it is a local scratch area, never a publishable part of the repo.
 /Корзина/
+
+# Unity generated state and local Asset Store packages. The public repository
+# contains DerClou source, scenes and project settings, not redistributable
+# third-party package payloads.
+/Assets/
+/UserSettings/
+/UnityPort/[Ll]ibrary/
+/UnityPort/[Tt]emp/
+/UnityPort/[Oo]bj/
+/UnityPort/[Ll]ogs/
+/UnityPort/UserSettings/
+/UnityPort/Assets/CodeFirst/
+/UnityPort/Assets/CodeFirst.meta
+/UnityPort/Assets/Construction_Package/
+/UnityPort/Assets/Construction_Package.meta
+/UnityPort/Assets/DenysAlmaral/
+/UnityPort/Assets/DenysAlmaral.meta
+/UnityPort/Assets/MobileDependencyResolver/
+/UnityPort/Assets/MobileDependencyResolver.meta
+/UnityPort/Assets/Plugins/
+/UnityPort/Assets/Plugins.meta
+/UnityPort/Assets/PolyOne/
+/UnityPort/Assets/PolyOne.meta
+/UnityPort/Assets/Resources/
+/UnityPort/Assets/Resources.meta
+/UnityPort/Assets/VanillaLoopStudio/
+/UnityPort/Assets/VanillaLoopStudio.meta
+/UnityPort/Assets/Weapons_FREE/
+/UnityPort/Assets/Weapons_FREE.meta
+/UnityPort/UModelerXPackages/
+/UnityPort/Packages/bz-soft.ragdoll-helper/
+/UnityPort/Packages/manifest.json.backup-before-cleanup
+/UnityPort/CharacterAcceptance_*.png
+/UnityPort/Epic*.png
+
+# Unreal generated output. Only Config, project descriptor and selected Content
+# are committed under UnrealPort.
+/UnrealPort/Binaries/
+/UnrealPort/DerivedDataCache/
+/UnrealPort/Intermediate/
+/UnrealPort/Saved/
+/UnrealPort/.vs/
+/UnrealPort/Build/
