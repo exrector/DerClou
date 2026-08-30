@@ -53,11 +53,22 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Door", meta=(ClampMin="0.05"))
     float DoorTransitionSeconds = 0.35f;
 
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Noise")
+    float NoiseLoudness = 1.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Noise")
+    float NoiseMaxRange = 1400.0f;
+
     UFUNCTION(BlueprintCallable, Category="DerClue|Interaction")
     bool Interact(AActor* InstigatorActor);
 
     UFUNCTION(BlueprintCallable, Category="DerClue|Interaction")
     void SetOpen(bool bNewOpen);
+
+    UFUNCTION(BlueprintCallable, Category="DerClue|Noise")
+    void EmitNoise(AActor* InstigatorActor);
+
+    void RestoreState(bool bNewLocked, bool bNewOpen, bool bNewPowered, bool bNewCollected);
 
     void UpdateDoor(float DeltaTime);
 

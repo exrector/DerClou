@@ -4,6 +4,7 @@
 #include "Components/StaticMeshComponent.h"
 #include "GameFramework/Actor.h"
 #include "Engine/StaticMesh.h"
+#include "Perception/AISense_Hearing.h"
 
 UDerClueSmartObjectComponent::UDerClueSmartObjectComponent()
 {
@@ -135,6 +136,35 @@ void UDerClueSmartObjectComponent::SetOpen(bool bNewOpen)
         return;
     }
     bOpen = bNewOpen;
+    SetComponentTickEnabled(true);
+}
+
+void UDerClueSmartObjectComponent::EmitNoise(AActor* InstigatorActor)
+{
+    if (Kind != EDerClueSmartObjectKind::Door || !GetOwner())
+    {
+        return;
+    }
+    UAISense_Hearing::ReportNoiseEvent(this, GetOwner()->GetActorLocation(),
+        NoiseLoudness, InstigatorActor ? InstigatorActor : GetOwner(),
+        NoiseMaxRange, TEXT("DoorNoise"));
+}
+
+void UDerClueSmartObjectComponent::RestoreState(bool bNewLocked, bool bNewOpen,
+    bool bNewPowered, bool bNewCollected)
+{
+    bLocked = bNewLocked;
+    bOpen = bNewOpen;
+    bPowered = bNewPowered;
+    bCollected = bNewCollected;
+    DoorOpenAlpha = bOpen ? 1.0f : 0.0f;
+    if (AActor* Owner = GetOwner())
+    {
+        Owner->SetActorHiddenInGame(bCollected);
+        Owner->SetActorEnableCollision(!bCollected);
+    }
+    ApplyDoorState();
+    SetComponentTickEnabled(false);
 }
 
 void UDerClueSmartObjectComponent::ApplyDoorState()

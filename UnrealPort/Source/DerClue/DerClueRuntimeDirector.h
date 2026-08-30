@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
 #include "Navigation/PathFollowingComponent.h"
+#include "Perception/AIPerceptionTypes.h"
 #include "DerClueRuntimeDirector.generated.h"
 
 class AAIController;
@@ -13,6 +14,9 @@ class UPointLightComponent;
 class AStaticMeshActor;
 class ACameraActor;
 class ASpotLight;
+class UAIPerceptionComponent;
+class UAISenseConfig_Hearing;
+class UDerCluePlanningWidget;
 
 UENUM(BlueprintType)
 enum class EDerClueSecurityState : uint8
@@ -38,6 +42,23 @@ enum class EDerClueGuardActivity : uint8
     Search,
     Pursue,
     IntruderSweep
+};
+
+enum class EDerClueRouteMode : uint8
+{
+    Free,
+    Recording,
+    Ready,
+    Playing
+};
+
+struct FDerClueSmartObjectSnapshot
+{
+    TWeakObjectPtr<UDerClueSmartObjectComponent> Object;
+    bool bLocked = false;
+    bool bOpen = false;
+    bool bPowered = true;
+    bool bCollected = false;
 };
 
 UCLASS(BlueprintType, Blueprintable)
@@ -146,7 +167,13 @@ public:
     bool bShowPatrolRoute = true;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Prototype")
-    bool bKeepPrototypeDoorsOpen = true;
+    bool bKeepPrototypeDoorsOpen = false;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Planning")
+    float RecordedPointAcceptanceRadius = 75.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Mission")
+    float BaseReturnRadius = 140.0f;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Prototype")
     float NoiseDeviceTriggerRadius = 150.0f;
@@ -171,6 +198,12 @@ public:
 
     UFUNCTION(BlueprintCallable, Category="DerClue|Patrol")
     void ReturnToNearestPatrolNode();
+
+    UFUNCTION(BlueprintCallable, Category="DerClue|Planning")
+    void ToggleRouteRecording();
+
+    UFUNCTION(BlueprintCallable, Category="DerClue|Planning")
+    void PlayRecordedRoute();
 
     UFUNCTION(BlueprintCallable, Category="DerClue|Interaction")
     bool Interact(ACharacter* Character, AActor* Target);
@@ -215,6 +248,15 @@ private:
     UPROPERTY()
     TObjectPtr<ASpotLight> GuardFlashlight;
 
+    UPROPERTY()
+    TObjectPtr<UAIPerceptionComponent> GuardPerception;
+
+    UPROPERTY()
+    TObjectPtr<UAISenseConfig_Hearing> GuardHearingConfig;
+
+    UPROPERTY()
+    TObjectPtr<UDerCluePlanningWidget> PlanningWidget;
+
     TMap<TWeakObjectPtr<AActor>, FRotator> CameraBaseRotations;
     TArray<TObjectPtr<UDerClueSmartObjectComponent>> SmartObjects;
     TArray<FVector> PatrolRoutePolyline;
@@ -233,9 +275,26 @@ private:
     bool bThiefInsideNoiseRadius = false;
     bool bPatrolRouteCacheReady = false;
     float NextPatrolRouteCacheAttempt = 0.0f;
+    EDerClueRouteMode RouteMode = EDerClueRouteMode::Free;
+    TArray<FVector> RecordedDestinations;
+    TArray<FDerClueSmartObjectSnapshot> MissionObjectSnapshot;
+    FTransform ThiefStartTransform;
+    FTransform GuardStartTransform;
+    FVector BaseLocation = FVector::ZeroVector;
+    int32 PlaybackDestinationIndex = INDEX_NONE;
+    bool bPlaybackMoveIssued = false;
+    bool bSuppressNextRecordedClick = false;
+    bool bObjectiveNotificationShown = false;
+    float SimulationEpochSeconds = 0.0f;
 
     void DiscoverLevelActors();
     void ConfigureCharacter(ACharacter* Character) const;
+    void ConfigureGuardHearing();
+    void CreatePlanningWidget();
+    void CaptureMissionSnapshot();
+    void RestoreMissionSnapshot();
+    void UpdateRoutePlanning();
+    void RefreshPlanningWidget();
     void ConfigureVisionLights();
     void ConfigureWorldAndSmartObjects();
     void CreatePrototypeTestObjects();
@@ -257,4 +316,7 @@ private:
     bool IsPatrolNodeOccupied(const AActor* Node) const;
     int32 FindNearestReachablePatrolNode() const;
     bool RequestMove(const FVector& Destination);
+
+    UFUNCTION()
+    void HandleGuardPerception(AActor* Actor, FAIStimulus Stimulus);
 };

@@ -14,7 +14,10 @@ public class DerClue : ModuleRules
             "InputCore",
             "AIModule",
             "NavigationSystem",
-            "GameplayTasks"
+            "GameplayTasks",
+            "UMG",
+            "Slate",
+            "SlateCore"
         });
     }
 }

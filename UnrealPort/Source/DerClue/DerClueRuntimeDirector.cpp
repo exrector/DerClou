@@ -1,7 +1,9 @@
 #include "DerClueRuntimeDirector.h"
 
 #include "AIController.h"
+#include "Blueprint/AIBlueprintHelperLibrary.h"
 #include "DerClueSmartObjectComponent.h"
+#include "DerCluePlanningWidget.h"
 #include "Engine/OverlapResult.h"
 #include "Engine/SpotLight.h"
 #include "EngineUtils.h"
@@ -22,6 +24,9 @@
 #include "Materials/MaterialInterface.h"
 #include "Camera/CameraActor.h"
 #include "Camera/CameraComponent.h"
+#include "Perception/AIPerceptionComponent.h"
+#include "Perception/AISenseConfig_Hearing.h"
+#include "Perception/AISense_Hearing.h"
 
 ADerClueRuntimeDirector::ADerClueRuntimeDirector()
 {
@@ -38,12 +43,16 @@ void ADerClueRuntimeDirector::BeginPlay()
     EnsureCoreActors();
     ConfigureCharacter(Guard);
     ConfigureCharacter(Thief);
+    ConfigureGuardHearing();
     ConfigureWorldAndSmartObjects();
     CacheAuthoredLevelBounds();
     PositionPatrolNodesAcrossLevel();
     ConfigureVisionLights();
     CreatePrototypeTestObjects();
     ConfigureDioramaCamera();
+    CaptureMissionSnapshot();
+    CreatePlanningWidget();
+    SimulationEpochSeconds = GetWorld()->GetTimeSeconds();
     ReturnToNearestPatrolNode();
 }
 
@@ -67,6 +76,7 @@ void ADerClueRuntimeDirector::Tick(float DeltaSeconds)
     UpdateNoiseDevice();
     UpdatePatrol();
     UpdateMissionState();
+    UpdateRoutePlanning();
     if (!bPatrolRouteCacheReady && GetWorld()->GetTimeSeconds() >= NextPatrolRouteCacheAttempt)
     {
         RebuildPatrolRouteCache();
@@ -89,6 +99,24 @@ void ADerClueRuntimeDirector::UpdateMissionState()
         if (GuardController)
         {
             GuardController->StopMovement();
+        }
+    }
+    if (MissionState == EDerClueMissionState::InProgress && bHasLoot)
+    {
+        if (!bObjectiveNotificationShown && GEngine)
+        {
+            bObjectiveNotificationShown = true;
+            GEngine->AddOnScreenDebugMessage(7713, 3.0f, FColor::Green,
+                TEXT("OBJECTIVE ACQUIRED - RETURN TO BASE"));
+        }
+        if (FVector::Dist2D(Thief->GetActorLocation(), BaseLocation) <= BaseReturnRadius)
+        {
+            MissionState = EDerClueMissionState::Success;
+            if (GEngine)
+            {
+                GEngine->AddOnScreenDebugMessage(7714, 5.0f, FColor::Green,
+                    TEXT("MISSION SUCCESS"));
+            }
         }
     }
 }
@@ -388,6 +416,58 @@ void ADerClueRuntimeDirector::DiscoverLevelActors()
     }
 }
 
+void ADerClueRuntimeDirector::ConfigureGuardHearing()
+{
+    if (!GuardController)
+    {
+        return;
+    }
+    GuardPerception = GuardController->FindComponentByClass<UAIPerceptionComponent>();
+    const bool bCreatedPerception = GuardPerception == nullptr;
+    if (!GuardPerception)
+    {
+        GuardPerception = NewObject<UAIPerceptionComponent>(GuardController,
+            TEXT("DerClueGuardPerception"));
+    }
+    GuardHearingConfig = NewObject<UAISenseConfig_Hearing>(GuardPerception,
+        TEXT("DerClueGuardHearing"));
+    GuardHearingConfig->HearingRange = 1400.0f;
+    GuardHearingConfig->DetectionByAffiliation.bDetectEnemies = true;
+    GuardHearingConfig->DetectionByAffiliation.bDetectFriendlies = true;
+    GuardHearingConfig->DetectionByAffiliation.bDetectNeutrals = true;
+    GuardPerception->ConfigureSense(*GuardHearingConfig);
+    GuardPerception->SetDominantSense(UAISense_Hearing::StaticClass());
+    GuardPerception->OnTargetPerceptionUpdated.RemoveDynamic(
+        this, &ADerClueRuntimeDirector::HandleGuardPerception);
+    GuardPerception->OnTargetPerceptionUpdated.AddDynamic(
+        this, &ADerClueRuntimeDirector::HandleGuardPerception);
+    if (bCreatedPerception)
+    {
+        GuardController->SetPerceptionComponent(*GuardPerception);
+        GuardPerception->RegisterComponent();
+    }
+    else
+    {
+        GuardPerception->RequestStimuliListenerUpdate();
+    }
+}
+
+void ADerClueRuntimeDirector::HandleGuardPerception(AActor* Actor, FAIStimulus Stimulus)
+{
+    if (!Stimulus.WasSuccessfullySensed() || Stimulus.Tag != TEXT("DoorNoise") ||
+        bConfirmedIntrusion)
+    {
+        return;
+    }
+    SecurityState = EDerClueSecurityState::Warning;
+    InvestigateLocation(Stimulus.StimulusLocation);
+    if (GEngine)
+    {
+        GEngine->AddOnScreenDebugMessage(7712, 2.5f, FColor::Yellow,
+            TEXT("DOOR NOISE: guard investigates"));
+    }
+}
+
 void ADerClueRuntimeDirector::CreatePrototypeTestObjects()
 {
     UStaticMesh* CubeMesh = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cube.Cube"));
@@ -556,6 +636,239 @@ void ADerClueRuntimeDirector::ConfigureDioramaCamera()
         PlayerController->SetViewTargetWithBlend(DioramaCamera, 0.15f,
             VTBlend_Cubic, 0.0f, true);
     }
+}
+
+void ADerClueRuntimeDirector::CreatePlanningWidget()
+{
+    APlayerController* PlayerController = GetWorld()->GetFirstPlayerController();
+    if (!PlayerController || PlanningWidget)
+    {
+        return;
+    }
+    PlanningWidget = CreateWidget<UDerCluePlanningWidget>(PlayerController,
+        UDerCluePlanningWidget::StaticClass());
+    if (PlanningWidget)
+    {
+        PlanningWidget->SetDirector(this);
+        PlanningWidget->AddToViewport(50);
+        RefreshPlanningWidget();
+    }
+}
+
+void ADerClueRuntimeDirector::CaptureMissionSnapshot()
+{
+    if (Thief)
+    {
+        ThiefStartTransform = Thief->GetActorTransform();
+        BaseLocation = ThiefStartTransform.GetLocation();
+    }
+    if (Guard)
+    {
+        GuardStartTransform = Guard->GetActorTransform();
+    }
+    MissionObjectSnapshot.Reset();
+    for (UDerClueSmartObjectComponent* Object : SmartObjects)
+    {
+        if (!Object)
+        {
+            continue;
+        }
+        FDerClueSmartObjectSnapshot Snapshot;
+        Snapshot.Object = Object;
+        Snapshot.bLocked = Object->bLocked;
+        Snapshot.bOpen = Object->bOpen;
+        Snapshot.bPowered = Object->bPowered;
+        Snapshot.bCollected = Object->bCollected;
+        MissionObjectSnapshot.Add(Snapshot);
+    }
+}
+
+void ADerClueRuntimeDirector::RestoreMissionSnapshot()
+{
+    if (APlayerController* PlayerController = GetWorld()->GetFirstPlayerController())
+    {
+        PlayerController->StopMovement();
+    }
+    if (GuardController)
+    {
+        GuardController->StopMovement();
+    }
+    if (Thief)
+    {
+        Thief->TeleportTo(ThiefStartTransform.GetLocation(),
+            ThiefStartTransform.Rotator(), false, true);
+        ConfigureCharacter(Thief);
+    }
+    if (Guard)
+    {
+        Guard->TeleportTo(GuardStartTransform.GetLocation(),
+            GuardStartTransform.Rotator(), false, true);
+        ConfigureCharacter(Guard);
+    }
+    for (const FDerClueSmartObjectSnapshot& Snapshot : MissionObjectSnapshot)
+    {
+        if (UDerClueSmartObjectComponent* Object = Snapshot.Object.Get())
+        {
+            Object->RestoreState(Snapshot.bLocked, Snapshot.bOpen,
+                Snapshot.bPowered, Snapshot.bCollected);
+        }
+    }
+    for (AActor* Camera : SecurityCameras)
+    {
+        TArray<USpotLightComponent*> Lights;
+        Camera->GetComponents(Lights);
+        for (USpotLightComponent* Light : Lights)
+        {
+            Light->SetVisibility(true);
+        }
+    }
+    MissionState = EDerClueMissionState::InProgress;
+    SecurityState = EDerClueSecurityState::Normal;
+    bHasLoot = false;
+    bObjectiveNotificationShown = false;
+    bConfirmedIntrusion = false;
+    bCameraHadContact = false;
+    bCamerasPowered = true;
+    bThiefInsideNoiseRadius = false;
+    NextNoiseDeviceTime = 0.0f;
+    NextMoveRequestTime = 0.0f;
+    CurrentPatrolIndex = 0;
+    GuardActivity = EDerClueGuardActivity::Patrol;
+    SimulationEpochSeconds = GetWorld()->GetTimeSeconds();
+    ReturnToNearestPatrolNode();
+}
+
+void ADerClueRuntimeDirector::ToggleRouteRecording()
+{
+    bSuppressNextRecordedClick = true;
+    if (RouteMode == EDerClueRouteMode::Recording)
+    {
+        RouteMode = EDerClueRouteMode::Ready;
+    }
+    else
+    {
+        RecordedDestinations.Reset();
+        RestoreMissionSnapshot();
+        RouteMode = EDerClueRouteMode::Recording;
+    }
+    RefreshPlanningWidget();
+}
+
+void ADerClueRuntimeDirector::PlayRecordedRoute()
+{
+    if (RecordedDestinations.IsEmpty() || RouteMode == EDerClueRouteMode::Recording)
+    {
+        return;
+    }
+    bSuppressNextRecordedClick = true;
+    RestoreMissionSnapshot();
+    PlaybackDestinationIndex = 0;
+    bPlaybackMoveIssued = false;
+    RouteMode = EDerClueRouteMode::Playing;
+    RefreshPlanningWidget();
+}
+
+void ADerClueRuntimeDirector::UpdateRoutePlanning()
+{
+    APlayerController* PlayerController = GetWorld()->GetFirstPlayerController();
+    if (!PlayerController || !Thief)
+    {
+        return;
+    }
+
+    if (RouteMode == EDerClueRouteMode::Recording &&
+        PlayerController->WasInputKeyJustPressed(EKeys::LeftMouseButton))
+    {
+        if (bSuppressNextRecordedClick)
+        {
+            bSuppressNextRecordedClick = false;
+        }
+        else
+        {
+            FHitResult Hit;
+            if (PlayerController->GetHitResultUnderCursor(ECC_Visibility, true, Hit))
+            {
+                FNavLocation Projected;
+                if (UNavigationSystemV1* Nav = UNavigationSystemV1::GetCurrent(GetWorld());
+                    Nav && Nav->ProjectPointToNavigation(Hit.ImpactPoint, Projected))
+                {
+                    if (RecordedDestinations.IsEmpty() ||
+                        FVector::DistSquared2D(RecordedDestinations.Last(), Projected.Location) > FMath::Square(20.0f))
+                    {
+                        RecordedDestinations.Add(Projected.Location);
+                        RefreshPlanningWidget();
+                    }
+                }
+            }
+        }
+    }
+
+    if (RouteMode != EDerClueRouteMode::Playing)
+    {
+        return;
+    }
+    if (MissionState != EDerClueMissionState::InProgress)
+    {
+        PlayerController->StopMovement();
+        RouteMode = EDerClueRouteMode::Ready;
+        RefreshPlanningWidget();
+        return;
+    }
+    if (!RecordedDestinations.IsValidIndex(PlaybackDestinationIndex))
+    {
+        PlayerController->StopMovement();
+        MissionState = EDerClueMissionState::Failed;
+        RouteMode = EDerClueRouteMode::Ready;
+        if (GEngine)
+        {
+            GEngine->AddOnScreenDebugMessage(7715, 4.0f, FColor::Red,
+                TEXT("PLAN ENDED WITHOUT RETURNING TO BASE"));
+        }
+        RefreshPlanningWidget();
+        return;
+    }
+    const FVector Destination = RecordedDestinations[PlaybackDestinationIndex];
+    if (!bPlaybackMoveIssued)
+    {
+        UAIBlueprintHelperLibrary::SimpleMoveToLocation(PlayerController, Destination);
+        bPlaybackMoveIssued = true;
+    }
+    if (FVector::Dist2D(Thief->GetActorLocation(), Destination) <= RecordedPointAcceptanceRadius)
+    {
+        ++PlaybackDestinationIndex;
+        bPlaybackMoveIssued = false;
+        RefreshPlanningWidget();
+    }
+}
+
+void ADerClueRuntimeDirector::RefreshPlanningWidget()
+{
+    if (!PlanningWidget)
+    {
+        return;
+    }
+    FText RecordLabel = FText::FromString(RouteMode == EDerClueRouteMode::Recording
+        ? TEXT("STOP RECORD") : TEXT("RECORD"));
+    FString Status;
+    switch (RouteMode)
+    {
+        case EDerClueRouteMode::Free:
+            Status = TEXT("FREE TEST");
+            break;
+        case EDerClueRouteMode::Recording:
+            Status = FString::Printf(TEXT("RECORDING  %d COMMANDS"), RecordedDestinations.Num());
+            break;
+        case EDerClueRouteMode::Ready:
+            Status = FString::Printf(TEXT("READY  %d COMMANDS"), RecordedDestinations.Num());
+            break;
+        case EDerClueRouteMode::Playing:
+            Status = FString::Printf(TEXT("PLAYING  %d/%d"),
+                FMath::Max(0, PlaybackDestinationIndex + 1), RecordedDestinations.Num());
+            break;
+    }
+    PlanningWidget->Refresh(RecordLabel, FText::FromString(Status),
+        !RecordedDestinations.IsEmpty() && RouteMode != EDerClueRouteMode::Recording &&
+        RouteMode != EDerClueRouteMode::Playing);
 }
 
 void ADerClueRuntimeDirector::EnsureCoreActors()
@@ -925,7 +1238,16 @@ void ADerClueRuntimeDirector::UpdateSmartObjects()
         }
         else if (SmartObject->Kind == EDerClueSmartObjectKind::Door && Nearest <= SmartObject->InteractionRadius)
         {
-            SmartObject->SetOpen(true);
+            if (!SmartObject->bOpen)
+            {
+                SmartObject->SetOpen(true);
+                // Only an opening caused by the thief becomes an external
+                // hearing stimulus. A guard never investigates its own door.
+                if (Thief && ThiefDistance <= GuardDistance)
+                {
+                    SmartObject->EmitNoise(SmartObject->GetOwner());
+                }
+            }
         }
         else if (SmartObject->Kind == EDerClueSmartObjectKind::Door && Nearest >= SmartObject->InteractionRadius + 80.0f)
         {
@@ -961,19 +1283,25 @@ void ADerClueRuntimeDirector::UpdateSmartObjects()
         else if (SmartObject->Kind == EDerClueSmartObjectKind::Loot &&
                  Thief && ThiefDistance <= SmartObject->InteractionRadius && !SmartObject->bCollected)
         {
+            bool bAnySafeExists = false;
             bool bAnySafeOpen = false;
             for (UDerClueSmartObjectComponent* Candidate : SmartObjects)
             {
-                bAnySafeOpen |= Candidate && Candidate->Kind == EDerClueSmartObjectKind::Safe && Candidate->bOpen;
+                if (Candidate && Candidate->Kind == EDerClueSmartObjectKind::Safe)
+                {
+                    bAnySafeExists = true;
+                    bAnySafeOpen |= Candidate->bOpen;
+                }
             }
-            if (bAnySafeOpen && SmartObject->Interact(Thief))
+            if ((!bAnySafeExists || bAnySafeOpen) && SmartObject->Interact(Thief))
             {
                 bHasLoot = true;
             }
         }
         else if (SmartObject->Kind == EDerClueSmartObjectKind::Extraction &&
                  Thief && ThiefDistance <= SmartObject->InteractionRadius && bHasLoot &&
-                 MissionState == EDerClueMissionState::InProgress)
+                 MissionState == EDerClueMissionState::InProgress &&
+                 FVector::Dist2D(Thief->GetActorLocation(), BaseLocation) <= BaseReturnRadius)
         {
             MissionState = EDerClueMissionState::Success;
         }
@@ -1219,7 +1547,7 @@ void ADerClueRuntimeDirector::UpdateCameras(float DeltaSeconds)
     // A readable stealth window is part of the level contract: the thief must
     // have enough time to move between the authored cover objects.
     const float Period = FMath::Max(14.0f, CameraSweepPeriod);
-    const float Phase = GetWorld()->GetTimeSeconds() * 2.0f * PI / Period;
+    const float Phase = (GetWorld()->GetTimeSeconds() - SimulationEpochSeconds) * 2.0f * PI / Period;
     for (AActor* Camera : SecurityCameras)
     {
         if (!Camera)
