@@ -470,10 +470,13 @@ void ADerClueRuntimeDirector::ConfigureGuardPerception()
         GuardController->SetPerceptionComponent(*GuardPerception);
         GuardPerception->RegisterComponent();
     }
-    else
-    {
-        GuardPerception->RequestStimuliListenerUpdate();
-    }
+    // The perception system only accepts sense configuration from a listener it
+    // has already registered; asking before that logs "Listener must have a
+    // valid id to update its sense config" and the sense silently stays at its
+    // defaults. Re-apply once the component is guaranteed to be registered.
+    GuardPerception->ConfigureSense(*GuardHearingConfig);
+    GuardPerception->ConfigureSense(*GuardSightConfig);
+    GuardPerception->RequestStimuliListenerUpdate();
 }
 
 void ADerClueRuntimeDirector::HandleGuardPerception(AActor* Actor, FAIStimulus Stimulus)
