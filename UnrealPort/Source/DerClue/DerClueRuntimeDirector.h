@@ -31,6 +31,15 @@ enum class EDerClueMissionState : uint8
     Failed
 };
 
+enum class EDerClueGuardActivity : uint8
+{
+    Patrol,
+    Investigate,
+    Search,
+    Pursue,
+    IntruderSweep
+};
+
 UCLASS(BlueprintType, Blueprintable)
 class DERCLUE_API ADerClueRuntimeDirector : public AActor
 {
@@ -86,6 +95,9 @@ public:
     float GuardInvestigationSpeed = 190.0f;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Patrol")
+    float GuardIntruderSweepSpeed = 230.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Patrol")
     float PatrolCornerInset = 180.0f;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Actors")
@@ -110,7 +122,22 @@ public:
     float CaptureDistance = 115.0f;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Security")
-    float AlertMemorySeconds = 3.0f;
+    float InvestigationSearchDuration = 4.5f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Security")
+    float InvestigationSearchHalfAngle = 65.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Security")
+    float InvestigationSearchPeriod = 2.8f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Vision")
+    float GuardFlashlightForwardOffset = 30.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Vision")
+    float GuardFlashlightHeight = 105.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Vision")
+    float GuardFlashlightPitch = -24.0f;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Debug")
     bool bTechnicalOverlay = false;
@@ -193,12 +220,15 @@ private:
     TArray<FVector> PatrolRoutePolyline;
     FBox AuthoredLevelBounds = FBox(ForceInit);
     int32 CurrentPatrolIndex = 0;
-    bool bInvestigating = false;
+    EDerClueGuardActivity GuardActivity = EDerClueGuardActivity::Patrol;
     bool bCamerasPowered = true;
+    bool bCameraHadContact = false;
+    bool bConfirmedIntrusion = false;
     FVector InvestigationLocation = FVector::ZeroVector;
     float NextMoveRequestTime = 0.0f;
-    float LastDetectionTime = -1000.0f;
-    float NextInvestigationUpdateTime = 0.0f;
+    float SearchStartedTime = 0.0f;
+    float SearchEndTime = 0.0f;
+    float SearchBaseYaw = 0.0f;
     float NextNoiseDeviceTime = 0.0f;
     bool bThiefInsideNoiseRadius = false;
     bool bPatrolRouteCacheReady = false;
@@ -223,6 +253,7 @@ private:
     void UpdateMissionState();
     void DrawVisionFootprint(const AActor* Source, float Range, float FullAngleDegrees, const FColor& Color) const;
     void UpdateSmartObjects();
+    void BeginIntruderSweep();
     bool IsPatrolNodeOccupied(const AActor* Node) const;
     int32 FindNearestReachablePatrolNode() const;
     bool RequestMove(const FVector& Destination);

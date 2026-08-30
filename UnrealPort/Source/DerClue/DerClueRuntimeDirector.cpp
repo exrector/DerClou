@@ -444,7 +444,7 @@ void ADerClueRuntimeDirector::CreatePrototypeTestObjects()
 
 void ADerClueRuntimeDirector::UpdateNoiseDevice()
 {
-    if (!NoiseDevice || !Thief || !Guard)
+    if (!NoiseDevice || !Thief || !Guard || bConfirmedIntrusion)
     {
         return;
     }
@@ -455,7 +455,6 @@ void ADerClueRuntimeDirector::UpdateNoiseDevice()
     if ((bManualTrigger || (bInside && !bThiefInsideNoiseRadius)) && Now >= NextNoiseDeviceTime)
     {
         SecurityState = EDerClueSecurityState::Warning;
-        LastDetectionTime = Now;
         InvestigateLocation(NoiseDevice->GetActorLocation());
         NextNoiseDeviceTime = Now + NoiseDeviceCooldown;
         if (GEngine)
@@ -739,8 +738,8 @@ void ADerClueRuntimeDirector::ConfigureVisionLights()
     if (Guard)
     {
         // The authored Guard_Flashlight is a standalone spotlight actor in the
-        // level. Bind the nearest non-camera spotlight once, preserving its
-        // carefully authored world offset and downward pitch.
+        // level. Once selected, it becomes a local fixture on the moving guard;
+        // keeping its old world transform would leave the beam floating ahead.
         if (!GuardFlashlight)
         {
             float BestDistanceSquared = TNumericLimits<float>::Max();
@@ -771,7 +770,10 @@ void ADerClueRuntimeDirector::ConfigureVisionLights()
                 Light->SetOuterConeAngle(GuardVisionAngle * 0.50f);
                 Light->SetCastShadows(true);
             }
-            GuardFlashlight->AttachToActor(Guard, FAttachmentTransformRules::KeepWorldTransform);
+            GuardFlashlight->AttachToActor(Guard, FAttachmentTransformRules::SnapToTargetNotIncludingScale);
+            GuardFlashlight->SetActorRelativeLocation(
+                FVector(GuardFlashlightForwardOffset, 0.0f, GuardFlashlightHeight));
+            GuardFlashlight->SetActorRelativeRotation(FRotator(GuardFlashlightPitch, 0.0f, 0.0f));
         }
 
         TArray<USpotLightComponent*> Lights;
@@ -819,7 +821,31 @@ void ADerClueRuntimeDirector::UpdatePatrol()
         return;
     }
 
-    if (!bInvestigating && IsPatrolNodeOccupied(PatrolNodes[CurrentPatrolIndex]))
+    const float Now = GetWorld()->GetTimeSeconds();
+    if (GuardActivity == EDerClueGuardActivity::Search)
+    {
+        GuardController->StopMovement();
+        const float Period = FMath::Max(0.5f, InvestigationSearchPeriod);
+        const float Phase = (Now - SearchStartedTime) * 2.0f * PI / Period;
+        FRotator ScanRotation = Guard->GetActorRotation();
+        ScanRotation.Yaw = SearchBaseYaw + FMath::Sin(Phase) * InvestigationSearchHalfAngle;
+        Guard->SetActorRotation(ScanRotation);
+        if (Now >= SearchEndTime)
+        {
+            if (bConfirmedIntrusion)
+            {
+                BeginIntruderSweep();
+            }
+            else
+            {
+                SecurityState = EDerClueSecurityState::Normal;
+                ReturnToNearestPatrolNode();
+            }
+        }
+        return;
+    }
+
+    if (GuardActivity == EDerClueGuardActivity::Patrol && IsPatrolNodeOccupied(PatrolNodes[CurrentPatrolIndex]))
     {
         const int32 StartingIndex = CurrentPatrolIndex;
         do
@@ -836,17 +862,24 @@ void ADerClueRuntimeDirector::UpdatePatrol()
         RequestMove(PatrolNodes[CurrentPatrolIndex]->GetActorLocation());
     }
 
-    const FVector Goal = bInvestigating ? InvestigationLocation : PatrolNodes[CurrentPatrolIndex]->GetActorLocation();
+    const bool bUsesPatrolNodeGoal = GuardActivity == EDerClueGuardActivity::Patrol ||
+        GuardActivity == EDerClueGuardActivity::IntruderSweep;
+    const bool bRespondingToPoint = !bUsesPatrolNodeGoal;
+    const FVector Goal = bRespondingToPoint
+        ? InvestigationLocation
+        : PatrolNodes[CurrentPatrolIndex]->GetActorLocation();
     if (FVector::Dist2D(Guard->GetActorLocation(), Goal) <= PatrolAcceptanceRadius)
     {
-        if (bInvestigating)
+        if (bRespondingToPoint)
         {
-            if (SecurityState == EDerClueSecurityState::Normal ||
-                GetWorld()->GetTimeSeconds() - LastDetectionTime >= AlertMemorySeconds)
-            {
-                SecurityState = EDerClueSecurityState::Normal;
-                ReturnToNearestPatrolNode();
-            }
+            GuardController->StopMovement();
+            GuardActivity = EDerClueGuardActivity::Search;
+            SecurityState = bConfirmedIntrusion
+                ? EDerClueSecurityState::Alarm
+                : EDerClueSecurityState::Warning;
+            SearchStartedTime = Now;
+            SearchEndTime = Now + InvestigationSearchDuration;
+            SearchBaseYaw = Guard->GetActorRotation().Yaw;
         }
         else
         {
@@ -854,7 +887,8 @@ void ADerClueRuntimeDirector::UpdatePatrol()
             {
                 CurrentPatrolIndex = (CurrentPatrolIndex + 1) % PatrolNodes.Num();
             }
-            while (PatrolNodes.Num() > 1 && IsPatrolNodeOccupied(PatrolNodes[CurrentPatrolIndex]));
+            while (GuardActivity == EDerClueGuardActivity::Patrol &&
+                   PatrolNodes.Num() > 1 && IsPatrolNodeOccupied(PatrolNodes[CurrentPatrolIndex]));
             RequestMove(PatrolNodes[CurrentPatrolIndex]->GetActorLocation());
         }
         return;
@@ -862,7 +896,7 @@ void ADerClueRuntimeDirector::UpdatePatrol()
 
     if (GuardController->GetMoveStatus() != EPathFollowingStatus::Moving)
     {
-        if (!RequestMove(Goal) && !bInvestigating)
+        if (!RequestMove(Goal) && bUsesPatrolNodeGoal)
         {
             CurrentPatrolIndex = (CurrentPatrolIndex + 1) % PatrolNodes.Num();
             NextMoveRequestTime = 0.0f;
@@ -912,7 +946,10 @@ void ADerClueRuntimeDirector::UpdateSmartObjects()
                         Light->SetVisibility(false);
                     }
                 }
-                SecurityState = EDerClueSecurityState::Normal;
+                if (!bConfirmedIntrusion)
+                {
+                    SecurityState = EDerClueSecurityState::Normal;
+                }
             }
         }
         else if (SmartObject->Kind == EDerClueSmartObjectKind::Safe &&
@@ -935,7 +972,8 @@ void ADerClueRuntimeDirector::UpdateSmartObjects()
             }
         }
         else if (SmartObject->Kind == EDerClueSmartObjectKind::Extraction &&
-                 Thief && ThiefDistance <= SmartObject->InteractionRadius && bHasLoot)
+                 Thief && ThiefDistance <= SmartObject->InteractionRadius && bHasLoot &&
+                 MissionState == EDerClueMissionState::InProgress)
         {
             MissionState = EDerClueMissionState::Success;
         }
@@ -1011,7 +1049,7 @@ int32 ADerClueRuntimeDirector::FindNearestReachablePatrolNode() const
 
 void ADerClueRuntimeDirector::InvestigateLocation(FVector WorldLocation)
 {
-    bInvestigating = true;
+    GuardActivity = EDerClueGuardActivity::Investigate;
     InvestigationLocation = WorldLocation;
     if (Guard && Guard->GetCharacterMovement())
     {
@@ -1027,7 +1065,12 @@ void ADerClueRuntimeDirector::InvestigateLocation(FVector WorldLocation)
 
 void ADerClueRuntimeDirector::ReturnToNearestPatrolNode()
 {
-    bInvestigating = false;
+    if (bConfirmedIntrusion)
+    {
+        BeginIntruderSweep();
+        return;
+    }
+    GuardActivity = EDerClueGuardActivity::Patrol;
     if (Guard && Guard->GetCharacterMovement())
     {
         Guard->GetCharacterMovement()->MaxWalkSpeed = GuardPatrolSpeed;
@@ -1041,6 +1084,31 @@ void ADerClueRuntimeDirector::ReturnToNearestPatrolNode()
             GuardController->StopMovement();
         }
         NextMoveRequestTime = 0.0f;
+        RequestMove(PatrolNodes[CurrentPatrolIndex]->GetActorLocation());
+    }
+}
+
+void ADerClueRuntimeDirector::BeginIntruderSweep()
+{
+    bConfirmedIntrusion = true;
+    GuardActivity = EDerClueGuardActivity::IntruderSweep;
+    SecurityState = EDerClueSecurityState::Alarm;
+    if (Guard && Guard->GetCharacterMovement())
+    {
+        Guard->GetCharacterMovement()->MaxWalkSpeed = GuardIntruderSweepSpeed;
+    }
+    const int32 Nearest = FindNearestReachablePatrolNode();
+    if (Nearest != INDEX_NONE)
+    {
+        CurrentPatrolIndex = Nearest;
+    }
+    if (GuardController)
+    {
+        GuardController->StopMovement();
+    }
+    NextMoveRequestTime = 0.0f;
+    if (PatrolNodes.IsValidIndex(CurrentPatrolIndex))
+    {
         RequestMove(PatrolNodes[CurrentPatrolIndex]->GetActorLocation());
     }
 }
@@ -1081,44 +1149,69 @@ void ADerClueRuntimeDirector::UpdateVision()
     {
         return;
     }
-    bool bDetected = Guard && CanSeeTarget(Guard, Thief, GuardVisionRange, GuardVisionAngle);
+    const bool bGuardSeesThief = Guard && CanSeeTarget(Guard, Thief, GuardVisionRange, GuardVisionAngle);
+    bool bCameraSeesThief = false;
     if (bCamerasPowered)
     {
         for (AActor* Camera : SecurityCameras)
         {
-            bDetected |= CanSeeTarget(Camera, Thief, CameraVisionRange, CameraVisionAngle);
+            bCameraSeesThief |= CanSeeTarget(Camera, Thief, CameraVisionRange, CameraVisionAngle);
         }
     }
-    if (bDetected)
+
+    // Direct guard sight is the only live pursuit signal. It may refresh the
+    // last-seen position, but camera/noise reports never become a GPS tracker.
+    if (bGuardSeesThief)
     {
-        const float Now = GetWorld()->GetTimeSeconds();
+        const bool bWasAlreadyPursuing = GuardActivity == EDerClueGuardActivity::Pursue;
+        bConfirmedIntrusion = true;
+        MissionState = EDerClueMissionState::Failed;
         SecurityState = EDerClueSecurityState::Alarm;
-        LastDetectionTime = Now;
-        if (!bInvestigating)
+        GuardActivity = EDerClueGuardActivity::Pursue;
+        if (Guard->GetCharacterMovement())
         {
-            InvestigateLocation(Thief->GetActorLocation());
-            NextInvestigationUpdateTime = Now + 0.6f;
+            Guard->GetCharacterMovement()->MaxWalkSpeed = GuardInvestigationSpeed;
         }
-        else if (Now >= NextInvestigationUpdateTime &&
-                 FVector::DistSquared2D(InvestigationLocation, Thief->GetActorLocation()) > FMath::Square(150.0f))
+        const FVector NewLastSeenLocation = Thief->GetActorLocation();
+        if (!bWasAlreadyPursuing ||
+            FVector::DistSquared2D(InvestigationLocation, NewLastSeenLocation) > FMath::Square(60.0f))
         {
-            InvestigationLocation = Thief->GetActorLocation();
-            NextMoveRequestTime = 0.0f;
+            InvestigationLocation = NewLastSeenLocation;
+            if (!bWasAlreadyPursuing)
+            {
+                GuardController->StopMovement();
+                NextMoveRequestTime = 0.0f;
+            }
             RequestMove(InvestigationLocation);
-            NextInvestigationUpdateTime = Now + 0.6f;
         }
+        bCameraHadContact = bCameraSeesThief;
+        return;
     }
-    else if (SecurityState == EDerClueSecurityState::Alarm &&
-             GetWorld()->GetTimeSeconds() - LastDetectionTime > 0.6f)
+
+    // Having lost direct sight, the guard checks the last place where the
+    // thief was actually seen instead of continuing to know the live position.
+    if (GuardActivity == EDerClueGuardActivity::Pursue)
     {
-        SecurityState = EDerClueSecurityState::Warning;
+        SecurityState = bConfirmedIntrusion
+            ? EDerClueSecurityState::Alarm
+            : EDerClueSecurityState::Warning;
+        GuardActivity = EDerClueGuardActivity::Investigate;
+        NextMoveRequestTime = 0.0f;
+        RequestMove(InvestigationLocation);
     }
-    else if (SecurityState == EDerClueSecurityState::Warning &&
-             GetWorld()->GetTimeSeconds() - LastDetectionTime >= AlertMemorySeconds)
+
+    // A surveillance camera reports one snapshot when contact begins. While
+    // contact remains continuous it does not keep steering the guard to the
+    // thief's current coordinates. Reacquisition can create a fresh report.
+    if (bCameraSeesThief && !bCameraHadContact && GuardActivity != EDerClueGuardActivity::Pursue)
     {
-        SecurityState = EDerClueSecurityState::Normal;
-        ReturnToNearestPatrolNode();
+        bConfirmedIntrusion = true;
+        MissionState = EDerClueMissionState::Failed;
+        SecurityState = EDerClueSecurityState::Alarm;
+        InvestigateLocation(Thief->GetActorLocation());
+        SecurityState = EDerClueSecurityState::Alarm;
     }
+    bCameraHadContact = bCameraSeesThief;
 }
 
 void ADerClueRuntimeDirector::UpdateCameras(float DeltaSeconds)
