@@ -79,6 +79,15 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Patrol")
     float RepathCooldown = 0.35f;
 
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Patrol")
+    float GuardPatrolSpeed = 125.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Patrol")
+    float GuardInvestigationSpeed = 190.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Actors")
+    float ThiefMoveSpeed = 260.0f;
+
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Camera")
     float CameraSweepHalfAngle = 42.0f;
 
@@ -178,6 +187,7 @@ private:
 
     TMap<TWeakObjectPtr<AActor>, FRotator> CameraBaseRotations;
     TArray<TObjectPtr<UDerClueSmartObjectComponent>> SmartObjects;
+    TArray<FVector> PatrolRoutePolyline;
     int32 CurrentPatrolIndex = 0;
     bool bInvestigating = false;
     bool bCamerasPowered = true;
@@ -187,6 +197,8 @@ private:
     float NextInvestigationUpdateTime = 0.0f;
     float NextNoiseDeviceTime = 0.0f;
     bool bThiefInsideNoiseRadius = false;
+    bool bPatrolRouteCacheReady = false;
+    float NextPatrolRouteCacheAttempt = 0.0f;
 
     void DiscoverLevelActors();
     void ConfigureCharacter(ACharacter* Character) const;
@@ -201,6 +213,7 @@ private:
     void UpdateCameras(float DeltaSeconds);
     void UpdateVision();
     void UpdateTechnicalOverlay();
+    void RebuildPatrolRouteCache();
     void UpdateMissionState();
     void DrawVisionFootprint(const AActor* Source, float Range, float FullAngleDegrees, const FColor& Color) const;
     void UpdateSmartObjects();

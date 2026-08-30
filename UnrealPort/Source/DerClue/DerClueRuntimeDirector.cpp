@@ -9,6 +9,7 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Kismet/GameplayStatics.h"
 #include "NavigationSystem.h"
+#include "NavigationPath.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/SpotLightComponent.h"
 #include "Components/PointLightComponent.h"
@@ -64,6 +65,10 @@ void ADerClueRuntimeDirector::Tick(float DeltaSeconds)
     UpdateNoiseDevice();
     UpdatePatrol();
     UpdateMissionState();
+    if (!bPatrolRouteCacheReady && GetWorld()->GetTimeSeconds() >= NextPatrolRouteCacheAttempt)
+    {
+        RebuildPatrolRouteCache();
+    }
     UpdateTechnicalOverlay();
 }
 
@@ -124,6 +129,46 @@ void ADerClueRuntimeDirector::DrawVisionFootprint(const AActor* Source, float Ra
     }
 }
 
+void ADerClueRuntimeDirector::RebuildPatrolRouteCache()
+{
+    PatrolRoutePolyline.Reset();
+    NextPatrolRouteCacheAttempt = GetWorld()->GetTimeSeconds() + 0.5f;
+    if (PatrolNodes.Num() < 2)
+    {
+        return;
+    }
+
+    bool bEverySegmentValid = true;
+    for (int32 Index = 0; Index < PatrolNodes.Num(); ++Index)
+    {
+        const AActor* StartNode = PatrolNodes[Index];
+        const AActor* EndNode = PatrolNodes[(Index + 1) % PatrolNodes.Num()];
+        if (!StartNode || !EndNode)
+        {
+            bEverySegmentValid = false;
+            continue;
+        }
+
+        UNavigationPath* Segment = UNavigationSystemV1::FindPathToLocationSynchronously(
+            this, StartNode->GetActorLocation(), EndNode->GetActorLocation(), Guard);
+        if (!Segment || !Segment->IsValid() || Segment->IsPartial() || Segment->PathPoints.Num() < 2)
+        {
+            bEverySegmentValid = false;
+            continue;
+        }
+
+        for (const FVector& Point : Segment->PathPoints)
+        {
+            if (PatrolRoutePolyline.IsEmpty() ||
+                !PatrolRoutePolyline.Last().Equals(Point, 1.0f))
+            {
+                PatrolRoutePolyline.Add(Point);
+            }
+        }
+    }
+    bPatrolRouteCacheReady = bEverySegmentValid && PatrolRoutePolyline.Num() > 1;
+}
+
 void ADerClueRuntimeDirector::UpdateTechnicalOverlay()
 {
     if (APlayerController* PlayerController = GetWorld()->GetFirstPlayerController())
@@ -134,14 +179,21 @@ void ADerClueRuntimeDirector::UpdateTechnicalOverlay()
         }
     }
 
-    if (bShowPatrolRoute && PatrolNodes.Num() > 1)
+    if (bShowPatrolRoute && PatrolRoutePolyline.Num() > 1)
     {
-        for (int32 Index = 0; Index < PatrolNodes.Num(); ++Index)
+        for (int32 Index = 1; Index < PatrolRoutePolyline.Num(); ++Index)
         {
-            const FVector A = PatrolNodes[Index]->GetActorLocation() + FVector(0, 0, 12);
-            const FVector B = PatrolNodes[(Index + 1) % PatrolNodes.Num()]->GetActorLocation() + FVector(0, 0, 12);
+            const FVector A = PatrolRoutePolyline[Index - 1] + FVector(0, 0, 12);
+            const FVector B = PatrolRoutePolyline[Index] + FVector(0, 0, 12);
             DrawDebugLine(GetWorld(), A, B, FColor::Cyan, false, 0.0f, 0, 3.0f);
-            DrawDebugSphere(GetWorld(), A, 18.0f, 12, FColor::Cyan, false, 0.0f, 0, 2.0f);
+        }
+        for (AActor* Node : PatrolNodes)
+        {
+            if (Node)
+            {
+                DrawDebugSphere(GetWorld(), Node->GetActorLocation() + FVector(0, 0, 12),
+                    18.0f, 12, FColor::Cyan, false, 0.0f, 0, 2.0f);
+            }
         }
     }
 
@@ -190,9 +242,31 @@ void ADerClueRuntimeDirector::DiscoverLevelActors()
     UGameplayStatics::GetAllActorsWithTag(this, PatrolNodeTag, Found);
     Found.Sort([](const AActor& A, const AActor& B)
     {
-        const FString AOrder = A.Tags.Num() > 1 ? A.Tags[1].ToString() : A.GetName();
-        const FString BOrder = B.Tags.Num() > 1 ? B.Tags[1].ToString() : B.GetName();
-        return AOrder < BOrder;
+        const auto ReadOrder = [](const AActor& Actor)
+        {
+            if (Actor.Tags.Num() > 1)
+            {
+                const FString ExplicitOrder = Actor.Tags[1].ToString();
+                if (ExplicitOrder.IsNumeric())
+                {
+                    return FCString::Atoi(*ExplicitOrder);
+                }
+            }
+            FString Label = Actor.GetActorNameOrLabel();
+            FString Prefix;
+            FString Suffix;
+            if (Label.Split(TEXT("_"), &Prefix, &Suffix, ESearchCase::IgnoreCase,
+                ESearchDir::FromEnd) && Suffix.IsNumeric())
+            {
+                return FCString::Atoi(*Suffix);
+            }
+            return MAX_int32;
+        };
+        const int32 AOrder = ReadOrder(A);
+        const int32 BOrder = ReadOrder(B);
+        return AOrder == BOrder
+            ? A.GetActorNameOrLabel() < B.GetActorNameOrLabel()
+            : AOrder < BOrder;
     });
     for (AActor* Actor : Found)
     {
@@ -567,7 +641,7 @@ void ADerClueRuntimeDirector::ConfigureCharacter(ACharacter* Character) const
     }
     if (UCharacterMovementComponent* Movement = Character->GetCharacterMovement())
     {
-        Movement->MaxWalkSpeed = 260.0f;
+        Movement->MaxWalkSpeed = Character == Guard ? GuardPatrolSpeed : ThiefMoveSpeed;
         Movement->MaxAcceleration = 700.0f;
         Movement->BrakingDecelerationWalking = 900.0f;
         if (FNavMovementProperties* NavMovement = Movement->GetNavMovementProperties())
@@ -841,7 +915,14 @@ int32 ADerClueRuntimeDirector::FindNearestReachablePatrolNode() const
         FNavLocation Projected;
         if (Nav && Nav->ProjectPointToNavigation(Node->GetActorLocation(), Projected))
         {
-            const float Distance = FVector::DistSquared2D(Guard->GetActorLocation(), Projected.Location);
+            UNavigationPath* Path = UNavigationSystemV1::FindPathToLocationSynchronously(
+                GetWorld(), Guard->GetActorLocation(),
+                Projected.Location, Guard);
+            if (!Path || !Path->IsValid() || Path->IsPartial())
+            {
+                continue;
+            }
+            const float Distance = static_cast<float>(Path->GetPathLength());
             if (Distance < BestDistance)
             {
                 BestDistance = Distance;
@@ -856,6 +937,10 @@ void ADerClueRuntimeDirector::InvestigateLocation(FVector WorldLocation)
 {
     bInvestigating = true;
     InvestigationLocation = WorldLocation;
+    if (Guard && Guard->GetCharacterMovement())
+    {
+        Guard->GetCharacterMovement()->MaxWalkSpeed = GuardInvestigationSpeed;
+    }
     if (GuardController)
     {
         GuardController->StopMovement();
@@ -867,6 +952,10 @@ void ADerClueRuntimeDirector::InvestigateLocation(FVector WorldLocation)
 void ADerClueRuntimeDirector::ReturnToNearestPatrolNode()
 {
     bInvestigating = false;
+    if (Guard && Guard->GetCharacterMovement())
+    {
+        Guard->GetCharacterMovement()->MaxWalkSpeed = GuardPatrolSpeed;
+    }
     const int32 Nearest = FindNearestReachablePatrolNode();
     if (Nearest != INDEX_NONE)
     {
