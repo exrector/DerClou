@@ -38,8 +38,10 @@ void ADerClueRuntimeDirector::BeginPlay()
     EnsureCoreActors();
     ConfigureCharacter(Guard);
     ConfigureCharacter(Thief);
-    ConfigureVisionLights();
     ConfigureWorldAndSmartObjects();
+    CacheAuthoredLevelBounds();
+    PositionPatrolNodesAcrossLevel();
+    ConfigureVisionLights();
     CreatePrototypeTestObjects();
     ConfigureDioramaCamera();
     ReturnToNearestPatrolNode();
@@ -112,6 +114,10 @@ void ADerClueRuntimeDirector::DrawVisionFootprint(const AActor* Source, float Ra
         FHitResult Hit;
         FCollisionQueryParams Params(SCENE_QUERY_STAT(DerClueDebugVision), true, Source);
         Params.AddIgnoredActor(Source);
+        if (Guard && SecurityCameras.Contains(Source))
+        {
+            Params.AddIgnoredActor(Guard);
+        }
         if (GetWorld()->LineTraceSingleByChannel(Hit, SourceWorld, TraceEnd, ECC_Visibility, Params))
         {
             TraceEnd = Hit.ImpactPoint;
@@ -127,6 +133,65 @@ void ADerClueRuntimeDirector::DrawVisionFootprint(const AActor* Source, float Ra
         }
         PreviousEnd = DebugEnd;
     }
+}
+
+void ADerClueRuntimeDirector::CacheAuthoredLevelBounds()
+{
+    AuthoredLevelBounds = FBox(ForceInit);
+    for (TActorIterator<AStaticMeshActor> It(GetWorld()); It; ++It)
+    {
+        AStaticMeshActor* Actor = *It;
+        if (!Actor || Actor->IsHidden() || Actor->ActorHasTag(CameraVisualTag) ||
+            Actor->ActorHasTag(SecurityCameraTag) || Actor->ActorHasTag(AlarmLightTag) ||
+            Actor->ActorHasTag(TEXT("DerClue.ExitLight")) || Actor->ActorHasTag(TEXT("ArcSegment")))
+        {
+            continue;
+        }
+        FVector Origin;
+        FVector Extent;
+        Actor->GetActorBounds(false, Origin, Extent);
+        AuthoredLevelBounds += FBox::BuildAABB(Origin, Extent);
+    }
+}
+
+void ADerClueRuntimeDirector::PositionPatrolNodesAcrossLevel()
+{
+    if (!AuthoredLevelBounds.IsValid || PatrolNodes.Num() != 4)
+    {
+        return;
+    }
+    const FVector Min = AuthoredLevelBounds.Min;
+    const FVector Max = AuthoredLevelBounds.Max;
+    const FVector Size = AuthoredLevelBounds.GetSize();
+    const float Inset = FMath::Min(PatrolCornerInset,
+        FMath::Min(Size.X, Size.Y) * 0.22f);
+    const float NavigationZ = Guard ? Guard->GetActorLocation().Z : Min.Z + 100.0f;
+    const FVector Candidates[4] =
+    {
+        FVector(Min.X + Inset, Min.Y + Inset, NavigationZ),
+        FVector(Max.X - Inset, Min.Y + Inset, NavigationZ),
+        FVector(Max.X - Inset, Max.Y - Inset, NavigationZ),
+        FVector(Min.X + Inset, Max.Y - Inset, NavigationZ)
+    };
+
+    UNavigationSystemV1* Navigation = UNavigationSystemV1::GetCurrent(GetWorld());
+    for (int32 Index = 0; Index < 4; ++Index)
+    {
+        FVector Destination = Candidates[Index];
+        FNavLocation Projected;
+        if (Navigation && Navigation->ProjectPointToNavigation(
+            Candidates[Index], Projected, FVector(300.0f, 300.0f, 400.0f)))
+        {
+            Destination = Projected.Location;
+        }
+        if (USceneComponent* Root = PatrolNodes[Index]->GetRootComponent())
+        {
+            Root->SetMobility(EComponentMobility::Movable);
+        }
+        PatrolNodes[Index]->SetActorLocation(Destination);
+    }
+    bPatrolRouteCacheReady = false;
+    NextPatrolRouteCacheAttempt = 0.0f;
 }
 
 void ADerClueRuntimeDirector::RebuildPatrolRouteCache()
@@ -660,6 +725,17 @@ void ADerClueRuntimeDirector::ConfigureCharacter(ACharacter* Character) const
 
 void ADerClueRuntimeDirector::ConfigureVisionLights()
 {
+    if (AuthoredLevelBounds.IsValid)
+    {
+        const FVector LevelSize = AuthoredLevelBounds.GetSize();
+        // Cameras trace farther than the complete board, so the first blocking
+        // wall—not a magic radius—defines their real visible distance.
+        CameraVisionRange = FVector2D(LevelSize.X, LevelSize.Y).Size() + 200.0f;
+        // A guard carries a short, narrow flashlight: approximately half of
+        // the room depth, independent from the surveillance camera range.
+        GuardVisionRange = FMath::Clamp(FMath::Min(LevelSize.X, LevelSize.Y) * 0.52f,
+            700.0f, 1300.0f);
+    }
     if (Guard)
     {
         // The authored Guard_Flashlight is a standalone spotlight actor in the
@@ -990,6 +1066,10 @@ bool ADerClueRuntimeDirector::CanSeeTarget(const AActor* Source, const AActor* T
     FHitResult Hit;
     FCollisionQueryParams Params(SCENE_QUERY_STAT(DerClueVision), true, Source);
     Params.AddIgnoredActor(Source);
+    if (Guard && SecurityCameras.Contains(Source))
+    {
+        Params.AddIgnoredActor(Guard);
+    }
     return GetWorld()->LineTraceSingleByChannel(Hit, SourceLocation, Target->GetActorLocation(), ECC_Visibility, Params)
         ? Hit.GetActor() == Target
         : true;

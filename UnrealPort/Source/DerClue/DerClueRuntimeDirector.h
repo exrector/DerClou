@@ -59,13 +59,13 @@ public:
     FName AlarmLightTag = TEXT("DerClue.AlarmLight");
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Vision")
-    float GuardVisionRange = 1600.0f;
+    float GuardVisionRange = 1000.0f;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Vision", meta=(ClampMin="1", ClampMax="179"))
     float GuardVisionAngle = 40.0f;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Vision")
-    float CameraVisionRange = 2200.0f;
+    float CameraVisionRange = 5000.0f;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Vision", meta=(ClampMin="1", ClampMax="179"))
     float CameraVisionAngle = 84.0f;
@@ -84,6 +84,9 @@ public:
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Patrol")
     float GuardInvestigationSpeed = 190.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Patrol")
+    float PatrolCornerInset = 180.0f;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Actors")
     float ThiefMoveSpeed = 260.0f;
@@ -188,6 +191,7 @@ private:
     TMap<TWeakObjectPtr<AActor>, FRotator> CameraBaseRotations;
     TArray<TObjectPtr<UDerClueSmartObjectComponent>> SmartObjects;
     TArray<FVector> PatrolRoutePolyline;
+    FBox AuthoredLevelBounds = FBox(ForceInit);
     int32 CurrentPatrolIndex = 0;
     bool bInvestigating = false;
     bool bCamerasPowered = true;
@@ -214,6 +218,8 @@ private:
     void UpdateVision();
     void UpdateTechnicalOverlay();
     void RebuildPatrolRouteCache();
+    void PositionPatrolNodesAcrossLevel();
+    void CacheAuthoredLevelBounds();
     void UpdateMissionState();
     void DrawVisionFootprint(const AActor* Source, float Range, float FullAngleDegrees, const FColor& Color) const;
     void UpdateSmartObjects();
