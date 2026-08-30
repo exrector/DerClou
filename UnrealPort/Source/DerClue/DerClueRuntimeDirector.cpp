@@ -34,6 +34,7 @@ void ADerClueRuntimeDirector::BeginPlay()
 {
     Super::BeginPlay();
     DiscoverLevelActors();
+    EnsureCoreActors();
     ConfigureCharacter(Guard);
     ConfigureCharacter(Thief);
     ConfigurePrototypePresentation();
@@ -54,6 +55,17 @@ void ADerClueRuntimeDirector::BeginPlay()
 void ADerClueRuntimeDirector::Tick(float DeltaSeconds)
 {
     Super::Tick(DeltaSeconds);
+    RefreshPlayableThief();
+    if (bUseFixedDioramaCamera && DioramaCamera)
+    {
+        if (APlayerController* PlayerController = GetWorld()->GetFirstPlayerController())
+        {
+            if (PlayerController->GetViewTarget() != DioramaCamera)
+            {
+                PlayerController->SetViewTarget(DioramaCamera);
+            }
+        }
+    }
     UpdateCameras(DeltaSeconds);
     UpdateVision();
     UpdateAlarmPresentation();
@@ -400,7 +412,7 @@ void ADerClueRuntimeDirector::UpdateNoiseDevice()
 
 void ADerClueRuntimeDirector::ConfigureDioramaCamera()
 {
-    if (!bUseFixedDioramaCamera || !GetWorld() || PatrolNodes.IsEmpty())
+    if (!bUseFixedDioramaCamera || !GetWorld())
     {
         return;
     }
@@ -409,27 +421,138 @@ void ADerClueRuntimeDirector::ConfigureDioramaCamera()
     {
         return;
     }
-    FVector Centre = FVector::ZeroVector;
-    for (AActor* Node : PatrolNodes)
+    FBox LevelBounds(ForceInit);
+    for (TActorIterator<AStaticMeshActor> It(GetWorld()); It; ++It)
     {
-        Centre += Node ? Node->GetActorLocation() : FVector::ZeroVector;
+        AStaticMeshActor* Actor = *It;
+        if (!Actor || Actor->IsHidden() || !Actor->GetStaticMeshComponent() ||
+            !Actor->GetStaticMeshComponent()->IsVisible())
+        {
+            continue;
+        }
+        FVector Origin;
+        FVector Extent;
+        Actor->GetActorBounds(false, Origin, Extent);
+        LevelBounds += FBox::BuildAABB(Origin, Extent);
     }
-    Centre /= static_cast<float>(PatrolNodes.Num());
-    const FVector CameraLocation = Centre + FVector(-FixedDioramaCameraDistance,
-        -FixedDioramaCameraDistance, FixedDioramaCameraHeight);
-    DioramaCamera = GetWorld()->SpawnActor<ACameraActor>(CameraLocation,
-        FRotationMatrix::MakeFromX(Centre - CameraLocation).Rotator());
+    FVector Centre = LevelBounds.IsValid ? LevelBounds.GetCenter() : FVector::ZeroVector;
+    FVector Extent = LevelBounds.IsValid ? LevelBounds.GetExtent() : FVector(1500.0f, 900.0f, 150.0f);
+    if (!LevelBounds.IsValid)
+    {
+        for (AActor* Node : PatrolNodes)
+        {
+            Centre += Node ? Node->GetActorLocation() : FVector::ZeroVector;
+        }
+        if (!PatrolNodes.IsEmpty())
+        {
+            Centre /= static_cast<float>(PatrolNodes.Num());
+        }
+    }
+
+    // Approach only along the short axis. This keeps the long side of the
+    // board horizontal instead of presenting the level corner-on.
+    const bool bLongAxisIsX = Extent.X >= Extent.Y;
+    const FVector ApproachAxis = bLongAxisIsX
+        ? FVector(0.0f, -1.0f, 0.0f)
+        : FVector(-1.0f, 0.0f, 0.0f);
+    // Keep the view predominantly top-down. The clamp also corrects older map
+    // instances that may still contain the previous, much larger distance.
+    const float CameraDistance = FMath::Min(FixedDioramaCameraDistance,
+        FixedDioramaCameraHeight * 0.45f);
+    const FVector CameraLocation = Centre + ApproachAxis * CameraDistance +
+        FVector::UpVector * FixedDioramaCameraHeight;
+    const FRotator CameraRotation = FRotationMatrix::MakeFromX(Centre - CameraLocation).Rotator();
+    DioramaCamera = GetWorld()->SpawnActor<ACameraActor>(CameraLocation, CameraRotation);
     if (DioramaCamera)
     {
         if (UCameraComponent* CameraComponent = DioramaCamera->GetCameraComponent())
         {
-            CameraComponent->ProjectionMode = ECameraProjectionMode::Perspective;
-            CameraComponent->FieldOfView = 48.0f;
-            CameraComponent->bConstrainAspectRatio = false;
+            CameraComponent->ProjectionMode = ECameraProjectionMode::Orthographic;
+            constexpr float TargetAspect = 16.0f / 9.0f;
+            const FRotationMatrix CameraBasis(CameraRotation);
+            const FVector ScreenRight = CameraBasis.GetUnitAxis(EAxis::Y);
+            const FVector ScreenUp = CameraBasis.GetUnitAxis(EAxis::Z);
+            float HalfScreenWidth = 0.0f;
+            float HalfScreenHeight = 0.0f;
+            for (int32 XSign : {-1, 1})
+            {
+                for (int32 YSign : {-1, 1})
+                {
+                    for (int32 ZSign : {-1, 1})
+                    {
+                        const FVector CornerDelta(
+                            Extent.X * static_cast<float>(XSign),
+                            Extent.Y * static_cast<float>(YSign),
+                            Extent.Z * static_cast<float>(ZSign));
+                        HalfScreenWidth = FMath::Max(HalfScreenWidth,
+                            FMath::Abs(FVector::DotProduct(CornerDelta, ScreenRight)));
+                        HalfScreenHeight = FMath::Max(HalfScreenHeight,
+                            FMath::Abs(FVector::DotProduct(CornerDelta, ScreenUp)));
+                    }
+                }
+            }
+            CameraComponent->SetOrthoWidth(
+                FMath::Max(HalfScreenWidth * 2.0f, HalfScreenHeight * 2.0f * TargetAspect) *
+                FixedDioramaCameraMargin);
+            CameraComponent->bConstrainAspectRatio = true;
+            CameraComponent->AspectRatio = TargetAspect;
         }
         PlayerController->SetViewTargetWithBlend(DioramaCamera, 0.15f,
             VTBlend_Cubic, 0.0f, true);
     }
+}
+
+void ADerClueRuntimeDirector::EnsureCoreActors()
+{
+    if (!Guard && !PatrolNodes.IsEmpty() && GetWorld())
+    {
+        UClass* GuardClass = LoadClass<ACharacter>(nullptr,
+            TEXT("/Game/DerClue/Blueprints/BP_GrantGuard.BP_GrantGuard_C"));
+        if (GuardClass)
+        {
+            FActorSpawnParameters SpawnParameters;
+            SpawnParameters.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
+            Guard = GetWorld()->SpawnActor<ACharacter>(GuardClass,
+                PatrolNodes[0]->GetActorLocation(), PatrolNodes[0]->GetActorRotation(), SpawnParameters);
+            if (Guard)
+            {
+                Guard->Tags.AddUnique(GuardTag);
+            }
+        }
+    }
+    if (Guard)
+    {
+        GuardController = Cast<AAIController>(Guard->GetController());
+        if (!GuardController && GetWorld())
+        {
+            GuardController = GetWorld()->SpawnActor<AAIController>();
+            if (GuardController)
+            {
+                GuardController->Possess(Guard);
+            }
+        }
+    }
+}
+
+void ADerClueRuntimeDirector::RefreshPlayableThief()
+{
+    ACharacter* PlayerCharacter = UGameplayStatics::GetPlayerCharacter(this, 0);
+    if (!PlayerCharacter || PlayerCharacter == Guard || PlayerCharacter == Thief)
+    {
+        return;
+    }
+    Thief = PlayerCharacter;
+    ConfigureCharacter(Thief);
+    if (ThiefNavObstacle)
+    {
+        ThiefNavObstacle->DestroyComponent();
+    }
+    ThiefNavObstacle = NewObject<UNavModifierComponent>(Thief, TEXT("DerClueStationaryObstacle"));
+    ThiefNavObstacle->SetAreaClass(UNavArea_Obstacle::StaticClass());
+    ThiefNavObstacle->SetCanEverAffectNavigation(false);
+    ThiefNavObstacle->RegisterComponent();
+    ThiefStationarySince = -1.0f;
+    bThiefNavObstacleEnabled = false;
 }
 
 void ADerClueRuntimeDirector::ConfigureWorldAndSmartObjects()

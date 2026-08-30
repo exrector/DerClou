@@ -128,7 +128,10 @@ public:
     float FixedDioramaCameraHeight = 2200.0f;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Camera")
-    float FixedDioramaCameraDistance = 1900.0f;
+    float FixedDioramaCameraDistance = 950.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Camera", meta=(ClampMin="1.0"))
+    float FixedDioramaCameraMargin = 1.12f;
 
     UFUNCTION(BlueprintCallable, Category="DerClue|Patrol")
     void InvestigateLocation(FVector WorldLocation);
@@ -201,6 +204,8 @@ private:
     void CreatePrototypeTestObjects();
     void UpdateNoiseDevice();
     void ConfigureDioramaCamera();
+    void EnsureCoreActors();
+    void RefreshPlayableThief();
     void UpdatePatrol();
     void UpdateCameras(float DeltaSeconds);
     void UpdateVision();
