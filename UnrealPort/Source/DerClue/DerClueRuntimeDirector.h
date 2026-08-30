@@ -82,7 +82,7 @@ public:
     float CameraSweepHalfAngle = 42.0f;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Camera")
-    float CameraSweepPeriod = 6.0f;
+    float CameraSweepPeriod = 14.0f;
 
     UPROPERTY(BlueprintReadOnly, Category="DerClue|Security")
     EDerClueSecurityState SecurityState = EDerClueSecurityState::Normal;

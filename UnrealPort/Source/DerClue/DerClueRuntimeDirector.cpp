@@ -987,7 +987,9 @@ void ADerClueRuntimeDirector::UpdateAlarmPresentation()
 
 void ADerClueRuntimeDirector::UpdateCameras(float DeltaSeconds)
 {
-    const float Period = FMath::Max(0.1f, CameraSweepPeriod);
+    // A readable stealth window is part of the level contract: the thief must
+    // have enough time to move between the authored cover objects.
+    const float Period = FMath::Max(14.0f, CameraSweepPeriod);
     const float Phase = GetWorld()->GetTimeSeconds() * 2.0f * PI / Period;
     for (AActor* Camera : SecurityCameras)
     {
