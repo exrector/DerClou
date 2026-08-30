@@ -354,24 +354,8 @@ void ADerClueRuntimeDirector::CreatePrototypeTestObjects()
             CameraOcclusionBox->Tags.AddUnique(TEXT("DerClue.CameraOcclusionTest"));
         }
 
-        for (TActorIterator<AStaticMeshActor> It(GetWorld()); It; ++It)
-        {
-            AStaticMeshActor* Furniture = *It;
-            if (!Furniture || Furniture == CameraOcclusionBox || !Furniture->ActorHasTag(TEXT("Furniture")))
-            {
-                continue;
-            }
-            const FVector ToFurniture = Furniture->GetActorLocation() - Camera->GetActorLocation();
-            const FVector ToFurniture2D(ToFurniture.X, ToFurniture.Y, 0.0f);
-            if (ToFurniture2D.SizeSquared() <= FMath::Square(CameraVisionRange) &&
-                FVector::DotProduct(Forward, ToFurniture2D.GetSafeNormal()) >=
-                    FMath::Cos(FMath::DegreesToRadians(CameraVisionAngle * 0.5f)))
-            {
-                Furniture->SetActorHiddenInGame(true);
-                Furniture->SetActorEnableCollision(false);
-                Furniture->GetStaticMeshComponent()->SetCanEverAffectNavigation(false);
-            }
-        }
+        // Placed level geometry is authoritative. Vision tests may trace against
+        // furniture, but must never hide, disable, move, or otherwise rewrite it.
     }
 }
 
