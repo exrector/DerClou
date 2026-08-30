@@ -9,5 +9,6 @@ public class DerClueEditorTarget : TargetRules
         DefaultBuildSettings = BuildSettingsVersion.V7;
         IncludeOrderVersion = EngineIncludeOrderVersion.Latest;
         ExtraModuleNames.Add("DerClue");
+        ExtraModuleNames.Add("DerClueEditor");
     }
 }

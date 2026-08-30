@@ -8,6 +8,11 @@
 			"Name": "DerClue",
 			"Type": "Runtime",
 			"LoadingPhase": "Default"
+		},
+		{
+			"Name": "DerClueEditor",
+			"Type": "Editor",
+			"LoadingPhase": "Default"
 		}
 	],
 	"Plugins": [
@@ -52,6 +57,10 @@
 		},
 		{
 			"Name": "UAFStateTree",
+			"Enabled": true
+		},
+		{
+			"Name": "ToolsetRegistry",
 			"Enabled": true
 		}
 	]
