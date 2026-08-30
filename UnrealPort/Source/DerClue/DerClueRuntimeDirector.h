@@ -12,6 +12,7 @@ class USpotLightComponent;
 class UPointLightComponent;
 class AStaticMeshActor;
 class ACameraActor;
+class ASpotLight;
 
 UENUM(BlueprintType)
 enum class EDerClueSecurityState : uint8
@@ -171,6 +172,9 @@ private:
 
     UPROPERTY()
     TObjectPtr<ACameraActor> DioramaCamera;
+
+    UPROPERTY()
+    TObjectPtr<ASpotLight> GuardFlashlight;
 
     TMap<TWeakObjectPtr<AActor>, FRotator> CameraBaseRotations;
     TArray<TObjectPtr<UDerClueSmartObjectComponent>> SmartObjects;

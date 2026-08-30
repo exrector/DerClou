@@ -644,6 +644,42 @@ void ADerClueRuntimeDirector::ConfigureVisionLights()
 {
     if (Guard)
     {
+        // The authored Guard_Flashlight is a standalone spotlight actor in the
+        // level. Bind the nearest non-camera spotlight once, preserving its
+        // carefully authored world offset and downward pitch.
+        if (!GuardFlashlight)
+        {
+            float BestDistanceSquared = TNumericLimits<float>::Max();
+            for (TActorIterator<ASpotLight> It(GetWorld()); It; ++It)
+            {
+                ASpotLight* Candidate = *It;
+                if (!Candidate || SecurityCameras.Contains(Candidate))
+                {
+                    continue;
+                }
+                const float DistanceSquared = FVector::DistSquared(
+                    Candidate->GetActorLocation(), Guard->GetActorLocation());
+                if (DistanceSquared < BestDistanceSquared)
+                {
+                    BestDistanceSquared = DistanceSquared;
+                    GuardFlashlight = Candidate;
+                }
+            }
+        }
+        if (GuardFlashlight)
+        {
+            if (USpotLightComponent* Light = Cast<USpotLightComponent>(GuardFlashlight->GetLightComponent()))
+            {
+                Light->SetMobility(EComponentMobility::Movable);
+                Light->SetVisibility(true);
+                Light->SetAttenuationRadius(GuardVisionRange);
+                Light->SetInnerConeAngle(GuardVisionAngle * 0.20f);
+                Light->SetOuterConeAngle(GuardVisionAngle * 0.50f);
+                Light->SetCastShadows(true);
+            }
+            GuardFlashlight->AttachToActor(Guard, FAttachmentTransformRules::KeepWorldTransform);
+        }
+
         TArray<USpotLightComponent*> Lights;
         Guard->GetComponents(Lights);
         for (USpotLightComponent* Light : Lights)
