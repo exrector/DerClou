@@ -35,6 +35,12 @@ ADerClueRuntimeDirector::ADerClueRuntimeDirector()
 {
     PrimaryActorTick.bCanEverTick = true;
     PrimaryActorTick.TickInterval = 1.0f / 30.0f;
+
+    // Default to the authored panel as a soft reference: it costs no load at
+    // construction, keeps the actor working without per-level wiring, and stays
+    // overridable per instance in the level.
+    PlanningWidgetClass = TSoftClassPtr<UDerCluePlanningWidget>(
+        FSoftObjectPath(TEXT("/Game/DerClue/UI/WBP_PlanningPanel.WBP_PlanningPanel_C")));
 }
 
 void ADerClueRuntimeDirector::BeginPlay()
@@ -692,8 +698,15 @@ void ADerClueRuntimeDirector::CreatePlanningWidget()
     {
         return;
     }
-    PlanningWidget = CreateWidget<UDerCluePlanningWidget>(PlayerController,
-        UDerCluePlanningWidget::StaticClass());
+    // Resolve the authored panel; without it there is nothing to bind against.
+    UClass* WidgetClass = PlanningWidgetClass.LoadSynchronous();
+    if (!WidgetClass)
+    {
+        UE_LOG(LogTemp, Warning,
+            TEXT("DerClue: PlanningWidgetClass is unset, planning panel skipped."));
+        return;
+    }
+    PlanningWidget = CreateWidget<UDerCluePlanningWidget>(PlayerController, WidgetClass);
     if (PlanningWidget)
     {
         PlanningWidget->SetDirector(this);

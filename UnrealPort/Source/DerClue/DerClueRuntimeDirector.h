@@ -173,6 +173,12 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Planning")
     float RecordedPointAcceptanceRadius = 75.0f;
 
+    // The panel is a Widget Blueprint so its layout is authored as an asset.
+    // Creating the C++ class directly would leave every BindWidget null, so the
+    // class to instantiate is a property rather than a hardcoded StaticClass.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Planning")
+    TSoftClassPtr<UDerCluePlanningWidget> PlanningWidgetClass;
+
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Mission")
     float BaseReturnRadius = 140.0f;
 

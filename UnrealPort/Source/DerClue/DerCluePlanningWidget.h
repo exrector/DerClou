@@ -24,16 +24,20 @@ private:
     UPROPERTY()
     TObjectPtr<ADerClueRuntimeDirector> Director;
 
-    UPROPERTY()
+    // Bound to widgets of the same name in the Widget Blueprint, so layout is
+    // authored as an asset instead of being rebuilt in C++ on every construct.
+    // A missing or mistyped binding fails the blueprint compile rather than
+    // silently producing an empty panel at runtime.
+    UPROPERTY(meta=(BindWidget))
     TObjectPtr<UButton> RecordButton;
 
-    UPROPERTY()
+    UPROPERTY(meta=(BindWidget))
     TObjectPtr<UButton> PlayButton;
 
-    UPROPERTY()
+    UPROPERTY(meta=(BindWidget))
     TObjectPtr<UTextBlock> RecordText;
 
-    UPROPERTY()
+    UPROPERTY(meta=(BindWidget))
     TObjectPtr<UTextBlock> StatusText;
 
     UFUNCTION()
