@@ -523,57 +523,25 @@ void ADerClueRuntimeDirector::HandleGuardPerception(AActor* Actor, FAIStimulus S
 
 void ADerClueRuntimeDirector::CreatePrototypeTestObjects()
 {
-    UStaticMesh* CubeMesh = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cube.Cube"));
-    if (!CubeMesh || !GetWorld())
+    // These two props used to be spawned here from an engine cube, which meant
+    // the level shown in the editor was not the level that ran. They are now
+    // placed actors, found by tag like every other authored object, so their
+    // position, scale and collision are edited in the viewport instead of in
+    // code. Placed level geometry is authoritative; nothing here rewrites it.
+    TArray<AActor*> Found;
+    UGameplayStatics::GetAllActorsWithTag(this, TEXT("DerClue.NoiseDevice"), Found);
+    NoiseDevice = Found.IsEmpty() ? nullptr : Cast<AStaticMeshActor>(Found[0]);
+    if (!NoiseDevice)
     {
-        return;
+        UE_LOG(LogTemp, Warning,
+            TEXT("DerClue: no actor tagged DerClue.NoiseDevice; the N key test has no source."));
     }
 
-    FVector Centre = FVector::ZeroVector;
-    for (AActor* Node : PatrolNodes)
-    {
-        Centre += Node ? Node->GetActorLocation() : FVector::ZeroVector;
-    }
-    if (!PatrolNodes.IsEmpty())
-    {
-        Centre /= static_cast<float>(PatrolNodes.Num());
-    }
-    Centre.Z = 18.0f;
-    NoiseDevice = GetWorld()->SpawnActor<AStaticMeshActor>(Centre + FVector(0.0f, -180.0f, 0.0f), FRotator::ZeroRotator);
-    if (NoiseDevice)
-    {
-        NoiseDevice->SetActorScale3D(FVector(0.34f, 0.24f, 0.18f));
-        NoiseDevice->GetStaticMeshComponent()->SetStaticMesh(CubeMesh);
-        NoiseDevice->GetStaticMeshComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-        NoiseDevice->GetStaticMeshComponent()->SetCanEverAffectNavigation(false);
-        NoiseDevice->Tags.AddUnique(TEXT("DerClue.NoiseDevice"));
-    }
-
-    if (!SecurityCameras.IsEmpty())
-    {
-        AActor* Camera = SecurityCameras[0];
-        FVector Forward = Camera->GetActorForwardVector();
-        Forward.Z = 0.0f;
-        Forward.Normalize();
-        FVector BoxLocation = Camera->GetActorLocation() + Forward * 650.0f;
-        BoxLocation.Z = 50.0f;
-        CameraOcclusionBox = GetWorld()->SpawnActor<AStaticMeshActor>(BoxLocation, FRotator::ZeroRotator);
-        if (CameraOcclusionBox)
-        {
-            CameraOcclusionBox->SetActorScale3D(FVector(0.65f));
-            UStaticMeshComponent* Mesh = CameraOcclusionBox->GetStaticMeshComponent();
-            Mesh->SetStaticMesh(CubeMesh);
-            Mesh->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
-            Mesh->SetCollisionResponseToChannel(ECC_Visibility, ECR_Block);
-            Mesh->SetCollisionResponseToChannel(ECC_Pawn, ECR_Block);
-            Mesh->SetCanEverAffectNavigation(true);
-            CameraOcclusionBox->Tags.AddUnique(TEXT("DerClue.CameraOcclusionTest"));
-        }
-
-        // Placed level geometry is authoritative. Vision tests may trace against
-        // furniture, but must never hide, disable, move, or otherwise rewrite it.
-    }
+    Found.Reset();
+    UGameplayStatics::GetAllActorsWithTag(this, TEXT("DerClue.CameraOcclusionTest"), Found);
+    CameraOcclusionBox = Found.IsEmpty() ? nullptr : Cast<AStaticMeshActor>(Found[0]);
 }
+
 
 void ADerClueRuntimeDirector::UpdateNoiseDevice()
 {
