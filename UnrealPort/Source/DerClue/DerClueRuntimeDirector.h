@@ -10,7 +10,6 @@ class ACharacter;
 class UDerClueSmartObjectComponent;
 class USpotLightComponent;
 class UPointLightComponent;
-class UNavModifierComponent;
 class AStaticMeshActor;
 class ACameraActor;
 
@@ -78,12 +77,6 @@ public:
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Patrol")
     float RepathCooldown = 0.35f;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Avoidance")
-    float StationaryObstacleActivationDelay = 0.25f;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Avoidance")
-    float StationaryObstacleInfluenceRadius = 700.0f;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Camera")
     float CameraSweepHalfAngle = 42.0f;
@@ -171,9 +164,6 @@ private:
     TArray<TObjectPtr<UPointLightComponent>> AlarmLights;
 
     UPROPERTY()
-    TObjectPtr<UNavModifierComponent> ThiefNavObstacle;
-
-    UPROPERTY()
     TObjectPtr<AStaticMeshActor> NoiseDevice;
 
     UPROPERTY()
@@ -191,8 +181,6 @@ private:
     float NextMoveRequestTime = 0.0f;
     float LastDetectionTime = -1000.0f;
     float NextInvestigationUpdateTime = 0.0f;
-    float ThiefStationarySince = -1.0f;
-    bool bThiefNavObstacleEnabled = false;
     float NextNoiseDeviceTime = 0.0f;
     bool bThiefInsideNoiseRadius = false;
 
@@ -210,7 +198,6 @@ private:
     void UpdateCameras(float DeltaSeconds);
     void UpdateVision();
     void UpdateAlarmPresentation();
-    void UpdateDynamicActorAvoidance();
     void UpdateTechnicalOverlay();
     void UpdateMissionState();
     void DrawVisionFootprint(const AActor* Source, float Range, float FullAngleDegrees, const FColor& Color) const;

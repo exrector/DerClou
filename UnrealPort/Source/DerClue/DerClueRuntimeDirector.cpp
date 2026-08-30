@@ -9,8 +9,6 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Kismet/GameplayStatics.h"
 #include "NavigationSystem.h"
-#include "NavModifierComponent.h"
-#include "NavAreas/NavArea_Obstacle.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/SpotLightComponent.h"
 #include "Components/PointLightComponent.h"
@@ -42,13 +40,6 @@ void ADerClueRuntimeDirector::BeginPlay()
     ConfigureWorldAndSmartObjects();
     CreatePrototypeTestObjects();
     ConfigureDioramaCamera();
-    if (Thief)
-    {
-        ThiefNavObstacle = NewObject<UNavModifierComponent>(Thief, TEXT("DerClueStationaryObstacle"));
-        ThiefNavObstacle->SetAreaClass(UNavArea_Obstacle::StaticClass());
-        ThiefNavObstacle->SetCanEverAffectNavigation(false);
-        ThiefNavObstacle->RegisterComponent();
-    }
     ReturnToNearestPatrolNode();
 }
 
@@ -71,7 +62,6 @@ void ADerClueRuntimeDirector::Tick(float DeltaSeconds)
     UpdateAlarmPresentation();
     UpdateSmartObjects();
     UpdateNoiseDevice();
-    UpdateDynamicActorAvoidance();
     UpdatePatrol();
     UpdateMissionState();
     UpdateTechnicalOverlay();
@@ -543,16 +533,6 @@ void ADerClueRuntimeDirector::RefreshPlayableThief()
     }
     Thief = PlayerCharacter;
     ConfigureCharacter(Thief);
-    if (ThiefNavObstacle)
-    {
-        ThiefNavObstacle->DestroyComponent();
-    }
-    ThiefNavObstacle = NewObject<UNavModifierComponent>(Thief, TEXT("DerClueStationaryObstacle"));
-    ThiefNavObstacle->SetAreaClass(UNavArea_Obstacle::StaticClass());
-    ThiefNavObstacle->SetCanEverAffectNavigation(false);
-    ThiefNavObstacle->RegisterComponent();
-    ThiefStationarySince = -1.0f;
-    bThiefNavObstacleEnabled = false;
 }
 
 void ADerClueRuntimeDirector::ConfigureWorldAndSmartObjects()
@@ -566,6 +546,17 @@ void ADerClueRuntimeDirector::ConfigureWorldAndSmartObjects()
         }
         if (UPrimitiveComponent* Primitive = Actor->GetStaticMeshComponent())
         {
+            const bool bVisualOnly = Actor->ActorHasTag(CameraVisualTag) ||
+                Actor->ActorHasTag(SecurityCameraTag) ||
+                Actor->ActorHasTag(AlarmLightTag) ||
+                Actor->ActorHasTag(TEXT("DerClue.ExitLight")) ||
+                Actor->ActorHasTag(TEXT("ArcSegment"));
+            if (bVisualOnly)
+            {
+                Primitive->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+                Primitive->SetCanEverAffectNavigation(false);
+                continue;
+            }
             Primitive->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
             Primitive->SetCollisionResponseToChannel(ECC_Pawn, ECR_Block);
             Primitive->SetCollisionResponseToChannel(ECC_Visibility, ECR_Block);
@@ -640,6 +631,7 @@ void ADerClueRuntimeDirector::ConfigureCharacter(ACharacter* Character) const
     }
     if (UCapsuleComponent* Capsule = Character->GetCapsuleComponent())
     {
+        Capsule->SetCapsuleRadius(32.0f, true);
         Capsule->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
         Capsule->SetCollisionResponseToChannel(ECC_Pawn, ECR_Block);
         Capsule->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Block);
@@ -656,44 +648,11 @@ void ADerClueRuntimeDirector::ConfigureCharacter(ACharacter* Character) const
         }
         Movement->bOrientRotationToMovement = true;
         Movement->RotationRate = FRotator(0.0f, 300.0f, 0.0f);
-        Movement->bUseRVOAvoidance = true;
-        Movement->AvoidanceConsiderationRadius = 220.0f;
-    }
-}
-
-void ADerClueRuntimeDirector::UpdateDynamicActorAvoidance()
-{
-    if (!Guard || !Thief || !ThiefNavObstacle)
-    {
-        return;
-    }
-    const float Now = GetWorld()->GetTimeSeconds();
-    const float Speed = Thief->GetVelocity().Size2D();
-    const float GuardDistance = FVector::Dist2D(Guard->GetActorLocation(), Thief->GetActorLocation());
-    const bool bInsideInfluence = GuardDistance <= StationaryObstacleInfluenceRadius;
-
-    if (Speed <= 5.0f && bInsideInfluence)
-    {
-        if (ThiefStationarySince < 0.0f)
-        {
-            ThiefStationarySince = Now;
-        }
-        if (!bThiefNavObstacleEnabled && Now - ThiefStationarySince >= StationaryObstacleActivationDelay)
-        {
-            bThiefNavObstacleEnabled = true;
-            ThiefNavObstacle->SetCanEverAffectNavigation(true);
-            NextMoveRequestTime = 0.0f;
-        }
-    }
-    else
-    {
-        ThiefStationarySince = -1.0f;
-        if (bThiefNavObstacleEnabled && (Speed >= 20.0f || GuardDistance > StationaryObstacleInfluenceRadius + 180.0f))
-        {
-            bThiefNavObstacleEnabled = false;
-            ThiefNavObstacle->SetCanEverAffectNavigation(false);
-            NextMoveRequestTime = 0.0f;
-        }
+        // The player must follow the clicked path exactly. RVO is reserved for
+        // the autonomous guard; enabling it on both actors makes the thief
+        // oscillate or stop when avoidance velocities compete with click-to-move.
+        Movement->bUseRVOAvoidance = Character == Guard;
+        Movement->AvoidanceConsiderationRadius = 180.0f;
     }
 }
 
