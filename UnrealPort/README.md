@@ -6,7 +6,7 @@ This folder contains the current Unreal Engine implementation of the project.
 
 1. Use Unreal Engine 5.8 or a compatible newer release.
 2. Open `DerClue.uproject`.
-3. Load `/Game/DerClue/Maps/Lvl_GrantDemo` if it is not already open.
+3. Load the test map `/Game/DerClue/Maps/Lvl_GrantDemo` if it is not already open.
 4. Press Play. The Top Down template provides click-to-move input; the `DerClue`
    runtime module owns patrol, navigation, perception, alarm and interactions.
 
@@ -37,7 +37,7 @@ movement and perception layer is being tested.
 - hinged door, security panel, safe and alarm-state smart objects;
 - `Normal -> Warning -> Alarm` recovery and alarm-light presentation.
 
-The project startup map is already set to the grant demonstration level.
+The project startup map is already set to the test level.
 
 ## Repository scope
 
