@@ -12,7 +12,7 @@
 		{
 			"Name": "DerClueEditor",
 			"Type": "Editor",
-			"LoadingPhase": "Default"
+			"LoadingPhase": "PostEngineInit"
 		}
 	],
 	"Plugins": [
