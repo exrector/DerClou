@@ -11,6 +11,8 @@ class UDerClueSmartObjectComponent;
 class USpotLightComponent;
 class UPointLightComponent;
 class UNavModifierComponent;
+class AStaticMeshActor;
+class ACameraActor;
 
 UENUM(BlueprintType)
 enum class EDerClueSecurityState : uint8
@@ -110,6 +112,24 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Debug")
     bool bShowPatrolRoute = true;
 
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Prototype")
+    bool bKeepPrototypeDoorsOpen = true;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Prototype")
+    float NoiseDeviceTriggerRadius = 150.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Prototype")
+    float NoiseDeviceCooldown = 10.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Camera")
+    bool bUseFixedDioramaCamera = true;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Camera")
+    float FixedDioramaCameraHeight = 2200.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Camera")
+    float FixedDioramaCameraDistance = 1900.0f;
+
     UFUNCTION(BlueprintCallable, Category="DerClue|Patrol")
     void InvestigateLocation(FVector WorldLocation);
 
@@ -150,6 +170,15 @@ private:
     UPROPERTY()
     TObjectPtr<UNavModifierComponent> ThiefNavObstacle;
 
+    UPROPERTY()
+    TObjectPtr<AStaticMeshActor> NoiseDevice;
+
+    UPROPERTY()
+    TObjectPtr<AStaticMeshActor> CameraOcclusionBox;
+
+    UPROPERTY()
+    TObjectPtr<ACameraActor> DioramaCamera;
+
     TMap<TWeakObjectPtr<AActor>, FRotator> CameraBaseRotations;
     TArray<TObjectPtr<UDerClueSmartObjectComponent>> SmartObjects;
     int32 CurrentPatrolIndex = 0;
@@ -161,11 +190,17 @@ private:
     float NextInvestigationUpdateTime = 0.0f;
     float ThiefStationarySince = -1.0f;
     bool bThiefNavObstacleEnabled = false;
+    float NextNoiseDeviceTime = 0.0f;
+    bool bThiefInsideNoiseRadius = false;
 
     void DiscoverLevelActors();
     void ConfigureCharacter(ACharacter* Character) const;
     void ConfigureVisionLights();
     void ConfigureWorldAndSmartObjects();
+    void ConfigurePrototypePresentation();
+    void CreatePrototypeTestObjects();
+    void UpdateNoiseDevice();
+    void ConfigureDioramaCamera();
     void UpdatePatrol();
     void UpdateCameras(float DeltaSeconds);
     void UpdateVision();

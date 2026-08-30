@@ -147,5 +147,14 @@ void UDerClueSmartObjectComponent::ApplyDoorState()
         const FVector RotatedAxis = FQuat(FVector::UpVector, FMath::DegreesToRadians(AppliedYaw)).RotateVector(DoorClosedAxis);
         const FVector NewLocation = HingeLocation + RotatedAxis * DoorHalfLength;
         GetOwner()->SetActorLocationAndRotation(NewLocation, Rotation);
+        TArray<UPrimitiveComponent*> Primitives;
+        GetOwner()->GetComponents(Primitives);
+        const bool bPassable = DoorOpenAlpha >= 0.75f;
+        for (UPrimitiveComponent* Primitive : Primitives)
+        {
+            Primitive->SetCollisionResponseToChannel(ECC_Pawn, bPassable ? ECR_Ignore : ECR_Block);
+            Primitive->SetCollisionResponseToChannel(ECC_Visibility, bPassable ? ECR_Ignore : ECR_Block);
+            Primitive->SetCanEverAffectNavigation(!bPassable);
+        }
     }
 }

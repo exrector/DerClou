@@ -18,7 +18,13 @@ Sequencer is not gameplay authority.
 - left click: move the thief through Unreal NavMesh;
 - `T`: toggle the technical layer (occlusion-clipped vision footprints, current
   navigation path and security state);
+- `N`: emit a test noise from the prototype alarm clock and send the guard to
+  investigate it;
 - the cyan line is the authored guard patrol loop.
+
+The prototype uses a fixed perspective diorama camera: the whole level stays
+in view instead of following the thief. Doors are kept open while the basic
+movement and perception layer is being tested.
 
 ## Runtime foundation
 

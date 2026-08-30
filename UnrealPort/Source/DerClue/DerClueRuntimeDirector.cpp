@@ -19,6 +19,10 @@
 #include "DrawDebugHelpers.h"
 #include "InputCoreTypes.h"
 #include "Navigation/PathFollowingComponent.h"
+#include "Engine/StaticMesh.h"
+#include "Materials/MaterialInterface.h"
+#include "Camera/CameraActor.h"
+#include "Camera/CameraComponent.h"
 
 ADerClueRuntimeDirector::ADerClueRuntimeDirector()
 {
@@ -32,8 +36,11 @@ void ADerClueRuntimeDirector::BeginPlay()
     DiscoverLevelActors();
     ConfigureCharacter(Guard);
     ConfigureCharacter(Thief);
+    ConfigurePrototypePresentation();
     ConfigureVisionLights();
     ConfigureWorldAndSmartObjects();
+    CreatePrototypeTestObjects();
+    ConfigureDioramaCamera();
     if (Thief)
     {
         ThiefNavObstacle = NewObject<UNavModifierComponent>(Thief, TEXT("DerClueStationaryObstacle"));
@@ -51,6 +58,7 @@ void ADerClueRuntimeDirector::Tick(float DeltaSeconds)
     UpdateVision();
     UpdateAlarmPresentation();
     UpdateSmartObjects();
+    UpdateNoiseDevice();
     UpdateDynamicActorAvoidance();
     UpdatePatrol();
     UpdateMissionState();
@@ -179,7 +187,16 @@ void ADerClueRuntimeDirector::DiscoverLevelActors()
     Guard = Found.Num() > 0 ? Cast<ACharacter>(Found[0]) : nullptr;
     Found.Reset();
     UGameplayStatics::GetAllActorsWithTag(this, ThiefTag, Found);
-    Thief = Found.Num() > 0 ? Cast<ACharacter>(Found[0]) : nullptr;
+    ACharacter* TaggedThief = Found.Num() > 0 ? Cast<ACharacter>(Found[0]) : nullptr;
+    ACharacter* PlayerCharacter = UGameplayStatics::GetPlayerCharacter(this, 0);
+    Thief = PlayerCharacter && PlayerCharacter != Guard ? PlayerCharacter : TaggedThief;
+    if (TaggedThief && TaggedThief != Thief)
+    {
+        // The old cinematic thief duplicated the player and looked like a second idle guard.
+        TaggedThief->SetActorHiddenInGame(true);
+        TaggedThief->SetActorEnableCollision(false);
+        TaggedThief->SetActorTickEnabled(false);
+    }
     Found.Reset();
     UGameplayStatics::GetAllActorsWithTag(this, PatrolNodeTag, Found);
     Found.Sort([](const AActor& A, const AActor& B)
@@ -240,6 +257,178 @@ void ADerClueRuntimeDirector::DiscoverLevelActors()
                 GuardController->Possess(Guard);
             }
         }
+    }
+}
+
+void ADerClueRuntimeDirector::ConfigurePrototypePresentation()
+{
+    for (TActorIterator<AActor> It(GetWorld()); It; ++It)
+    {
+        AActor* Actor = *It;
+        if (!Actor)
+        {
+            continue;
+        }
+        if (Actor->ActorHasTag(TEXT("ArcSegment")))
+        {
+            Actor->SetActorHiddenInGame(true);
+            Actor->SetActorEnableCollision(false);
+            TArray<UPrimitiveComponent*> Primitives;
+            Actor->GetComponents(Primitives);
+            for (UPrimitiveComponent* Primitive : Primitives)
+            {
+                Primitive->SetCanEverAffectNavigation(false);
+            }
+        }
+    }
+
+    // These were editor guidance lights, not gameplay. Keep the scene neutral.
+    for (UPointLightComponent* Light : AlarmLights)
+    {
+        if (Light)
+        {
+            Light->SetVisibility(false);
+            Light->SetIntensity(0.0f);
+        }
+    }
+    TArray<AActor*> ExitLightActors;
+    UGameplayStatics::GetAllActorsWithTag(this, TEXT("DerClue.ExitLight"), ExitLightActors);
+    for (AActor* Actor : ExitLightActors)
+    {
+        if (UPointLightComponent* Light = Actor ? Actor->FindComponentByClass<UPointLightComponent>() : nullptr)
+        {
+            Light->SetVisibility(false);
+            Light->SetIntensity(0.0f);
+        }
+    }
+}
+
+void ADerClueRuntimeDirector::CreatePrototypeTestObjects()
+{
+    UStaticMesh* CubeMesh = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cube.Cube"));
+    if (!CubeMesh || !GetWorld())
+    {
+        return;
+    }
+
+    FVector Centre = FVector::ZeroVector;
+    for (AActor* Node : PatrolNodes)
+    {
+        Centre += Node ? Node->GetActorLocation() : FVector::ZeroVector;
+    }
+    if (!PatrolNodes.IsEmpty())
+    {
+        Centre /= static_cast<float>(PatrolNodes.Num());
+    }
+    Centre.Z = 18.0f;
+    NoiseDevice = GetWorld()->SpawnActor<AStaticMeshActor>(Centre + FVector(0.0f, -180.0f, 0.0f), FRotator::ZeroRotator);
+    if (NoiseDevice)
+    {
+        NoiseDevice->SetActorScale3D(FVector(0.34f, 0.24f, 0.18f));
+        NoiseDevice->GetStaticMeshComponent()->SetStaticMesh(CubeMesh);
+        NoiseDevice->GetStaticMeshComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+        NoiseDevice->GetStaticMeshComponent()->SetCanEverAffectNavigation(false);
+        NoiseDevice->Tags.AddUnique(TEXT("DerClue.NoiseDevice"));
+    }
+
+    if (!SecurityCameras.IsEmpty())
+    {
+        AActor* Camera = SecurityCameras[0];
+        FVector Forward = Camera->GetActorForwardVector();
+        Forward.Z = 0.0f;
+        Forward.Normalize();
+        FVector BoxLocation = Camera->GetActorLocation() + Forward * 650.0f;
+        BoxLocation.Z = 50.0f;
+        CameraOcclusionBox = GetWorld()->SpawnActor<AStaticMeshActor>(BoxLocation, FRotator::ZeroRotator);
+        if (CameraOcclusionBox)
+        {
+            CameraOcclusionBox->SetActorScale3D(FVector(0.65f));
+            UStaticMeshComponent* Mesh = CameraOcclusionBox->GetStaticMeshComponent();
+            Mesh->SetStaticMesh(CubeMesh);
+            Mesh->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+            Mesh->SetCollisionResponseToChannel(ECC_Visibility, ECR_Block);
+            Mesh->SetCollisionResponseToChannel(ECC_Pawn, ECR_Block);
+            Mesh->SetCanEverAffectNavigation(true);
+            CameraOcclusionBox->Tags.AddUnique(TEXT("DerClue.CameraOcclusionTest"));
+        }
+
+        for (TActorIterator<AStaticMeshActor> It(GetWorld()); It; ++It)
+        {
+            AStaticMeshActor* Furniture = *It;
+            if (!Furniture || Furniture == CameraOcclusionBox || !Furniture->ActorHasTag(TEXT("Furniture")))
+            {
+                continue;
+            }
+            const FVector ToFurniture = Furniture->GetActorLocation() - Camera->GetActorLocation();
+            const FVector ToFurniture2D(ToFurniture.X, ToFurniture.Y, 0.0f);
+            if (ToFurniture2D.SizeSquared() <= FMath::Square(CameraVisionRange) &&
+                FVector::DotProduct(Forward, ToFurniture2D.GetSafeNormal()) >=
+                    FMath::Cos(FMath::DegreesToRadians(CameraVisionAngle * 0.5f)))
+            {
+                Furniture->SetActorHiddenInGame(true);
+                Furniture->SetActorEnableCollision(false);
+                Furniture->GetStaticMeshComponent()->SetCanEverAffectNavigation(false);
+            }
+        }
+    }
+}
+
+void ADerClueRuntimeDirector::UpdateNoiseDevice()
+{
+    if (!NoiseDevice || !Thief || !Guard)
+    {
+        return;
+    }
+    const float Now = GetWorld()->GetTimeSeconds();
+    const bool bInside = FVector::Dist2D(Thief->GetActorLocation(), NoiseDevice->GetActorLocation()) <= NoiseDeviceTriggerRadius;
+    const APlayerController* PlayerController = GetWorld()->GetFirstPlayerController();
+    const bool bManualTrigger = PlayerController && PlayerController->WasInputKeyJustPressed(EKeys::N);
+    if ((bManualTrigger || (bInside && !bThiefInsideNoiseRadius)) && Now >= NextNoiseDeviceTime)
+    {
+        SecurityState = EDerClueSecurityState::Warning;
+        LastDetectionTime = Now;
+        InvestigateLocation(NoiseDevice->GetActorLocation());
+        NextNoiseDeviceTime = Now + NoiseDeviceCooldown;
+        if (GEngine)
+        {
+            GEngine->AddOnScreenDebugMessage(7712, 2.0f, FColor::Yellow,
+                TEXT("NOISE: guard investigates the alarm clock"));
+        }
+    }
+    bThiefInsideNoiseRadius = bInside;
+}
+
+void ADerClueRuntimeDirector::ConfigureDioramaCamera()
+{
+    if (!bUseFixedDioramaCamera || !GetWorld() || PatrolNodes.IsEmpty())
+    {
+        return;
+    }
+    APlayerController* PlayerController = GetWorld()->GetFirstPlayerController();
+    if (!PlayerController)
+    {
+        return;
+    }
+    FVector Centre = FVector::ZeroVector;
+    for (AActor* Node : PatrolNodes)
+    {
+        Centre += Node ? Node->GetActorLocation() : FVector::ZeroVector;
+    }
+    Centre /= static_cast<float>(PatrolNodes.Num());
+    const FVector CameraLocation = Centre + FVector(-FixedDioramaCameraDistance,
+        -FixedDioramaCameraDistance, FixedDioramaCameraHeight);
+    DioramaCamera = GetWorld()->SpawnActor<ACameraActor>(CameraLocation,
+        FRotationMatrix::MakeFromX(Centre - CameraLocation).Rotator());
+    if (DioramaCamera)
+    {
+        if (UCameraComponent* CameraComponent = DioramaCamera->GetCameraComponent())
+        {
+            CameraComponent->ProjectionMode = ECameraProjectionMode::Perspective;
+            CameraComponent->FieldOfView = 48.0f;
+            CameraComponent->bConstrainAspectRatio = false;
+        }
+        PlayerController->SetViewTargetWithBlend(DioramaCamera, 0.15f,
+            VTBlend_Cubic, 0.0f, true);
     }
 }
 
@@ -309,6 +498,11 @@ void ADerClueRuntimeDirector::ConfigureWorldAndSmartObjects()
             Component->Kind = Kind;
             Component->StableId = Actor->GetFName();
             Component->bLocked = Kind == EDerClueSmartObjectKind::Safe;
+            if (Kind == EDerClueSmartObjectKind::Door && bKeepPrototypeDoorsOpen)
+            {
+                Component->bLocked = false;
+                Component->bOpen = true;
+            }
             Component->RegisterComponent();
             SmartObjects.Add(Component);
         }
@@ -495,7 +689,11 @@ void ADerClueRuntimeDirector::UpdateSmartObjects()
         const float ThiefDistance = Thief ? FVector::Dist2D(Thief->GetActorLocation(), ObjectLocation) : TNumericLimits<float>::Max();
         const float Nearest = FMath::Min(GuardDistance, ThiefDistance);
 
-        if (SmartObject->Kind == EDerClueSmartObjectKind::Door && Nearest <= SmartObject->InteractionRadius)
+        if (SmartObject->Kind == EDerClueSmartObjectKind::Door && bKeepPrototypeDoorsOpen)
+        {
+            SmartObject->SetOpen(true);
+        }
+        else if (SmartObject->Kind == EDerClueSmartObjectKind::Door && Nearest <= SmartObject->InteractionRadius)
         {
             SmartObject->SetOpen(true);
         }
@@ -710,16 +908,14 @@ void ADerClueRuntimeDirector::UpdateVision()
 
 void ADerClueRuntimeDirector::UpdateAlarmPresentation()
 {
-    const bool bAlarmActive = SecurityState == EDerClueSecurityState::Alarm ||
-                              SecurityState == EDerClueSecurityState::Lockdown;
-    const float Pulse = 0.5f + 0.5f * FMath::Sin(GetWorld()->GetTimeSeconds() * 9.0f);
     for (UPointLightComponent* Light : AlarmLights)
     {
         if (!Light)
         {
             continue;
         }
-        Light->SetIntensity(bAlarmActive ? FMath::Lerp(900.0f, 3200.0f, Pulse) : 120.0f);
+        Light->SetVisibility(false);
+        Light->SetIntensity(0.0f);
     }
 }
 
