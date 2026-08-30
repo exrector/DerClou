@@ -25,8 +25,11 @@
 #include "Camera/CameraActor.h"
 #include "Camera/CameraComponent.h"
 #include "Perception/AIPerceptionComponent.h"
+#include "Perception/AIPerceptionSystem.h"
 #include "Perception/AISenseConfig_Hearing.h"
+#include "Perception/AISenseConfig_Sight.h"
 #include "Perception/AISense_Hearing.h"
+#include "Perception/AISense_Sight.h"
 
 ADerClueRuntimeDirector::ADerClueRuntimeDirector()
 {
@@ -43,7 +46,7 @@ void ADerClueRuntimeDirector::BeginPlay()
     EnsureCoreActors();
     ConfigureCharacter(Guard);
     ConfigureCharacter(Thief);
-    ConfigureGuardHearing();
+    ConfigureGuardPerception();
     ConfigureWorldAndSmartObjects();
     CacheAuthoredLevelBounds();
     PositionPatrolNodesAcrossLevel();
@@ -416,7 +419,7 @@ void ADerClueRuntimeDirector::DiscoverLevelActors()
     }
 }
 
-void ADerClueRuntimeDirector::ConfigureGuardHearing()
+void ADerClueRuntimeDirector::ConfigureGuardPerception()
 {
     if (!GuardController)
     {
@@ -436,7 +439,28 @@ void ADerClueRuntimeDirector::ConfigureGuardHearing()
     GuardHearingConfig->DetectionByAffiliation.bDetectFriendlies = true;
     GuardHearingConfig->DetectionByAffiliation.bDetectNeutrals = true;
     GuardPerception->ConfigureSense(*GuardHearingConfig);
-    GuardPerception->SetDominantSense(UAISense_Hearing::StaticClass());
+
+    // Sight runs through the same perception component as hearing instead of a
+    // parallel cone test, so gaining and losing the thief arrives as a stimulus
+    // with engine-side line of sight, peripheral angle and target memory.
+    GuardSightConfig = NewObject<UAISenseConfig_Sight>(GuardPerception,
+        TEXT("DerClueGuardSight"));
+    GuardSightConfig->SightRadius = GuardVisionRange;
+    // A small hysteresis band: losing sight must not flicker on the exact edge
+    // of the acquisition radius.
+    GuardSightConfig->LoseSightRadius = GuardVisionRange * 1.1f;
+    // The engine expects the half angle measured from forward, while
+    // GuardVisionAngle is authored as the full cone width.
+    GuardSightConfig->PeripheralVisionAngleDegrees = GuardVisionAngle * 0.5f;
+    GuardSightConfig->DetectionByAffiliation.bDetectEnemies = true;
+    GuardSightConfig->DetectionByAffiliation.bDetectFriendlies = true;
+    GuardSightConfig->DetectionByAffiliation.bDetectNeutrals = true;
+    // Nothing here assigns teams, so every actor is neutral and the affiliation
+    // flags above are what make the thief visible at all.
+    GuardSightConfig->SetMaxAge(0.0f);
+    GuardPerception->ConfigureSense(*GuardSightConfig);
+
+    GuardPerception->SetDominantSense(UAISense_Sight::StaticClass());
     GuardPerception->OnTargetPerceptionUpdated.RemoveDynamic(
         this, &ADerClueRuntimeDirector::HandleGuardPerception);
     GuardPerception->OnTargetPerceptionUpdated.AddDynamic(
@@ -454,6 +478,26 @@ void ADerClueRuntimeDirector::ConfigureGuardHearing()
 
 void ADerClueRuntimeDirector::HandleGuardPerception(AActor* Actor, FAIStimulus Stimulus)
 {
+    const TSubclassOf<UAISense> SenseClass =
+        UAIPerceptionSystem::GetSenseClassForStimulus(this, Stimulus);
+
+    // Sight: the engine decides gain and loss, including line of sight and the
+    // peripheral angle. Only the thief drives pursuit; other actors are noise.
+    if (SenseClass == UAISense_Sight::StaticClass())
+    {
+        if (Actor && Actor == Thief)
+        {
+            bGuardHasVisualOnThief = Stimulus.WasSuccessfullySensed();
+            if (bGuardHasVisualOnThief)
+            {
+                // The stimulus carries where the thief was actually seen, which
+                // is what the guard is allowed to know after contact is lost.
+                InvestigationLocation = Stimulus.StimulusLocation;
+            }
+        }
+        return;
+    }
+
     if (!Stimulus.WasSuccessfullySensed() || Stimulus.Tag != TEXT("DoorNoise") ||
         bConfirmedIntrusion)
     {
@@ -1477,7 +1521,9 @@ void ADerClueRuntimeDirector::UpdateVision()
     {
         return;
     }
-    const bool bGuardSeesThief = Guard && CanSeeTarget(Guard, Thief, GuardVisionRange, GuardVisionAngle);
+    // Guard sight is whatever AIPerception last reported; cameras stay on the
+    // explicit cone test below because they are props, not perceiving pawns.
+    const bool bGuardSeesThief = Guard && bGuardHasVisualOnThief;
     bool bCameraSeesThief = false;
     if (bCamerasPowered)
     {

@@ -16,6 +16,7 @@ class ACameraActor;
 class ASpotLight;
 class UAIPerceptionComponent;
 class UAISenseConfig_Hearing;
+class UAISenseConfig_Sight;
 class UDerCluePlanningWidget;
 
 UENUM(BlueprintType)
@@ -255,6 +256,9 @@ private:
     TObjectPtr<UAISenseConfig_Hearing> GuardHearingConfig;
 
     UPROPERTY()
+    TObjectPtr<UAISenseConfig_Sight> GuardSightConfig;
+
+    UPROPERTY()
     TObjectPtr<UDerCluePlanningWidget> PlanningWidget;
 
     TMap<TWeakObjectPtr<AActor>, FRotator> CameraBaseRotations;
@@ -265,6 +269,10 @@ private:
     EDerClueGuardActivity GuardActivity = EDerClueGuardActivity::Patrol;
     bool bCamerasPowered = true;
     bool bCameraHadContact = false;
+    // Driven by AIPerception sight stimuli rather than polled each tick, so
+    // gaining and losing the thief is decided by the same sense that reports
+    // noise instead of by a parallel hand-rolled cone test.
+    bool bGuardHasVisualOnThief = false;
     bool bConfirmedIntrusion = false;
     FVector InvestigationLocation = FVector::ZeroVector;
     float NextMoveRequestTime = 0.0f;
@@ -289,7 +297,7 @@ private:
 
     void DiscoverLevelActors();
     void ConfigureCharacter(ACharacter* Character) const;
-    void ConfigureGuardHearing();
+    void ConfigureGuardPerception();
     void CreatePlanningWidget();
     void CaptureMissionSnapshot();
     void RestoreMissionSnapshot();
