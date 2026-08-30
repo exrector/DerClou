@@ -101,7 +101,7 @@ public:
     float AlertMemorySeconds = 3.0f;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Debug")
-    bool bTechnicalOverlay = true;
+    bool bTechnicalOverlay = false;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Debug")
     bool bShowPatrolRoute = true;
@@ -192,7 +192,6 @@ private:
     void ConfigureCharacter(ACharacter* Character) const;
     void ConfigureVisionLights();
     void ConfigureWorldAndSmartObjects();
-    void ConfigurePrototypePresentation();
     void CreatePrototypeTestObjects();
     void UpdateNoiseDevice();
     void ConfigureDioramaCamera();
@@ -201,7 +200,6 @@ private:
     void UpdatePatrol();
     void UpdateCameras(float DeltaSeconds);
     void UpdateVision();
-    void UpdateAlarmPresentation();
     void UpdateTechnicalOverlay();
     void UpdateMissionState();
     void DrawVisionFootprint(const AActor* Source, float Range, float FullAngleDegrees, const FColor& Color) const;

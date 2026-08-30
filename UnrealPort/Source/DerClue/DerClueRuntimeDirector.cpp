@@ -31,11 +31,12 @@ ADerClueRuntimeDirector::ADerClueRuntimeDirector()
 void ADerClueRuntimeDirector::BeginPlay()
 {
     Super::BeginPlay();
+    // Every play session starts clean; T explicitly opts into diagnostics.
+    bTechnicalOverlay = false;
     DiscoverLevelActors();
     EnsureCoreActors();
     ConfigureCharacter(Guard);
     ConfigureCharacter(Thief);
-    ConfigurePrototypePresentation();
     ConfigureVisionLights();
     ConfigureWorldAndSmartObjects();
     CreatePrototypeTestObjects();
@@ -59,7 +60,6 @@ void ADerClueRuntimeDirector::Tick(float DeltaSeconds)
     }
     UpdateCameras(DeltaSeconds);
     UpdateVision();
-    UpdateAlarmPresentation();
     UpdateSmartObjects();
     UpdateNoiseDevice();
     UpdatePatrol();
@@ -157,25 +157,12 @@ void ADerClueRuntimeDirector::UpdateTechnicalOverlay()
             DrawVisionFootprint(Camera, CameraVisionRange, CameraVisionAngle, FColor::Red);
         }
     }
-    if (GuardController && GuardController->GetPathFollowingComponent())
-    {
-        const FNavPathSharedPtr Path = GuardController->GetPathFollowingComponent()->GetPath();
-        if (Path.IsValid())
-        {
-            const TArray<FNavPathPoint>& Points = Path->GetPathPoints();
-            for (int32 Index = 1; Index < Points.Num(); ++Index)
-            {
-                DrawDebugLine(GetWorld(), Points[Index - 1].Location + FVector(0, 0, 20),
-                    Points[Index].Location + FVector(0, 0, 20), FColor::Green, false, 0.0f, 0, 4.0f);
-            }
-        }
-    }
     if (GEngine)
     {
         const UEnum* SecurityEnum = StaticEnum<EDerClueSecurityState>();
         const UEnum* MissionEnum = StaticEnum<EDerClueMissionState>();
         GEngine->AddOnScreenDebugMessage(7711, 0.0f, FColor::White,
-            FString::Printf(TEXT("TECHNICAL [T]  Security: %s  Mission: %s  Loot: %s"),
+            FString::Printf(TEXT("TECHNICAL [T]  CYAN=PATROL  YELLOW=GUARD  RED=CAMERA  Security: %s  Mission: %s  Loot: %s"),
                 SecurityEnum ? *SecurityEnum->GetNameStringByValue(static_cast<int64>(SecurityState)) : TEXT("Unknown"),
                 MissionEnum ? *MissionEnum->GetNameStringByValue(static_cast<int64>(MissionState)) : TEXT("Unknown"),
                 bHasLoot ? TEXT("YES") : TEXT("NO")));
@@ -258,49 +245,6 @@ void ADerClueRuntimeDirector::DiscoverLevelActors()
             {
                 GuardController->Possess(Guard);
             }
-        }
-    }
-}
-
-void ADerClueRuntimeDirector::ConfigurePrototypePresentation()
-{
-    for (TActorIterator<AActor> It(GetWorld()); It; ++It)
-    {
-        AActor* Actor = *It;
-        if (!Actor)
-        {
-            continue;
-        }
-        if (Actor->ActorHasTag(TEXT("ArcSegment")))
-        {
-            Actor->SetActorHiddenInGame(true);
-            Actor->SetActorEnableCollision(false);
-            TArray<UPrimitiveComponent*> Primitives;
-            Actor->GetComponents(Primitives);
-            for (UPrimitiveComponent* Primitive : Primitives)
-            {
-                Primitive->SetCanEverAffectNavigation(false);
-            }
-        }
-    }
-
-    // These were editor guidance lights, not gameplay. Keep the scene neutral.
-    for (UPointLightComponent* Light : AlarmLights)
-    {
-        if (Light)
-        {
-            Light->SetVisibility(false);
-            Light->SetIntensity(0.0f);
-        }
-    }
-    TArray<AActor*> ExitLightActors;
-    UGameplayStatics::GetAllActorsWithTag(this, TEXT("DerClue.ExitLight"), ExitLightActors);
-    for (AActor* Actor : ExitLightActors)
-    {
-        if (UPointLightComponent* Light = Actor ? Actor->FindComponentByClass<UPointLightComponent>() : nullptr)
-        {
-            Light->SetVisibility(false);
-            Light->SetIntensity(0.0f);
         }
     }
 }
@@ -1005,19 +949,6 @@ void ADerClueRuntimeDirector::UpdateVision()
     {
         SecurityState = EDerClueSecurityState::Normal;
         ReturnToNearestPatrolNode();
-    }
-}
-
-void ADerClueRuntimeDirector::UpdateAlarmPresentation()
-{
-    for (UPointLightComponent* Light : AlarmLights)
-    {
-        if (!Light)
-        {
-            continue;
-        }
-        Light->SetVisibility(false);
-        Light->SetIntensity(0.0f);
     }
 }
 
