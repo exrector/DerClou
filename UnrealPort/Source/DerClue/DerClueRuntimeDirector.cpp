@@ -941,8 +941,22 @@ void ADerClueRuntimeDirector::ConfigureWorldAndSmartObjects()
     for (TActorIterator<AStaticMeshActor> It(GetWorld()); It; ++It)
     {
         AStaticMeshActor* Actor = *It;
-        if (!Actor || Actor->ActorHasTag(PatrolNodeTag))
+        if (!Actor)
         {
+            continue;
+        }
+        if (Actor->ActorHasTag(PatrolNodeTag))
+        {
+            // A patrol marker is annotation, not world geometry. Skipping it
+            // outright left whatever collision the level happened to carry:
+            // three of the four markers are full 1m cubes and were standing in
+            // the patrol room as solid obstacles that both blocked the pawn and
+            // punched holes in the navmesh.
+            if (UPrimitiveComponent* Marker = Actor->GetStaticMeshComponent())
+            {
+                Marker->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+                Marker->SetCanEverAffectNavigation(false);
+            }
             continue;
         }
         if (UPrimitiveComponent* Primitive = Actor->GetStaticMeshComponent())
