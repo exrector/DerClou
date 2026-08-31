@@ -127,6 +127,11 @@ void ADerClueRuntimeDirector::UpdateMissionState()
 void ADerClueRuntimeDirector::DrawVisionFootprint(const AActor* Source, float Range,
     float FullAngleDegrees, const FColor& Color) const
 {
+    // Compiled out of the shipped game entirely. This costs 24 line traces per
+    // source per frame -- for the guard plus every powered camera -- which is
+    // affordable while authoring on a desktop and is not something a phone
+    // should be spending its battery on.
+#if !UE_BUILD_SHIPPING
     if (!Source || !GetWorld())
     {
         return;
@@ -164,6 +169,7 @@ void ADerClueRuntimeDirector::DrawVisionFootprint(const AActor* Source, float Ra
         }
         PreviousEnd = DebugEnd;
     }
+#endif
 }
 
 void ADerClueRuntimeDirector::CacheAuthoredLevelBounds()
@@ -275,6 +281,9 @@ void ADerClueRuntimeDirector::UpdateTechnicalOverlay()
         }
     }
 
+    // The patrol overlay was drawing every frame regardless of the technical
+    // overlay toggle: a polyline plus a 12-segment sphere per node, forever.
+#if !UE_BUILD_SHIPPING
     if (bShowPatrolRoute && PatrolRoutePolyline.Num() > 1)
     {
         for (int32 Index = 1; Index < PatrolRoutePolyline.Num(); ++Index)
@@ -292,6 +301,7 @@ void ADerClueRuntimeDirector::UpdateTechnicalOverlay()
             }
         }
     }
+#endif
 
     if (!bTechnicalOverlay)
     {

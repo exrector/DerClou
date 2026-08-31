@@ -113,10 +113,13 @@ __pycache__/
 /UnrealPort/Content/ModSci_EngiProps/
 /UnrealPort/Content/ModSci_Engineer/
 /UnrealPort/Content/QuantumCharacter/
-/UnrealPort/Content/SciFiWarrior/
 /UnrealPort/Content/Survival_Character/
 /UnrealPort/Content/__ExternalActors__/QuantumCharacter/
 /UnrealPort/Content/__ExternalActors__/Survival_01/
 /UnrealPort/Content/__ExternalActors__/Survival_Character/
 /UnrealPort/Content/__ExternalObjects__/QuantumCharacter/
 /UnrealPort/Content/__ExternalObjects__/Survival_Character/
+
+# Character packs pulled from the launcher vault purely to be looked at and
+# bone-checked. Same rule as above: whichever character is actually chosen for
+# the game gets un-ignored so a clone still builds.
