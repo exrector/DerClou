@@ -23,6 +23,8 @@
 #include "Engine/StaticMesh.h"
 #include "Materials/MaterialInterface.h"
 #include "Camera/CameraActor.h"
+#include "Components/InputComponent.h"
+#include "Engine/Engine.h"
 #include "Camera/CameraComponent.h"
 #include "Perception/AIPerceptionComponent.h"
 #include "Perception/AIPerceptionSystem.h"
@@ -59,6 +61,7 @@ void ADerClueRuntimeDirector::BeginPlay()
     ConfigureVisionLights();
     CreatePrototypeTestObjects();
     ConfigureDioramaCamera();
+    ConfigureViewCameras();
     CaptureMissionSnapshot();
     CreatePlanningWidget();
     SimulationEpochSeconds = GetWorld()->GetTimeSeconds();
@@ -69,16 +72,7 @@ void ADerClueRuntimeDirector::Tick(float DeltaSeconds)
 {
     Super::Tick(DeltaSeconds);
     RefreshPlayableThief();
-    if (bUseFixedDioramaCamera && DioramaCamera)
-    {
-        if (APlayerController* PlayerController = GetWorld()->GetFirstPlayerController())
-        {
-            if (PlayerController->GetViewTarget() != DioramaCamera)
-            {
-                PlayerController->SetViewTarget(DioramaCamera);
-            }
-        }
-    }
+    UpdateViewCamera(DeltaSeconds);
     UpdateCameras(DeltaSeconds);
     UpdateVision();
     UpdateSmartObjects();
@@ -967,7 +961,12 @@ void ADerClueRuntimeDirector::ConfigureWorldAndSmartObjects()
             Primitive->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
             Primitive->SetCollisionResponseToChannel(ECC_Pawn, ECR_Block);
             Primitive->SetCollisionResponseToChannel(ECC_Visibility, ECR_Block);
-            Primitive->SetCanEverAffectNavigation(true);
+            // A door is deliberately left out of the navmesh: while it counted
+            // as navigation geometry, a shut door erased the doorway from the
+            // graph, so no route between rooms could be planned at all and the
+            // actor merely walked into the wall. Passability is owned by the
+            // door's own NavModifierComponent instead (locked doors only).
+            Primitive->SetCanEverAffectNavigation(!Actor->ActorHasTag(TEXT("DerClue.Door")));
         }
 
         EDerClueSmartObjectKind Kind;
@@ -1635,4 +1634,167 @@ bool ADerClueRuntimeDirector::Interact(ACharacter* Character, AActor* Target)
         return bResult;
     }
     return false;
+}
+
+
+void ADerClueRuntimeDirector::ConfigureViewCameras()
+{
+    if (!GetWorld())
+    {
+        return;
+    }
+
+    // Level-authored viewpoints join the cycle, so more angles can be added by
+    // dropping a CameraActor in the map and tagging it -- no code change.
+    ExtraViewCameras.Reset();
+    TArray<AActor*> Found;
+    UGameplayStatics::GetAllActorsWithTag(this, TEXT("DerClue.ViewCamera"), Found);
+    for (AActor* Actor : Found)
+    {
+        if (Actor && Actor != DioramaCamera)
+        {
+            ExtraViewCameras.Add(Actor);
+        }
+    }
+
+    if (!InspectionCamera)
+    {
+        InspectionCamera = GetWorld()->SpawnActor<ACameraActor>();
+        if (InspectionCamera)
+        {
+            if (UCameraComponent* Component = InspectionCamera->GetCameraComponent())
+            {
+                // Deliberately perspective: the diorama camera is orthographic,
+                // which flattens faces into unreadable silhouettes.
+                Component->ProjectionMode = ECameraProjectionMode::Perspective;
+                Component->SetFieldOfView(70.0f);
+            }
+        }
+    }
+
+    if (APlayerController* PlayerController = GetWorld()->GetFirstPlayerController())
+    {
+        EnableInput(PlayerController);
+        if (InputComponent)
+        {
+            InputComponent->BindKey(EKeys::C, IE_Pressed, this,
+                &ADerClueRuntimeDirector::CycleViewMode);
+        }
+    }
+    SetViewIndex(0);
+}
+
+void ADerClueRuntimeDirector::CycleViewMode()
+{
+    SetViewIndex(ViewIndex + 1);
+}
+
+void ADerClueRuntimeDirector::SetViewIndex(int32 NewIndex)
+{
+    const int32 BuiltInCount = 5;
+    const int32 Total = BuiltInCount + ExtraViewCameras.Num();
+    ViewIndex = ((NewIndex % Total) + Total) % Total;
+    if (ViewIndex < BuiltInCount)
+    {
+        ViewMode = static_cast<EDerClueViewMode>(ViewIndex);
+    }
+
+    FString Label;
+    if (ViewIndex >= BuiltInCount)
+    {
+        const AActor* Camera = ExtraViewCameras[ViewIndex - BuiltInCount];
+        Label = FString::Printf(TEXT("Level camera: %s"),
+            Camera ? *Camera->GetActorNameOrLabel() : TEXT("<none>"));
+    }
+    else
+    {
+        static const TCHAR* Names[] = { TEXT("Top-down diorama"),
+            TEXT("Over the thief's shoulder"), TEXT("Thief, front view"),
+            TEXT("Guard, front view"), TEXT("Pawn's own camera") };
+        Label = Names[ViewIndex];
+    }
+    if (GEngine)
+    {
+        GEngine->AddOnScreenDebugMessage(1701, 3.0f, FColor::Cyan,
+            FString::Printf(TEXT("[C] View %d/%d  -  %s"),
+                ViewIndex + 1, Total, *Label));
+    }
+}
+
+void ADerClueRuntimeDirector::AimInspectionCamera(const AActor* Subject, bool bFromFront)
+{
+    if (!InspectionCamera || !Subject)
+    {
+        return;
+    }
+    const FVector Base = Subject->GetActorLocation();
+    const FVector Forward = Subject->GetActorForwardVector();
+    const FVector Right = Subject->GetActorRightVector();
+
+    FVector Location;
+    FVector LookAt;
+    if (bFromFront)
+    {
+        Location = Base + Forward * FaceCameraDistance + FVector::UpVector * FaceCameraHeight;
+        LookAt = Base + FVector::UpVector * FaceCameraHeight;
+    }
+    else
+    {
+        Location = Base - Forward * ShoulderCameraDistance +
+            Right * ShoulderCameraSideOffset + FVector::UpVector * ShoulderCameraHeight;
+        LookAt = Base + Forward * 500.0f + FVector::UpVector * (ShoulderCameraHeight * 0.8f);
+    }
+    InspectionCamera->SetActorLocationAndRotation(Location,
+        FRotationMatrix::MakeFromX(LookAt - Location).Rotator());
+}
+
+void ADerClueRuntimeDirector::UpdateViewCamera(float DeltaSeconds)
+{
+    APlayerController* PlayerController = GetWorld() ? GetWorld()->GetFirstPlayerController() : nullptr;
+    if (!PlayerController)
+    {
+        return;
+    }
+
+    AActor* Desired = nullptr;
+    if (ViewIndex >= 5)
+    {
+        Desired = ExtraViewCameras.IsValidIndex(ViewIndex - 5)
+            ? ExtraViewCameras[ViewIndex - 5].Get() : nullptr;
+    }
+    else
+    {
+        switch (ViewMode)
+        {
+        case EDerClueViewMode::Diorama:
+            Desired = bUseFixedDioramaCamera ? DioramaCamera : nullptr;
+            break;
+        case EDerClueViewMode::OverShoulder:
+            AimInspectionCamera(Thief, false);
+            Desired = Thief ? InspectionCamera : nullptr;
+            break;
+        case EDerClueViewMode::ThiefFace:
+            AimInspectionCamera(Thief, true);
+            Desired = Thief ? InspectionCamera : nullptr;
+            break;
+        case EDerClueViewMode::GuardFace:
+            AimInspectionCamera(Guard, true);
+            Desired = Guard ? InspectionCamera : nullptr;
+            break;
+        case EDerClueViewMode::PawnCamera:
+            Desired = PlayerController->GetPawn();
+            break;
+        }
+    }
+
+    // Falling back to the pawn keeps the screen usable if a subject is missing
+    // rather than leaving the view pinned to whatever was last shown.
+    if (!Desired)
+    {
+        Desired = PlayerController->GetPawn();
+    }
+    if (Desired && PlayerController->GetViewTarget() != Desired)
+    {
+        PlayerController->SetViewTargetWithBlend(Desired, 0.2f);
+    }
 }

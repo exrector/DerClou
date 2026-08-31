@@ -1,5 +1,9 @@
 #include "DerClueSmartObjectComponent.h"
 
+#include "NavAreas/NavArea_Default.h"
+#include "NavAreas/NavArea_Null.h"
+#include "NavModifierComponent.h"
+
 #include "Components/PrimitiveComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "GameFramework/Actor.h"
@@ -36,7 +40,12 @@ void UDerClueSmartObjectComponent::BeginPlay()
         }
         DoorClosedAxis.Z = 0.0f;
         DoorClosedAxis.Normalize();
-        HingeLocation = ClosedLocation - DoorClosedAxis * DoorHalfLength;
+        // BoundsOrigin is the true centre of the slab; ClosedLocation is only
+        // the pivot, which on the prototype cubes sits on a corner. Swinging
+        // around a hinge derived from the pivot threw the door ~80cm off the
+        // doorway and left it fouling the opening it was supposed to clear.
+        ClosedCenterOffset = BoundsOrigin - ClosedLocation;
+        HingeLocation = BoundsOrigin - DoorClosedAxis * DoorHalfLength;
         DoorOpenAlpha = bOpen ? 1.0f : 0.0f;
         TArray<UPrimitiveComponent*> Primitives;
         Owner->GetComponents(Primitives);
@@ -49,7 +58,14 @@ void UDerClueSmartObjectComponent::BeginPlay()
             Primitive->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
             Primitive->SetCollisionResponseToChannel(ECC_Pawn, ECR_Block);
             Primitive->SetCollisionResponseToChannel(ECC_Visibility, ECR_Block);
-            Primitive->SetCanEverAffectNavigation(true);
+            // Doors are excluded here rather than corrected a frame later, so a
+            // dynamic navmesh never sees a transient hole across the doorway.
+            Primitive->SetCanEverAffectNavigation(Kind != EDerClueSmartObjectKind::Door);
+        }
+        if (Kind == EDerClueSmartObjectKind::Door && !NavModifier)
+        {
+            NavModifier = NewObject<UNavModifierComponent>(Owner);
+            NavModifier->RegisterComponent();
         }
         ApplyDoorState();
         SetComponentTickEnabled(false);
@@ -174,9 +190,10 @@ void UDerClueSmartObjectComponent::ApplyDoorState()
         const float AppliedYaw = OpenYaw * DoorOpenAlpha;
         FRotator Rotation = ClosedRotation;
         Rotation.Yaw += AppliedYaw;
-        const FVector RotatedAxis = FQuat(FVector::UpVector, FMath::DegreesToRadians(AppliedYaw)).RotateVector(DoorClosedAxis);
-        const FVector NewLocation = HingeLocation + RotatedAxis * DoorHalfLength;
-        GetOwner()->SetActorLocationAndRotation(NewLocation, Rotation);
+        const FQuat YawQuat(FVector::UpVector, FMath::DegreesToRadians(AppliedYaw));
+        const FVector RotatedAxis = YawQuat.RotateVector(DoorClosedAxis);
+        const FVector NewCenter = HingeLocation + RotatedAxis * DoorHalfLength;
+        GetOwner()->SetActorLocationAndRotation(NewCenter - YawQuat.RotateVector(ClosedCenterOffset), Rotation);
         TArray<UPrimitiveComponent*> Primitives;
         GetOwner()->GetComponents(Primitives);
         const bool bPassable = DoorOpenAlpha >= 0.75f;
@@ -184,7 +201,26 @@ void UDerClueSmartObjectComponent::ApplyDoorState()
         {
             Primitive->SetCollisionResponseToChannel(ECC_Pawn, bPassable ? ECR_Ignore : ECR_Block);
             Primitive->SetCollisionResponseToChannel(ECC_Visibility, bPassable ? ECR_Ignore : ECR_Block);
-            Primitive->SetCanEverAffectNavigation(!bPassable);
+            // The swinging slab must never be navmesh geometry. Epic's guidance
+            // is that movable geometry does not carve navmesh, and here it also
+            // made the doorway vanish from the graph while shut.
+            Primitive->SetCanEverAffectNavigation(false);
         }
+        ApplyDoorNavigation();
     }
+}
+
+void UDerClueSmartObjectComponent::ApplyDoorNavigation()
+{
+    if (!NavModifier)
+    {
+        return;
+    }
+    // Only a locked door is genuinely impassable, and only that case may remove
+    // the doorway from the navmesh. A shut-but-unlocked door stays navigable so
+    // a route exists; the pawn is still physically blocked until it arrives and
+    // the proximity logic swings the slab open.
+    NavModifier->SetAreaClass(bLocked
+        ? UNavArea_Null::StaticClass()
+        : UNavArea_Default::StaticClass());
 }

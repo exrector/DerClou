@@ -28,6 +28,20 @@ enum class EDerClueSecurityState : uint8
     Lockdown
 };
 
+// Fixed viewpoints the owner can flip through at runtime. The top-down
+// diorama stays the gameplay view; the rest exist so a human can actually
+// look at the actors, which a locked overhead orthographic camera makes
+// impossible.
+UENUM(BlueprintType)
+enum class EDerClueViewMode : uint8
+{
+    Diorama       UMETA(DisplayName="Top-down diorama"),
+    OverShoulder  UMETA(DisplayName="Over the thief's shoulder"),
+    ThiefFace     UMETA(DisplayName="Thief, front view"),
+    GuardFace     UMETA(DisplayName="Guard, front view"),
+    PawnCamera    UMETA(DisplayName="Pawn's own camera")
+};
+
 UENUM(BlueprintType)
 enum class EDerClueMissionState : uint8
 {
@@ -200,6 +214,37 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Camera", meta=(ClampMin="1.0"))
     float FixedDioramaCameraMargin = 1.12f;
 
+    // Distance and height of the inspection camera in the shoulder/face views.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Camera")
+    float ShoulderCameraDistance = 320.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Camera")
+    float ShoulderCameraHeight = 165.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Camera")
+    float ShoulderCameraSideOffset = 65.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Camera")
+    float FaceCameraDistance = 230.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Camera")
+    float FaceCameraHeight = 155.0f;
+
+    // Any CameraActor in the level tagged DerClue.ViewCamera joins the cycle,
+    // so extra viewpoints can be authored in the editor without code changes.
+    UPROPERTY(BlueprintReadOnly, Category="DerClue|Camera")
+    TArray<TObjectPtr<AActor>> ExtraViewCameras;
+
+    UPROPERTY(BlueprintReadOnly, Category="DerClue|Camera")
+    EDerClueViewMode ViewMode = EDerClueViewMode::Diorama;
+
+    // Bound to the C key; also callable from Blueprint or the console.
+    UFUNCTION(BlueprintCallable, Category="DerClue|Camera")
+    void CycleViewMode();
+
+    UFUNCTION(BlueprintCallable, Category="DerClue|Camera")
+    void SetViewIndex(int32 NewIndex);
+
     UFUNCTION(BlueprintCallable, Category="DerClue|Patrol")
     void InvestigateLocation(FVector WorldLocation);
 
@@ -251,6 +296,14 @@ private:
 
     UPROPERTY()
     TObjectPtr<ACameraActor> DioramaCamera;
+
+    // One reusable perspective camera, re-aimed every frame for whichever
+    // inspection view is active. Spawning one per view would leave idle actors
+    // ticking in the level for no reason.
+    UPROPERTY()
+    TObjectPtr<ACameraActor> InspectionCamera;
+
+    int32 ViewIndex = 0;
 
     UPROPERTY()
     TObjectPtr<ASpotLight> GuardFlashlight;
@@ -314,6 +367,9 @@ private:
     void CreatePrototypeTestObjects();
     void UpdateNoiseDevice();
     void ConfigureDioramaCamera();
+    void ConfigureViewCameras();
+    void UpdateViewCamera(float DeltaSeconds);
+    void AimInspectionCamera(const AActor* Subject, bool bFromFront);
     void EnsureCoreActors();
     void RefreshPlayableThief();
     void UpdatePatrol();

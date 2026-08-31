@@ -76,11 +76,23 @@ protected:
     virtual void BeginPlay() override;
 
 private:
+    // A locked door is the only door that may carve the navmesh. An unlocked
+    // one -- even while shut -- must leave the doorway navigable, otherwise no
+    // cross-room path can ever be planned and the actor walks into the wall
+    // instead of walking up to the door and opening it.
+    UPROPERTY()
+    TObjectPtr<class UNavModifierComponent> NavModifier;
+
     FRotator ClosedRotation;
     FVector ClosedLocation = FVector::ZeroVector;
+    // Pivot-to-centre vector captured while shut. These prototype meshes are
+    // unit cubes whose pivot sits on a corner, so GetActorLocation() is NOT the
+    // slab centre and the hinge cannot be derived from it directly.
+    FVector ClosedCenterOffset = FVector::ZeroVector;
     FVector HingeLocation = FVector::ZeroVector;
     FVector DoorClosedAxis = FVector::ForwardVector;
     float DoorHalfLength = 0.0f;
     float DoorOpenAlpha = 0.0f;
     void ApplyDoorState();
+    void ApplyDoorNavigation();
 };
