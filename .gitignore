@@ -100,3 +100,23 @@ __pycache__/
 /UnrealPort/Saved/
 /UnrealPort/.vs/
 /UnrealPort/Build/
+
+# Marketplace packs downloaded for evaluation. Excluded because three of their
+# files break GitHub's hard 100 MB per-file limit (T_Backpack_Normal 150 MB,
+# Example_Stationary_2_BuiltData 123 MB, T_Jacket_Normal 118 MB) -- committing
+# any of them makes the branch unpushable, not merely heavy. They are one-click
+# re-downloadable from the Epic launcher, so nothing unrecoverable is lost.
+# If a character or prop from one of these is chosen for the game, un-ignore
+# that specific pack (and shrink the oversized files) so a clone still builds.
+/UnrealPort/Content/AE_BR_Props/
+/UnrealPort/Content/ModSciInteriors/
+/UnrealPort/Content/ModSci_EngiProps/
+/UnrealPort/Content/ModSci_Engineer/
+/UnrealPort/Content/QuantumCharacter/
+/UnrealPort/Content/SciFiWarrior/
+/UnrealPort/Content/Survival_Character/
+/UnrealPort/Content/__ExternalActors__/QuantumCharacter/
+/UnrealPort/Content/__ExternalActors__/Survival_01/
+/UnrealPort/Content/__ExternalActors__/Survival_Character/
+/UnrealPort/Content/__ExternalObjects__/QuantumCharacter/
+/UnrealPort/Content/__ExternalObjects__/Survival_Character/
