@@ -4,6 +4,8 @@
 #include "GameFramework/Actor.h"
 #include "Navigation/PathFollowingComponent.h"
 #include "Perception/AIPerceptionTypes.h"
+#include "DerClueGuardBrainComponent.h"
+#include "DerClueSmartObjectComponent.h"
 #include "DerClueRuntimeDirector.generated.h"
 
 class AAIController;
@@ -18,6 +20,8 @@ class UAIPerceptionComponent;
 class UAISenseConfig_Hearing;
 class UAISenseConfig_Sight;
 class UDerCluePlanningWidget;
+class UStateTree;
+class UStateTreeAIComponent;
 
 UENUM(BlueprintType)
 enum class EDerClueSecurityState : uint8
@@ -39,7 +43,8 @@ enum class EDerClueViewMode : uint8
     OverShoulder  UMETA(DisplayName="Over the thief's shoulder"),
     ThiefFace     UMETA(DisplayName="Thief, front view"),
     GuardFace     UMETA(DisplayName="Guard, front view"),
-    PawnCamera    UMETA(DisplayName="Pawn's own camera")
+    PawnCamera    UMETA(DisplayName="Pawn's own camera"),
+    Free          UMETA(DisplayName="Free - director stops touching the view")
 };
 
 UENUM(BlueprintType)
@@ -48,15 +53,6 @@ enum class EDerClueMissionState : uint8
     InProgress,
     Success,
     Failed
-};
-
-enum class EDerClueGuardActivity : uint8
-{
-    Patrol,
-    Investigate,
-    Search,
-    Pursue,
-    IntruderSweep
 };
 
 enum class EDerClueRouteMode : uint8
@@ -110,7 +106,18 @@ public:
     float GuardVisionAngle = 40.0f;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Vision")
-    float CameraVisionRange = 5000.0f;
+    // 11 m, in the same league as the guard's own 10 m. The previous 5000
+    // was 50 m on a level whose longest side is 30 m: one ceiling camera
+    // covered the entire map, so the thief was under surveillance from the
+    // spawn point in the far room and the guard was sent after him on the
+    // first sweep. A camera should cover a room, not the level.
+    float CameraVisionRange = 1100.0f;
+
+    // Measure the camera's reach against the wall it actually faces instead of
+    // trusting a hand-typed number. Off by default is not an option here: the
+    // authored value cannot know where the camera was dropped.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Vision")
+    bool bCameraRangeReachesFacingWall = true;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Vision", meta=(ClampMin="1", ClampMax="179"))
     float CameraVisionAngle = 84.0f;
@@ -125,7 +132,15 @@ public:
     float RepathCooldown = 0.35f;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Patrol")
-    float GuardPatrolSpeed = 125.0f;
+    // An unhurried walking round. A patrol that hurries reads as a guard already
+    // looking for someone, and it leaves the thief no room to time anything.
+    // 150 exactly, because BS_Idle_Walk_Run has its samples on 0/150/300/450/600
+    // and nothing in between. At 90 the graph blended 60% idle with 40% walk,
+    // which reads as a standing robot twitching its heels rather than walking.
+    // Anything slower than 150 degrades toward the idle pose for the same
+    // reason -- a slower stroll needs a new sample in the blend space, not a
+    // smaller number here.
+    float GuardPatrolSpeed = 150.0f;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Patrol")
     float GuardInvestigationSpeed = 190.0f;
@@ -157,6 +172,19 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Mission")
     float CaptureDistance = 115.0f;
 
+    // He runs the intercept, he does not stroll it. Patrol pace is a decision
+    // the thief can time; a sighting is not.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Security")
+    float GuardPursuitSpeed = 480.0f;
+
+    // Stops here and shoots instead of walking into the thief. Closing all the
+    // way looked like a shove rather than an execution.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Security")
+    float GuardShootDistance = 280.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Security")
+    TSoftObjectPtr<class UAnimSequence> ThiefDeathAnim;
+
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Security")
     float InvestigationSearchDuration = 4.5f;
 
@@ -167,13 +195,19 @@ public:
     float InvestigationSearchPeriod = 2.8f;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Vision")
-    float GuardFlashlightForwardOffset = 30.0f;
+    // Right at the chest. The beam's pool starts where the cone meets the floor,
+    // so what pushed it away from the guard was the shallow pitch below, not
+    // this offset.
+    float GuardFlashlightForwardOffset = 15.0f;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Vision")
     float GuardFlashlightHeight = 105.0f;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Vision")
-    float GuardFlashlightPitch = -24.0f;
+    // 105cm high at -24 deg put the lit pool 2.4 m ahead of the guard, which
+    // read as a beam that starts somewhere in front of him. At -38 deg it lands
+    // about 1.3 m out, close enough to belong to the man holding it.
+    float GuardFlashlightPitch = -38.0f;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Debug")
     bool bTechnicalOverlay = false;
@@ -184,6 +218,11 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Prototype")
     bool bKeepPrototypeDoorsOpen = false;
 
+    // The context menu is an asset so its look stays with a designer; only the
+    // action rows are generated, from what each object reports it can do.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Interaction")
+    TSoftClassPtr<class UDerClueSmartObjectMenu> SmartObjectMenuClass;
+
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Planning")
     float RecordedPointAcceptanceRadius = 75.0f;
 
@@ -193,6 +232,9 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Planning")
     TSoftClassPtr<UDerCluePlanningWidget> PlanningWidgetClass;
 
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|AI")
+    TSoftObjectPtr<UStateTree> GuardStateTreeAsset;
+
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Mission")
     float BaseReturnRadius = 140.0f;
 
@@ -201,6 +243,11 @@ public:
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Prototype")
     float NoiseDeviceCooldown = 10.0f;
+
+    // RVO group ids. Kept named rather than inline so the guard's "avoid the
+    // thief" rule cannot silently drift apart from the thief's own group.
+    static constexpr uint8 ThiefAvoidanceGroup = 0;
+    static constexpr uint8 GuardAvoidanceGroup = 1;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Camera")
     bool bUseFixedDioramaCamera = true;
@@ -230,6 +277,18 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Camera")
     float FaceCameraHeight = 155.0f;
 
+    // Orbit controls for the diorama view. Right-drag rotates, wheel zooms;
+    // the left button stays free so inspecting never competes with
+    // click-to-move.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Camera")
+    float DioramaOrbitSensitivity = 2.5f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Camera")
+    float DioramaOrbitMinPitch = -85.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Camera")
+    float DioramaOrbitMaxPitch = -12.0f;
+
     // Any CameraActor in the level tagged DerClue.ViewCamera joins the cycle,
     // so extra viewpoints can be authored in the editor without code changes.
     UPROPERTY(BlueprintReadOnly, Category="DerClue|Camera")
@@ -238,7 +297,66 @@ public:
     UPROPERTY(BlueprintReadOnly, Category="DerClue|Camera")
     EDerClueViewMode ViewMode = EDerClueViewMode::Diorama;
 
+    // Which view the mission opens on. Index 3 is the guard's front view, so
+    // his animations are visible the moment Play is pressed.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Camera")
+    int32 StartingViewIndex = 0;
+
     // Bound to the C key; also callable from Blueprint or the console.
+    // Bound to G: draw, aim, fire. The pistol set lives on SK_Mannequin, so it
+    // plays on the guard through the same Compatible Skeletons path that drives
+    // his walk -- no retargeting for the weapon animations either.
+    UFUNCTION(BlueprintCallable, Category="DerClue|Guard")
+    void GuardDrawAndFire();
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Guard")
+    TSoftObjectPtr<class USkeletalMesh> GuardWeaponMesh;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Guard")
+    TSoftObjectPtr<class UAnimSequence> PistolEquipAnim;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Guard")
+    TSoftObjectPtr<class UAnimSequence> PistolAimAnim;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Guard")
+    TSoftObjectPtr<class UAnimSequence> PistolFireAnim;
+
+    // Native, non-additive rifle locomotion from the same SciFiSoldier
+    // skeleton as BP_GrantGuard. These are deliberately separate from the
+    // generic mannequin set: an additive recoil clip cannot be played as a
+    // complete pose, and a foreign skeleton must not silently become the
+    // guard's production locomotion source.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Guard")
+    TSoftObjectPtr<class UAnimSequence> GuardWalkWeaponAnim;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Guard")
+    TSoftObjectPtr<class UAnimSequence> GuardJogWeaponAnim;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Guard")
+    TSoftObjectPtr<class UAnimSequence> GuardRunWeaponAnim;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Guard")
+    TSoftObjectPtr<class UAnimSequence> GuardIdleWeaponAnim;
+
+    // Where the weapon sits in the hand. The robot ships no sockets, so it is
+    // attached to hand_r directly and nudged into the grip by these.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Guard")
+    FVector WeaponGripOffset = FVector(-3.0f, 5.0f, -2.0f);
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Guard")
+    // Correction from the hand bone's axes to the weapon mesh's. This value
+    // was dialled by eye for the old first-person gun (barrel on local +Y).
+    // The mesh is now SK_Revolver, so expect to re-dial it in the level.
+    FRotator WeaponGripRotation = FRotator(0.0f, -90.0f, 0.0f);
+
+    // The menu's rows, also reachable from the number keys.
+    UFUNCTION(BlueprintCallable, Category="DerClue|Interaction")
+    void TriggerAction(int32 Index);
+
+    UFUNCTION() void TriggerAction1();
+    UFUNCTION() void TriggerAction2();
+    UFUNCTION() void TriggerAction3();
+
     UFUNCTION(BlueprintCallable, Category="DerClue|Camera")
     void CycleViewMode();
 
@@ -277,6 +395,12 @@ private:
     TObjectPtr<AAIController> GuardController;
 
     UPROPERTY()
+    TObjectPtr<UDerClueGuardBrainComponent> GuardBrain;
+
+    UPROPERTY()
+    TObjectPtr<UStateTreeAIComponent> GuardStateTreeComponent;
+
+    UPROPERTY()
     TArray<TObjectPtr<AActor>> PatrolNodes;
 
     UPROPERTY()
@@ -303,7 +427,52 @@ private:
     UPROPERTY()
     TObjectPtr<ACameraActor> InspectionCamera;
 
+    UPROPERTY()
+    TObjectPtr<class UDerClueSmartObjectMenu> SmartObjectMenu;
+
+    UPROPERTY()
+    TObjectPtr<class USkeletalMeshComponent> GuardWeapon;
+
+    FTransform ThiefMeshStartRelativeTransform = FTransform::Identity;
+    FName ThiefMeshStartCollisionProfile;
+    bool bThiefRagdollActive = false;
+
+    FTimerHandle PistolStepTimer;
+    FTimerHandle KillStepTimer;
+    bool bKillSequenceStarted = false;
+
+    UPROPERTY()
+    TWeakObjectPtr<UDerClueSmartObjectComponent> CurrentActionObject;
+
+    UPROPERTY()
+    TArray<EDerClueObjectAction> CurrentActions;
+
     int32 ViewIndex = 0;
+
+    // Applying the view target only when the choice changes, instead of every
+    // frame, is what lets F8 eject and "toggledebugcamera" survive: the
+    // director no longer yanks the view back the instant something else
+    // takes it.
+    TWeakObjectPtr<AActor> LastAppliedViewTarget;
+
+    FVector DioramaCentre = FVector::ZeroVector;
+    FVector DioramaDefaultCentre = FVector::ZeroVector;
+    FVector DioramaBaseOffset = FVector::ZeroVector;
+    float DioramaBaseOrthoWidth = 0.0f;
+    float DioramaOrbitYaw = 0.0f;
+    float DioramaOrbitPitch = 0.0f;
+    float DioramaDefaultYaw = 0.0f;
+    float DioramaDefaultPitch = 0.0f;
+    float DioramaOrbitRadius = 950.0f;
+    float DioramaCameraHeight = 2200.0f;
+    float DioramaDefaultCameraHeight = 2200.0f;
+    float DioramaZoom = 1.0f;
+    bool bDioramaOrbitDragging = false;
+
+    // Wheel zoom for the close-up views. Without it the only adjustable camera
+    // was the top-down one, so there was no way to get near the guard at all.
+    float InspectionZoom = 1.0f;
+    bool bDioramaOrbitReady = false;
 
     UPROPERTY()
     TObjectPtr<ASpotLight> GuardFlashlight;
@@ -324,22 +493,19 @@ private:
     TArray<TObjectPtr<UDerClueSmartObjectComponent>> SmartObjects;
     TArray<FVector> PatrolRoutePolyline;
     FBox AuthoredLevelBounds = FBox(ForceInit);
-    int32 CurrentPatrolIndex = 0;
-    EDerClueGuardActivity GuardActivity = EDerClueGuardActivity::Patrol;
     bool bCamerasPowered = true;
     bool bCameraHadContact = false;
+    // Latched only by the guard's own sight. Once he has visually acquired the
+    // thief, a one-frame perception loss while turning at close range must not
+    // cancel the arrest/shot.
+    bool bGuardHasAcquiredThief = false;
     // Driven by AIPerception sight stimuli rather than polled each tick, so
     // gaining and losing the thief is decided by the same sense that reports
     // noise instead of by a parallel hand-rolled cone test.
-    bool bGuardHasVisualOnThief = false;
     bool bConfirmedIntrusion = false;
-    FVector InvestigationLocation = FVector::ZeroVector;
-    float NextMoveRequestTime = 0.0f;
-    float SearchStartedTime = 0.0f;
-    float SearchEndTime = 0.0f;
-    float SearchBaseYaw = 0.0f;
     float NextNoiseDeviceTime = 0.0f;
     bool bThiefInsideNoiseRadius = false;
+    bool bNoiseDeviceBaselineInitialized = false;
     bool bPatrolRouteCacheReady = false;
     float NextPatrolRouteCacheAttempt = 0.0f;
     EDerClueRouteMode RouteMode = EDerClueRouteMode::Free;
@@ -357,6 +523,7 @@ private:
     void DiscoverLevelActors();
     void ConfigureCharacter(ACharacter* Character) const;
     void ConfigureGuardPerception();
+    void ConfigureGuardBrain();
     void CreatePlanningWidget();
     void CaptureMissionSnapshot();
     void RestoreMissionSnapshot();
@@ -370,9 +537,23 @@ private:
     void ConfigureViewCameras();
     void UpdateViewCamera(float DeltaSeconds);
     void AimInspectionCamera(const AActor* Subject, bool bFromFront);
+    void UpdateDioramaOrbit(APlayerController* PlayerController);
+    void ResetDioramaView();
+    void RaiseDioramaCamera();
+    void LowerDioramaCamera();
+    void UpdateGuardWeaponTransform();
+    void UpdateSmartObjectMenu();
+    bool PlayGuardAnim(class UAnimSequence* Sequence, bool bLoop);
+    void PlayGuardActivityAnimation(EDerClueGuardActivity Activity);
+    void RestoreCharacterAnimationBlueprint(ACharacter* Character) const;
+    void GuardAimStep();
+    void GuardFireStep();
+    void GuardFinishStep();
+    void BeginKillSequence();
+    void KillDeathStep();
+    void EquipGuardWeapon();
     void EnsureCoreActors();
     void RefreshPlayableThief();
-    void UpdatePatrol();
     void UpdateCameras(float DeltaSeconds);
     void UpdateVision();
     void UpdateTechnicalOverlay();
@@ -382,11 +563,10 @@ private:
     void UpdateMissionState();
     void DrawVisionFootprint(const AActor* Source, float Range, float FullAngleDegrees, const FColor& Color) const;
     void UpdateSmartObjects();
-    void BeginIntruderSweep();
-    bool IsPatrolNodeOccupied(const AActor* Node) const;
-    int32 FindNearestReachablePatrolNode() const;
-    bool RequestMove(const FVector& Destination);
 
     UFUNCTION()
     void HandleGuardPerception(AActor* Actor, FAIStimulus Stimulus);
+
+    UFUNCTION()
+    void HandleGuardActivityChanged(EDerClueGuardActivity Activity);
 };

@@ -8,6 +8,7 @@
 #include "Engine/SpotLight.h"
 #include "EngineUtils.h"
 #include "GameFramework/Character.h"
+#include "Engine/DebugCameraController.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Kismet/GameplayStatics.h"
 #include "NavigationSystem.h"
@@ -24,6 +25,11 @@
 #include "Materials/MaterialInterface.h"
 #include "Camera/CameraActor.h"
 #include "Components/InputComponent.h"
+#include "DerClueSmartObjectMenu.h"
+#include "Animation/AnimSequence.h"
+#include "Animation/Skeleton.h"
+#include "Engine/SkeletalMesh.h"
+#include "TimerManager.h"
 #include "Engine/Engine.h"
 #include "Camera/CameraComponent.h"
 #include "Perception/AIPerceptionComponent.h"
@@ -32,6 +38,8 @@
 #include "Perception/AISenseConfig_Sight.h"
 #include "Perception/AISense_Hearing.h"
 #include "Perception/AISense_Sight.h"
+#include "Components/StateTreeAIComponent.h"
+#include "StateTree.h"
 
 ADerClueRuntimeDirector::ADerClueRuntimeDirector()
 {
@@ -41,8 +49,42 @@ ADerClueRuntimeDirector::ADerClueRuntimeDirector()
     // Default to the authored panel as a soft reference: it costs no load at
     // construction, keeps the actor working without per-level wiring, and stays
     // overridable per instance in the level.
+    SmartObjectMenuClass = UDerClueSmartObjectMenu::StaticClass();
+    // A revolver, not the futuristic first-person gun. It matters beyond looks:
+    // the Interaction pack ships genuinely ONE-HANDED revolver animations, so
+    // the weapon and the poses below finally agree with each other. Every
+    // pistol animation found anywhere else in the project is two-handed, which
+    // is why the guard kept holding an invisible second grip.
+    GuardWeaponMesh = TSoftObjectPtr<USkeletalMesh>(FSoftObjectPath(
+        TEXT("/Game/Interaction/Weapons/Revolver/Meshes/SK_Revolver.SK_Revolver")));
+    // Both were rifle poses before: two hands on the weapon, left arm raised to
+    // a foregrip that a revolver does not have. A_Revolver_Stand is the real
+    // one-handed ready stance, so the left arm hangs by itself with no bone
+    // masking needed in the AnimBP.
+    PistolEquipAnim = TSoftObjectPtr<UAnimSequence>(FSoftObjectPath(
+        TEXT("/Game/Interaction/Animations/Revolver/A_Revolver_Stand.A_Revolver_Stand")));
+    PistolAimAnim = TSoftObjectPtr<UAnimSequence>(FSoftObjectPath(
+        TEXT("/Game/Interaction/Animations/Revolver/A_Revolver_Stand.A_Revolver_Stand")));
+    // A complete, non-additive shot on the stock mannequin skeleton. The
+    // robot explicitly lists that skeleton as compatible; MM_Pistol_Fire is
+    // additive and must never be played as a standalone pose.
+    PistolFireAnim = TSoftObjectPtr<UAnimSequence>(FSoftObjectPath(
+        TEXT("/Game/Interaction/Animations/Revolver/Shoot/Rev_Shoot_F.Rev_Shoot_F")));
+    GuardWalkWeaponAnim = TSoftObjectPtr<UAnimSequence>(FSoftObjectPath(
+        TEXT("/Game/SciFiCharacterPack/SciFiSoldier/Animations/Walk_Fwd_Rifle_Ironsights.Walk_Fwd_Rifle_Ironsights")));
+    GuardJogWeaponAnim = TSoftObjectPtr<UAnimSequence>(FSoftObjectPath(
+        TEXT("/Game/SciFiCharacterPack/SciFiSoldier/Animations/Jog_Fwd_Rifle.Jog_Fwd_Rifle")));
+    GuardRunWeaponAnim = TSoftObjectPtr<UAnimSequence>(FSoftObjectPath(
+        TEXT("/Game/SciFiCharacterPack/SciFiSoldier/Animations/Sprint_Fwd_Rifle.Sprint_Fwd_Rifle")));
+    GuardIdleWeaponAnim = TSoftObjectPtr<UAnimSequence>(FSoftObjectPath(
+        TEXT("/Game/SciFiCharacterPack/SciFiSoldier/Animations/Idle_Rifle_Hip.Idle_Rifle_Hip")));
+    // Shot from the front, so he goes over backwards.
+    ThiefDeathAnim = TSoftObjectPtr<UAnimSequence>(FSoftObjectPath(
+        TEXT("/Game/Characters/Mannequins/Anims/Death/MM_Death_Back_01.MM_Death_Back_01")));
     PlanningWidgetClass = TSoftClassPtr<UDerCluePlanningWidget>(
         FSoftObjectPath(TEXT("/Game/DerClue/UI/WBP_PlanningPanel.WBP_PlanningPanel_C")));
+    GuardStateTreeAsset = TSoftObjectPtr<UStateTree>(
+        FSoftObjectPath(TEXT("/Game/DerClue/AI/ST_GuardBehavior.ST_GuardBehavior")));
 }
 
 void ADerClueRuntimeDirector::BeginPlay()
@@ -54,30 +96,43 @@ void ADerClueRuntimeDirector::BeginPlay()
     EnsureCoreActors();
     ConfigureCharacter(Guard);
     ConfigureCharacter(Thief);
-    ConfigureGuardPerception();
     ConfigureWorldAndSmartObjects();
     CacheAuthoredLevelBounds();
     PositionPatrolNodesAcrossLevel();
     ConfigureVisionLights();
+    // Vision ranges are finalized from the authored level before the native
+    // AIPerception listener is configured. Configuring it earlier left the
+    // logical sight radius different from the visible flashlight radius.
+    ConfigureGuardPerception();
+    ConfigureGuardBrain();
     CreatePrototypeTestObjects();
+    EquipGuardWeapon();
     ConfigureDioramaCamera();
     ConfigureViewCameras();
     CaptureMissionSnapshot();
     CreatePlanningWidget();
     SimulationEpochSeconds = GetWorld()->GetTimeSeconds();
-    ReturnToNearestPatrolNode();
+    UE_LOG(LogTemp, Display,
+        TEXT("DerClue start: cameraRange=%.1f guardRange=%.1f thief=%s guard=%s noiseDevice=%s"),
+        CameraVisionRange, GuardVisionRange,
+        Thief ? *Thief->GetActorLocation().ToCompactString() : TEXT("missing"),
+        Guard ? *Guard->GetActorLocation().ToCompactString() : TEXT("missing"),
+        NoiseDevice ? *NoiseDevice->GetActorLocation().ToCompactString() : TEXT("missing"));
 }
 
 void ADerClueRuntimeDirector::Tick(float DeltaSeconds)
 {
     Super::Tick(DeltaSeconds);
     RefreshPlayableThief();
-    UpdateViewCamera(DeltaSeconds);
+    // Camera ownership is intentionally left to Unreal's native debug camera.
+    // The previous custom orbit fought mouse focus, UMG and the player's view
+    // target every frame.
+    UpdateGuardWeaponTransform();
     UpdateCameras(DeltaSeconds);
     UpdateVision();
     UpdateSmartObjects();
+    UpdateSmartObjectMenu();
     UpdateNoiseDevice();
-    UpdatePatrol();
     UpdateMissionState();
     UpdateRoutePlanning();
     if (!bPatrolRouteCacheReady && GetWorld()->GetTimeSeconds() >= NextPatrolRouteCacheAttempt)
@@ -175,6 +230,9 @@ void ADerClueRuntimeDirector::DrawVisionFootprint(const AActor* Source, float Ra
 void ADerClueRuntimeDirector::CacheAuthoredLevelBounds()
 {
     AuthoredLevelBounds = FBox(ForceInit);
+    const FVector GameplayAnchor = Guard && Thief
+        ? (Guard->GetActorLocation() + Thief->GetActorLocation()) * 0.5f
+        : FVector::ZeroVector;
     for (TActorIterator<AStaticMeshActor> It(GetWorld()); It; ++It)
     {
         AStaticMeshActor* Actor = *It;
@@ -187,13 +245,69 @@ void ADerClueRuntimeDirector::CacheAuthoredLevelBounds()
         FVector Origin;
         FVector Extent;
         Actor->GetActorBounds(false, Origin, Extent);
+        // The prototype level contains authoring/test objects outside the two
+        // playable rooms. They are not part of the player's map and must not
+        // expand the initial camera framing into an enormous empty field.
+        if (Guard && Thief && FVector::Dist2D(Origin, GameplayAnchor) > 2600.0f)
+        {
+            continue;
+        }
         AuthoredLevelBounds += FBox::BuildAABB(Origin, Extent);
     }
 }
 
 void ADerClueRuntimeDirector::PositionPatrolNodesAcrossLevel()
 {
-    if (!AuthoredLevelBounds.IsValid || PatrolNodes.Num() != 4)
+    if (PatrolNodes.Num() != 4)
+    {
+        return;
+    }
+
+    // Authored placement wins. This used to overwrite all four markers with the
+    // corners of the whole level, which put two of them deep inside the thief's
+    // room -- so the guard walked straight at the thief on the first frame of
+    // every mission, and moving any furniture silently moved the patrol because
+    // the corners are derived from the level bounds.
+    //
+    // Markers are only projected onto the navmesh now, so a route exists from
+    // wherever the designer put them. The corner spread survives purely as a
+    // fallback for a level whose markers were never placed apart.
+    UNavigationSystemV1* NavigationSystem = UNavigationSystemV1::GetCurrent(GetWorld());
+    FBox AuthoredSpread(ForceInit);
+    for (AActor* Node : PatrolNodes)
+    {
+        if (Node)
+        {
+            AuthoredSpread += Node->GetActorLocation();
+        }
+    }
+    const bool bAuthored = AuthoredSpread.IsValid &&
+        AuthoredSpread.GetSize().Size2D() > 200.0f;
+    if (bAuthored)
+    {
+        for (AActor* Node : PatrolNodes)
+        {
+            if (!Node)
+            {
+                continue;
+            }
+            if (USceneComponent* Root = Node->GetRootComponent())
+            {
+                Root->SetMobility(EComponentMobility::Movable);
+            }
+            FNavLocation Projected;
+            if (NavigationSystem && NavigationSystem->ProjectPointToNavigation(
+                Node->GetActorLocation(), Projected, FVector(300.0f, 300.0f, 400.0f)))
+            {
+                Node->SetActorLocation(Projected.Location);
+            }
+        }
+        bPatrolRouteCacheReady = false;
+        NextPatrolRouteCacheAttempt = 0.0f;
+        return;
+    }
+
+    if (!AuthoredLevelBounds.IsValid)
     {
         return;
     }
@@ -489,6 +603,94 @@ void ADerClueRuntimeDirector::ConfigureGuardPerception()
     GuardPerception->RequestStimuliListenerUpdate();
 }
 
+void ADerClueRuntimeDirector::ConfigureGuardBrain()
+{
+    if (!GuardController || !Guard)
+    {
+        return;
+    }
+
+    GuardBrain = GuardController->FindComponentByClass<UDerClueGuardBrainComponent>();
+    if (!GuardBrain)
+    {
+        GuardBrain = NewObject<UDerClueGuardBrainComponent>(GuardController,
+            TEXT("DerClueGuardBrain"));
+        GuardController->AddInstanceComponent(GuardBrain);
+        GuardBrain->RegisterComponent();
+    }
+
+    FDerClueGuardTuning Tuning;
+    Tuning.AcceptanceRadius = PatrolAcceptanceRadius;
+    Tuning.OccupiedNodeRadius = OccupiedNodeRadius;
+    Tuning.RepathCooldown = RepathCooldown;
+    Tuning.PatrolSpeed = GuardPatrolSpeed;
+    Tuning.InvestigationSpeed = GuardInvestigationSpeed;
+    Tuning.PursuitSpeed = GuardPursuitSpeed;
+    Tuning.SweepSpeed = GuardIntruderSweepSpeed;
+    Tuning.PursuitStoppingDistance = GuardShootDistance;
+    Tuning.SearchDuration = InvestigationSearchDuration;
+    Tuning.SearchHalfAngle = InvestigationSearchHalfAngle;
+    Tuning.SearchPeriod = InvestigationSearchPeriod;
+    GuardBrain->Initialize(GuardController, Guard, Thief, PatrolNodes, Tuning);
+    GuardBrain->OnActivityChanged.RemoveDynamic(
+        this, &ADerClueRuntimeDirector::HandleGuardActivityChanged);
+    GuardBrain->OnActivityChanged.AddDynamic(
+        this, &ADerClueRuntimeDirector::HandleGuardActivityChanged);
+
+    GuardStateTreeComponent = GuardController->FindComponentByClass<UStateTreeAIComponent>();
+    if (!GuardStateTreeComponent)
+    {
+        GuardStateTreeComponent = NewObject<UStateTreeAIComponent>(GuardController,
+            TEXT("DerClueGuardStateTree"));
+        GuardStateTreeComponent->SetStartLogicAutomatically(false);
+        GuardController->AddInstanceComponent(GuardStateTreeComponent);
+        GuardStateTreeComponent->RegisterComponent();
+    }
+    GuardBrain->SetStateTreeComponent(GuardStateTreeComponent);
+
+    UStateTree* StateTree = GuardStateTreeAsset.LoadSynchronous();
+    if (!StateTree || !StateTree->IsReadyToRun())
+    {
+        UE_LOG(LogTemp, Error,
+            TEXT("DerClue: guard StateTree is missing or not compiled; guard brain fallback is active."));
+        GuardBrain->ResetToPatrol();
+        return;
+    }
+
+    if (GuardStateTreeComponent->IsRunning())
+    {
+        GuardStateTreeComponent->StopLogic(TEXT("DerClue reconfigure"));
+    }
+    GuardStateTreeComponent->SetStateTree(StateTree);
+    GuardStateTreeComponent->StartLogic();
+    GuardBrain->ResetToPatrol();
+    UE_LOG(LogTemp, Display, TEXT("DerClue: native guard StateTree started."));
+}
+
+void ADerClueRuntimeDirector::HandleGuardActivityChanged(EDerClueGuardActivity Activity)
+{
+    if (Activity == EDerClueGuardActivity::Patrol && !bConfirmedIntrusion)
+    {
+        SecurityState = EDerClueSecurityState::Normal;
+    }
+    else if (Activity == EDerClueGuardActivity::Investigate ||
+             Activity == EDerClueGuardActivity::Search)
+    {
+        SecurityState = bConfirmedIntrusion
+            ? EDerClueSecurityState::Alarm
+            : EDerClueSecurityState::Warning;
+    }
+    else if (Activity == EDerClueGuardActivity::Pursue ||
+             Activity == EDerClueGuardActivity::IntruderSweep)
+    {
+        SecurityState = EDerClueSecurityState::Alarm;
+    }
+    if (!bKillSequenceStarted)
+    {
+        PlayGuardActivityAnimation(Activity);
+    }
+}
+
 void ADerClueRuntimeDirector::HandleGuardPerception(AActor* Actor, FAIStimulus Stimulus)
 {
     const TSubclassOf<UAISense> SenseClass =
@@ -500,12 +702,22 @@ void ADerClueRuntimeDirector::HandleGuardPerception(AActor* Actor, FAIStimulus S
     {
         if (Actor && Actor == Thief)
         {
-            bGuardHasVisualOnThief = Stimulus.WasSuccessfullySensed();
-            if (bGuardHasVisualOnThief)
+            const bool bSensed = Stimulus.WasSuccessfullySensed();
+            const bool bPreviouslySensed = GuardBrain && GuardBrain->HasVisualOnThief();
+            if (bSensed)
             {
-                // The stimulus carries where the thief was actually seen, which
-                // is what the guard is allowed to know after contact is lost.
-                InvestigationLocation = Stimulus.StimulusLocation;
+                bGuardHasAcquiredThief = true;
+            }
+            if (GuardBrain)
+            {
+                GuardBrain->ReportSight(bSensed, Stimulus.StimulusLocation);
+            }
+            if (bPreviouslySensed != bSensed)
+            {
+                UE_LOG(LogTemp, Display,
+                    TEXT("DerClue perception: guard sight %s thief at %s"),
+                    bSensed ? TEXT("ACQUIRED") : TEXT("LOST"),
+                    *Stimulus.StimulusLocation.ToCompactString());
             }
         }
         return;
@@ -517,7 +729,12 @@ void ADerClueRuntimeDirector::HandleGuardPerception(AActor* Actor, FAIStimulus S
         return;
     }
     SecurityState = EDerClueSecurityState::Warning;
-    InvestigateLocation(Stimulus.StimulusLocation);
+    UE_LOG(LogTemp, Display, TEXT("DerClue perception: DoorNoise at %s"),
+        *Stimulus.StimulusLocation.ToCompactString());
+    if (GuardBrain)
+    {
+        GuardBrain->ReportNoise(Stimulus.StimulusLocation);
+    }
     if (GEngine)
     {
         GEngine->AddOnScreenDebugMessage(7712, 2.5f, FColor::Yellow,
@@ -540,6 +757,13 @@ void ADerClueRuntimeDirector::CreatePrototypeTestObjects()
         UE_LOG(LogTemp, Warning,
             TEXT("DerClue: no actor tagged DerClue.NoiseDevice; the N key test has no source."));
     }
+    // Entering the radius is an event. Merely beginning the mission while
+    // already inside it is not; otherwise BeginPlay manufactures a noise that
+    // the player never caused. Retry uses the same baseline rule below.
+    bNoiseDeviceBaselineInitialized = NoiseDevice && Thief;
+    bThiefInsideNoiseRadius = bNoiseDeviceBaselineInitialized &&
+        FVector::Dist2D(Thief->GetActorLocation(), NoiseDevice->GetActorLocation()) <=
+            NoiseDeviceTriggerRadius;
 
     Found.Reset();
     UGameplayStatics::GetAllActorsWithTag(this, TEXT("DerClue.CameraOcclusionTest"), Found);
@@ -557,9 +781,21 @@ void ADerClueRuntimeDirector::UpdateNoiseDevice()
     const bool bInside = FVector::Dist2D(Thief->GetActorLocation(), NoiseDevice->GetActorLocation()) <= NoiseDeviceTriggerRadius;
     const APlayerController* PlayerController = GetWorld()->GetFirstPlayerController();
     const bool bManualTrigger = PlayerController && PlayerController->WasInputKeyJustPressed(EKeys::N);
+    // Actor BeginPlay ordering is not guaranteed. If the player pawn became
+    // available after the device was discovered, establish the overlap state
+    // first and do not turn that initial state into a fabricated noise event.
+    if (!bNoiseDeviceBaselineInitialized)
+    {
+        bThiefInsideNoiseRadius = bInside;
+        bNoiseDeviceBaselineInitialized = true;
+        return;
+    }
     if ((bManualTrigger || (bInside && !bThiefInsideNoiseRadius)) && Now >= NextNoiseDeviceTime)
     {
         SecurityState = EDerClueSecurityState::Warning;
+        UE_LOG(LogTemp, Display, TEXT("DerClue perception: NoiseDevice %s at %s"),
+            bManualTrigger ? TEXT("manual") : TEXT("entered"),
+            *NoiseDevice->GetActorLocation().ToCompactString());
         InvestigateLocation(NoiseDevice->GetActorLocation());
         NextNoiseDeviceTime = Now + NoiseDeviceCooldown;
         if (GEngine)
@@ -658,8 +894,48 @@ void ADerClueRuntimeDirector::ConfigureDioramaCamera()
             CameraComponent->bConstrainAspectRatio = true;
             CameraComponent->AspectRatio = TargetAspect;
         }
+        // Remember the authored framing so orbiting is a modification of it
+        // rather than a replacement: pressing C back to Diorama returns to a
+        // view that still frames the level the way it was designed to.
+        DioramaCentre = Centre;
+        DioramaDefaultCentre = Centre;
+        DioramaBaseOffset = CameraLocation - Centre;
+        DioramaOrbitYaw = DioramaBaseOffset.Rotation().Yaw;
+        DioramaOrbitPitch = FMath::Clamp(CameraRotation.Pitch,
+            DioramaOrbitMinPitch, DioramaOrbitMaxPitch);
+        DioramaDefaultYaw = DioramaOrbitYaw;
+        DioramaDefaultPitch = DioramaOrbitPitch;
+        DioramaOrbitRadius = FVector(DioramaBaseOffset.X, DioramaBaseOffset.Y, 0.0f).Size();
+        DioramaCameraHeight = FMath::Max(100.0f, DioramaBaseOffset.Z);
+        DioramaDefaultCameraHeight = DioramaCameraHeight;
+        DioramaZoom = 1.0f;
+        if (const UCameraComponent* Component = DioramaCamera->GetCameraComponent())
+        {
+            DioramaBaseOrthoWidth = Component->OrthoWidth;
+        }
+        bDioramaOrbitReady = true;
+
         PlayerController->SetViewTargetWithBlend(DioramaCamera, 0.15f,
             VTBlend_Cubic, 0.0f, true);
+
+        // The inspection view starts at human eye level beside the guard, not
+        // kilometres above the map. It is only the launch point for Unreal's
+        // native free debug camera, so the user can immediately inspect hands,
+        // weapons and feet and then fly anywhere.
+        if (Guard)
+        {
+            const FVector EyeTarget = Guard->GetActorLocation() + FVector::UpVector * 70.0f;
+            const FVector InspectionStartLocation = EyeTarget - Guard->GetActorForwardVector() * 360.0f +
+                Guard->GetActorRightVector() * 180.0f + FVector::UpVector * 10.0f;
+            DioramaCamera->SetActorLocationAndRotation(InspectionStartLocation,
+                FRotationMatrix::MakeFromX(EyeTarget - InspectionStartLocation).Rotator());
+            if (UCameraComponent* CameraComponent = DioramaCamera->GetCameraComponent())
+            {
+                CameraComponent->ProjectionMode = ECameraProjectionMode::Perspective;
+                CameraComponent->SetFieldOfView(65.0f);
+                CameraComponent->bConstrainAspectRatio = false;
+            }
+        }
     }
 }
 
@@ -692,7 +968,24 @@ void ADerClueRuntimeDirector::CaptureMissionSnapshot()
     if (Thief)
     {
         ThiefStartTransform = Thief->GetActorTransform();
+        if (USkeletalMeshComponent* Mesh = Thief->GetMesh())
+        {
+            ThiefMeshStartRelativeTransform = Mesh->GetRelativeTransform();
+            ThiefMeshStartCollisionProfile = Mesh->GetCollisionProfileName();
+        }
         BaseLocation = ThiefStartTransform.GetLocation();
+        // An authored extraction marker wins over the spawn point, so the place
+        // the mission is handed in is something visible in the level that the
+        // designer can move, not an invisible radius around wherever the thief
+        // happened to appear.
+        {
+            TArray<AActor*> ExtractionActors;
+            UGameplayStatics::GetAllActorsWithTag(this, TEXT("Extraction"), ExtractionActors);
+            if (!ExtractionActors.IsEmpty() && ExtractionActors[0])
+            {
+                BaseLocation = ExtractionActors[0]->GetActorLocation();
+            }
+        }
     }
     if (Guard)
     {
@@ -717,6 +1010,9 @@ void ADerClueRuntimeDirector::CaptureMissionSnapshot()
 
 void ADerClueRuntimeDirector::RestoreMissionSnapshot()
 {
+    GetWorldTimerManager().ClearTimer(PistolStepTimer);
+    GetWorldTimerManager().ClearTimer(KillStepTimer);
+    bKillSequenceStarted = false;
     if (APlayerController* PlayerController = GetWorld()->GetFirstPlayerController())
     {
         PlayerController->StopMovement();
@@ -727,15 +1023,39 @@ void ADerClueRuntimeDirector::RestoreMissionSnapshot()
     }
     if (Thief)
     {
+        if (USkeletalMeshComponent* Mesh = Thief->GetMesh())
+        {
+            Mesh->SetAllBodiesSimulatePhysics(false);
+            Mesh->SetSimulatePhysics(false);
+            Mesh->PutAllRigidBodiesToSleep();
+            Mesh->AttachToComponent(Thief->GetCapsuleComponent(),
+                FAttachmentTransformRules::KeepRelativeTransform);
+            Mesh->SetRelativeTransform(ThiefMeshStartRelativeTransform);
+            if (!ThiefMeshStartCollisionProfile.IsNone())
+            {
+                Mesh->SetCollisionProfileName(ThiefMeshStartCollisionProfile);
+            }
+        }
+        if (UCapsuleComponent* Capsule = Thief->GetCapsuleComponent())
+        {
+            Capsule->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+        }
+        bThiefRagdollActive = false;
         Thief->TeleportTo(ThiefStartTransform.GetLocation(),
             ThiefStartTransform.Rotator(), false, true);
         ConfigureCharacter(Thief);
+        RestoreCharacterAnimationBlueprint(Thief);
+        if (UCharacterMovementComponent* Movement = Thief->GetCharacterMovement())
+        {
+            Movement->SetMovementMode(MOVE_Walking);
+        }
     }
     if (Guard)
     {
         Guard->TeleportTo(GuardStartTransform.GetLocation(),
             GuardStartTransform.Rotator(), false, true);
         ConfigureCharacter(Guard);
+        RestoreCharacterAnimationBlueprint(Guard);
     }
     for (const FDerClueSmartObjectSnapshot& Snapshot : MissionObjectSnapshot)
     {
@@ -760,14 +1080,18 @@ void ADerClueRuntimeDirector::RestoreMissionSnapshot()
     bObjectiveNotificationShown = false;
     bConfirmedIntrusion = false;
     bCameraHadContact = false;
+    bGuardHasAcquiredThief = false;
     bCamerasPowered = true;
-    bThiefInsideNoiseRadius = false;
+    bNoiseDeviceBaselineInitialized = NoiseDevice && Thief;
+    bThiefInsideNoiseRadius = bNoiseDeviceBaselineInitialized &&
+        FVector::Dist2D(Thief->GetActorLocation(), NoiseDevice->GetActorLocation()) <=
+            NoiseDeviceTriggerRadius;
     NextNoiseDeviceTime = 0.0f;
-    NextMoveRequestTime = 0.0f;
-    CurrentPatrolIndex = 0;
-    GuardActivity = EDerClueGuardActivity::Patrol;
     SimulationEpochSeconds = GetWorld()->GetTimeSeconds();
-    ReturnToNearestPatrolNode();
+    if (GuardBrain)
+    {
+        GuardBrain->ResetToPatrol();
+    }
 }
 
 void ADerClueRuntimeDirector::ToggleRouteRecording()
@@ -1042,10 +1366,13 @@ void ADerClueRuntimeDirector::ConfigureWorldAndSmartObjects()
             Component->Kind = Kind;
             Component->StableId = Actor->GetFName();
             Component->bLocked = Kind == EDerClueSmartObjectKind::Safe;
-            if (Kind == EDerClueSmartObjectKind::Door && bKeepPrototypeDoorsOpen)
+            if (Kind == EDerClueSmartObjectKind::Door)
             {
-                Component->bLocked = false;
-                Component->bOpen = true;
+                // A door the thief can simply walk through carries no decision.
+                // Locked by default gives the lockpick/crowbar trade something
+                // to apply to; the prototype flag still forces them open.
+                Component->bLocked = !bKeepPrototypeDoorsOpen;
+                Component->bOpen = bKeepPrototypeDoorsOpen;
             }
             Component->RegisterComponent();
             SmartObjects.Add(Component);
@@ -1078,11 +1405,38 @@ void ADerClueRuntimeDirector::ConfigureCharacter(ACharacter* Character) const
         }
         Movement->bOrientRotationToMovement = true;
         Movement->RotationRate = FRotator(0.0f, 300.0f, 0.0f);
-        // The player must follow the clicked path exactly. RVO is reserved for
-        // the autonomous guard; enabling it on both actors makes the thief
-        // oscillate or stop when avoidance velocities compete with click-to-move.
-        Movement->bUseRVOAvoidance = Character == Guard;
+
+        // Avoidance was never actually running. bUseRVOAvoidance was assigned
+        // directly, and that only flips the flag -- an agent is registered with
+        // UAvoidanceManager exclusively inside SetAvoidanceEnabled(). With
+        // nobody registered, two blocking capsules meeting in a corridor simply
+        // wedged and neither could get past the other.
+        //
+        // Both actors are registered now, and who yields is expressed with the
+        // engine's own weighting rather than by switching avoidance off for one
+        // of them. Per the engine: actors divert course in proportion to their
+        // relative weights, and at 1.0 an actor will not divert at all. So the
+        // thief keeps following the clicked path exactly -- the property the
+        // previous approach was trying to protect -- while the guard, being
+        // autonomous, does the whole job of stepping aside.
+        const bool bIsGuard = Character == Guard;
+
+        FNavAvoidanceMask OwnGroup;
+        OwnGroup.ClearAll();
+        OwnGroup.SetGroup(bIsGuard ? GuardAvoidanceGroup : ThiefAvoidanceGroup);
+        Movement->SetAvoidanceGroupMask(OwnGroup);
+
+        FNavAvoidanceMask GroupsToAvoid;
+        GroupsToAvoid.ClearAll();
+        if (bIsGuard)
+        {
+            GroupsToAvoid.SetGroup(ThiefAvoidanceGroup);
+        }
+        Movement->SetGroupsToAvoidMask(GroupsToAvoid);
+
         Movement->AvoidanceConsiderationRadius = 180.0f;
+        Movement->AvoidanceWeight = bIsGuard ? 0.35f : 1.0f;
+        Movement->SetAvoidanceEnabled(true);
     }
 }
 
@@ -1091,14 +1445,65 @@ void ADerClueRuntimeDirector::ConfigureVisionLights()
     if (AuthoredLevelBounds.IsValid)
     {
         const FVector LevelSize = AuthoredLevelBounds.GetSize();
-        // Cameras trace farther than the complete board, so the first blocking
-        // wall—not a magic radius—defines their real visible distance.
-        CameraVisionRange = FVector2D(LevelSize.X, LevelSize.Y).Size() + 200.0f;
+        // CameraVisionRange is an authored gameplay value. It must not be
+        // overwritten with the diagonal of the whole board here: doing that
+        // made a room camera detect the thief at the distant spawn point and
+        // start the mission in Alarm. Occlusion still uses native visibility
+        // traces, so walls cap the effective range inside this authored limit.
         // A guard carries a short, narrow flashlight: approximately half of
         // the room depth, independent from the surveillance camera range.
         GuardVisionRange = FMath::Clamp(FMath::Min(LevelSize.X, LevelSize.Y) * 0.52f,
             700.0f, 1300.0f);
     }
+    // A surveillance cone that stops in mid-air looks broken and plays worse:
+    // the player cannot tell where it ends. Trace from each camera to the wall
+    // it faces and let that be the reach. This deliberately replaces the
+    // authored number, unlike the old code that silently substituted the whole
+    // board's diagonal and put the spawn point under surveillance.
+    // Beam length = distance to the wall the camera faces. Nothing more
+    // elaborate: one ray along its own aim, and the cone ends where the room
+    // ends. Walls nearer than that still cut the view per frame through the
+    // visibility trace in CanSeeTarget.
+    if (bCameraRangeReachesFacingWall && !SecurityCameras.IsEmpty())
+    {
+        float Reach = 0.0f;
+        for (AActor* Camera : SecurityCameras)
+        {
+            if (!Camera)
+            {
+                continue;
+            }
+            const FVector Start = Camera->GetActorLocation();
+            FRotator Aim = CameraBaseRotations.Contains(Camera)
+                ? CameraBaseRotations.FindRef(Camera)
+                : Camera->GetActorRotation();
+            // Flatten the aim before measuring. A surveillance camera is tilted
+            // down, so tracing along its actual forward hits the FLOOR a few
+            // metres out -- that distance was being stored as the beam length,
+            // which is why the cone died just under the camera instead of
+            // reaching across the room. The wall it faces is a horizontal
+            // question; the downward tilt is only how the cone is aimed at it.
+            Aim.Pitch = 0.0f;
+            Aim.Roll = 0.0f;
+            FCollisionQueryParams Params(SCENE_QUERY_STAT(DerClueCameraReach), true, Camera);
+            Params.AddIgnoredActor(Camera);
+            if (Guard) { Params.AddIgnoredActor(Guard); }
+            if (Thief) { Params.AddIgnoredActor(Thief); }
+            FHitResult Hit;
+            if (GetWorld()->LineTraceSingleByChannel(Hit, Start,
+                Start + Aim.Vector() * 8000.0f, ECC_Visibility, Params))
+            {
+                Reach = FMath::Max(Reach, Hit.Distance);
+            }
+        }
+        if (Reach > 100.0f)
+        {
+            CameraVisionRange = Reach;
+            UE_LOG(LogTemp, Log, TEXT("[DerClue] Camera beam reaches its facing wall: %.0f cm"),
+                CameraVisionRange);
+        }
+    }
+
     if (Guard)
     {
         // The authored Guard_Flashlight is a standalone spotlight actor in the
@@ -1166,109 +1571,6 @@ void ADerClueRuntimeDirector::ConfigureVisionLights()
     }
 }
 
-bool ADerClueRuntimeDirector::RequestMove(const FVector& Destination)
-{
-    if (!GuardController || !Guard || GetWorld()->GetTimeSeconds() < NextMoveRequestTime)
-    {
-        return false;
-    }
-    NextMoveRequestTime = GetWorld()->GetTimeSeconds() + RepathCooldown;
-    const EPathFollowingRequestResult::Type Result = GuardController->MoveToLocation(
-        Destination, PatrolAcceptanceRadius, true, true, true, false, nullptr, true);
-    return Result != EPathFollowingRequestResult::Failed;
-}
-
-void ADerClueRuntimeDirector::UpdatePatrol()
-{
-    if (!Guard || !GuardController || PatrolNodes.IsEmpty())
-    {
-        return;
-    }
-
-    const float Now = GetWorld()->GetTimeSeconds();
-    if (GuardActivity == EDerClueGuardActivity::Search)
-    {
-        GuardController->StopMovement();
-        const float Period = FMath::Max(0.5f, InvestigationSearchPeriod);
-        const float Phase = (Now - SearchStartedTime) * 2.0f * PI / Period;
-        FRotator ScanRotation = Guard->GetActorRotation();
-        ScanRotation.Yaw = SearchBaseYaw + FMath::Sin(Phase) * InvestigationSearchHalfAngle;
-        Guard->SetActorRotation(ScanRotation);
-        if (Now >= SearchEndTime)
-        {
-            if (bConfirmedIntrusion)
-            {
-                BeginIntruderSweep();
-            }
-            else
-            {
-                SecurityState = EDerClueSecurityState::Normal;
-                ReturnToNearestPatrolNode();
-            }
-        }
-        return;
-    }
-
-    if (GuardActivity == EDerClueGuardActivity::Patrol && IsPatrolNodeOccupied(PatrolNodes[CurrentPatrolIndex]))
-    {
-        const int32 StartingIndex = CurrentPatrolIndex;
-        do
-        {
-            CurrentPatrolIndex = (CurrentPatrolIndex + 1) % PatrolNodes.Num();
-        }
-        while (CurrentPatrolIndex != StartingIndex && IsPatrolNodeOccupied(PatrolNodes[CurrentPatrolIndex]));
-
-        if (GuardController)
-        {
-            GuardController->StopMovement();
-        }
-        NextMoveRequestTime = 0.0f;
-        RequestMove(PatrolNodes[CurrentPatrolIndex]->GetActorLocation());
-    }
-
-    const bool bUsesPatrolNodeGoal = GuardActivity == EDerClueGuardActivity::Patrol ||
-        GuardActivity == EDerClueGuardActivity::IntruderSweep;
-    const bool bRespondingToPoint = !bUsesPatrolNodeGoal;
-    const FVector Goal = bRespondingToPoint
-        ? InvestigationLocation
-        : PatrolNodes[CurrentPatrolIndex]->GetActorLocation();
-    if (FVector::Dist2D(Guard->GetActorLocation(), Goal) <= PatrolAcceptanceRadius)
-    {
-        if (bRespondingToPoint)
-        {
-            GuardController->StopMovement();
-            GuardActivity = EDerClueGuardActivity::Search;
-            SecurityState = bConfirmedIntrusion
-                ? EDerClueSecurityState::Alarm
-                : EDerClueSecurityState::Warning;
-            SearchStartedTime = Now;
-            SearchEndTime = Now + InvestigationSearchDuration;
-            SearchBaseYaw = Guard->GetActorRotation().Yaw;
-        }
-        else
-        {
-            do
-            {
-                CurrentPatrolIndex = (CurrentPatrolIndex + 1) % PatrolNodes.Num();
-            }
-            while (GuardActivity == EDerClueGuardActivity::Patrol &&
-                   PatrolNodes.Num() > 1 && IsPatrolNodeOccupied(PatrolNodes[CurrentPatrolIndex]));
-            RequestMove(PatrolNodes[CurrentPatrolIndex]->GetActorLocation());
-        }
-        return;
-    }
-
-    if (GuardController->GetMoveStatus() != EPathFollowingStatus::Moving)
-    {
-        if (!RequestMove(Goal) && bUsesPatrolNodeGoal)
-        {
-            CurrentPatrolIndex = (CurrentPatrolIndex + 1) % PatrolNodes.Num();
-            NextMoveRequestTime = 0.0f;
-            RequestMove(PatrolNodes[CurrentPatrolIndex]->GetActorLocation());
-        }
-    }
-}
-
 void ADerClueRuntimeDirector::UpdateSmartObjects()
 {
     for (UDerClueSmartObjectComponent* SmartObject : SmartObjects)
@@ -1289,15 +1591,30 @@ void ADerClueRuntimeDirector::UpdateSmartObjects()
         }
         else if (SmartObject->Kind == EDerClueSmartObjectKind::Door && Nearest <= SmartObject->InteractionRadius)
         {
-            if (!SmartObject->bOpen)
+            // The guard carries keys: a locked door is an obstacle for the
+            // thief, never for the patrol, which is what lets the guard keep
+            // walking the whole perimeter while the thief still has to work
+            // for the same doorway.
+            const bool bGuardIsNearest = GuardDistance <= ThiefDistance;
+            const bool bMayOpen = bGuardIsNearest || !SmartObject->bLocked;
+            if (!SmartObject->bOpen && bMayOpen)
             {
-                SmartObject->SetOpen(true);
-                // Only an opening caused by the thief becomes an external
-                // hearing stimulus. A guard never investigates its own door.
-                if (Thief && ThiefDistance <= GuardDistance)
+                if (bGuardIsNearest)
                 {
-                    SmartObject->EmitNoise(SmartObject->GetOwner());
+                    SmartObject->bLocked = false;
                 }
+                AActor* const Opener = bGuardIsNearest
+                    ? static_cast<AActor*>(Guard)
+                    : static_cast<AActor*>(Thief);
+                if (Opener)
+                {
+                    SmartObject->SetSwingAwayFrom(Opener->GetActorLocation());
+                }
+                SmartObject->SetOpen(true);
+                // Simply opening a door is silent now. Noise is the price of
+                // the crowbar, not of walking through a door you already
+                // unlocked -- otherwise every entry alerts the guard and the
+                // choice between tools means nothing.
             }
         }
         else if (SmartObject->Kind == EDerClueSmartObjectKind::Door && Nearest >= SmartObject->InteractionRadius + 80.0f)
@@ -1359,136 +1676,19 @@ void ADerClueRuntimeDirector::UpdateSmartObjects()
     }
 }
 
-bool ADerClueRuntimeDirector::IsPatrolNodeOccupied(const AActor* Node) const
-{
-    if (!Node || !GetWorld())
-    {
-        return true;
-    }
-    TArray<FOverlapResult> Results;
-    FCollisionQueryParams Params(SCENE_QUERY_STAT(DerCluePatrolNode), false, Guard);
-    const bool bHit = GetWorld()->OverlapMultiByObjectType(
-        Results,
-        Node->GetActorLocation(),
-        FQuat::Identity,
-        FCollisionObjectQueryParams(FCollisionObjectQueryParams::AllDynamicObjects),
-        FCollisionShape::MakeSphere(OccupiedNodeRadius),
-        Params);
-    if (!bHit)
-    {
-        return false;
-    }
-    for (const FOverlapResult& Hit : Results)
-    {
-        AActor* HitActor = Hit.GetActor();
-        if (HitActor && HitActor != Node && HitActor != Guard && Cast<APawn>(HitActor))
-        {
-            return true;
-        }
-    }
-    return false;
-}
-
-int32 ADerClueRuntimeDirector::FindNearestReachablePatrolNode() const
-{
-    if (!Guard || PatrolNodes.IsEmpty())
-    {
-        return INDEX_NONE;
-    }
-    UNavigationSystemV1* Nav = UNavigationSystemV1::GetCurrent(GetWorld());
-    float BestDistance = TNumericLimits<float>::Max();
-    int32 BestIndex = INDEX_NONE;
-    for (int32 Index = 0; Index < PatrolNodes.Num(); ++Index)
-    {
-        AActor* Node = PatrolNodes[Index];
-        if (!Node || IsPatrolNodeOccupied(Node))
-        {
-            continue;
-        }
-        FNavLocation Projected;
-        if (Nav && Nav->ProjectPointToNavigation(Node->GetActorLocation(), Projected))
-        {
-            UNavigationPath* Path = UNavigationSystemV1::FindPathToLocationSynchronously(
-                GetWorld(), Guard->GetActorLocation(),
-                Projected.Location, Guard);
-            if (!Path || !Path->IsValid() || Path->IsPartial())
-            {
-                continue;
-            }
-            const float Distance = static_cast<float>(Path->GetPathLength());
-            if (Distance < BestDistance)
-            {
-                BestDistance = Distance;
-                BestIndex = Index;
-            }
-        }
-    }
-    return BestIndex;
-}
-
 void ADerClueRuntimeDirector::InvestigateLocation(FVector WorldLocation)
 {
-    GuardActivity = EDerClueGuardActivity::Investigate;
-    InvestigationLocation = WorldLocation;
-    if (Guard && Guard->GetCharacterMovement())
+    if (GuardBrain)
     {
-        Guard->GetCharacterMovement()->MaxWalkSpeed = GuardInvestigationSpeed;
+        GuardBrain->ReportNoise(WorldLocation);
     }
-    if (GuardController)
-    {
-        GuardController->StopMovement();
-    }
-    NextMoveRequestTime = 0.0f;
-    RequestMove(WorldLocation);
 }
 
 void ADerClueRuntimeDirector::ReturnToNearestPatrolNode()
 {
-    if (bConfirmedIntrusion)
+    if (GuardBrain)
     {
-        BeginIntruderSweep();
-        return;
-    }
-    GuardActivity = EDerClueGuardActivity::Patrol;
-    if (Guard && Guard->GetCharacterMovement())
-    {
-        Guard->GetCharacterMovement()->MaxWalkSpeed = GuardPatrolSpeed;
-    }
-    const int32 Nearest = FindNearestReachablePatrolNode();
-    if (Nearest != INDEX_NONE)
-    {
-        CurrentPatrolIndex = Nearest;
-        if (GuardController)
-        {
-            GuardController->StopMovement();
-        }
-        NextMoveRequestTime = 0.0f;
-        RequestMove(PatrolNodes[CurrentPatrolIndex]->GetActorLocation());
-    }
-}
-
-void ADerClueRuntimeDirector::BeginIntruderSweep()
-{
-    bConfirmedIntrusion = true;
-    GuardActivity = EDerClueGuardActivity::IntruderSweep;
-    SecurityState = EDerClueSecurityState::Alarm;
-    if (Guard && Guard->GetCharacterMovement())
-    {
-        Guard->GetCharacterMovement()->MaxWalkSpeed = GuardIntruderSweepSpeed;
-    }
-    const int32 Nearest = FindNearestReachablePatrolNode();
-    if (Nearest != INDEX_NONE)
-    {
-        CurrentPatrolIndex = Nearest;
-    }
-    if (GuardController)
-    {
-        GuardController->StopMovement();
-    }
-    NextMoveRequestTime = 0.0f;
-    if (PatrolNodes.IsValidIndex(CurrentPatrolIndex))
-    {
-        RequestMove(PatrolNodes[CurrentPatrolIndex]->GetActorLocation());
+        GuardBrain->ResetToPatrol();
     }
 }
 
@@ -1510,16 +1710,47 @@ bool ADerClueRuntimeDirector::CanSeeTarget(const AActor* Source, const AActor* T
     {
         return false;
     }
-    FHitResult Hit;
     FCollisionQueryParams Params(SCENE_QUERY_STAT(DerClueVision), true, Source);
     Params.AddIgnoredActor(Source);
     if (Guard && SecurityCameras.Contains(Source))
     {
         Params.AddIgnoredActor(Guard);
     }
-    return GetWorld()->LineTraceSingleByChannel(Hit, SourceLocation, Target->GetActorLocation(), ECC_Visibility, Params)
-        ? Hit.GetActor() == Target
-        : true;
+
+    // Two samples, not one. Tracing only to the actor's centre meant a crate at
+    // chest height never hid anyone from a camera mounted near the ceiling: the
+    // sightline simply passed over it to the single point being tested, so
+    // partial cover did nothing at all.
+    //
+    // Requiring BOTH the chest and the head to be clear is what makes "anything
+    // you stand behind protects you" true, and it stays fully deterministic --
+    // same position, same verdict, every run.
+    const FVector Chest = Target->GetActorLocation();
+    FVector Head = Chest;
+    if (const ACharacter* TargetCharacter = Cast<ACharacter>(Target))
+    {
+        if (const UCapsuleComponent* Capsule = TargetCharacter->GetCapsuleComponent())
+        {
+            Head.Z = Chest.Z + Capsule->GetScaledCapsuleHalfHeight() * 0.8f;
+        }
+    }
+    else
+    {
+        Head.Z = Chest.Z + 60.0f;
+    }
+
+    for (const FVector& Sample : { Chest, Head })
+    {
+        FHitResult Hit;
+        const bool bBlocked = GetWorld()->LineTraceSingleByChannel(
+            Hit, SourceLocation, Sample, ECC_Visibility, Params) &&
+            Hit.GetActor() != Target;
+        if (bBlocked)
+        {
+            return false;
+        }
+    }
+    return true;
 }
 
 void ADerClueRuntimeDirector::UpdateVision()
@@ -1530,66 +1761,82 @@ void ADerClueRuntimeDirector::UpdateVision()
     }
     // Guard sight is whatever AIPerception last reported; cameras stay on the
     // explicit cone test below because they are props, not perceiving pawns.
-    const bool bGuardSeesThief = Guard && bGuardHasVisualOnThief;
+    const bool bGuardSeesThief = Guard && GuardBrain && GuardBrain->HasVisualOnThief();
     bool bCameraSeesThief = false;
+    AActor* DetectingCamera = nullptr;
     if (bCamerasPowered)
     {
         for (AActor* Camera : SecurityCameras)
         {
-            bCameraSeesThief |= CanSeeTarget(Camera, Thief, CameraVisionRange, CameraVisionAngle);
+            if (CanSeeTarget(Camera, Thief, CameraVisionRange, CameraVisionAngle))
+            {
+                bCameraSeesThief = true;
+                DetectingCamera = Camera;
+                break;
+            }
         }
+    }
+
+    // AIPerception's cone may briefly report LOST while the guard turns at the
+    // end of MoveTo. That must not make a stationary or retreating thief
+    // immune. After a real visual acquisition, distance plus an unobstructed
+    // 360-degree close-range trace is the capture condition; BeginKillSequence
+    // rotates the guard toward the target before the shot.
+    if (Guard && bGuardHasAcquiredThief && !bKillSequenceStarted &&
+        FVector::Dist2D(Guard->GetActorLocation(), Thief->GetActorLocation()) <=
+            GuardShootDistance + 35.0f &&
+        CanSeeTarget(Guard, Thief, GuardShootDistance + 50.0f, 360.0f))
+    {
+        BeginKillSequence();
+        return;
     }
 
     // Direct guard sight is the only live pursuit signal. It may refresh the
     // last-seen position, but camera/noise reports never become a GPS tracker.
     if (bGuardSeesThief)
     {
-        const bool bWasAlreadyPursuing = GuardActivity == EDerClueGuardActivity::Pursue;
         bConfirmedIntrusion = true;
-        MissionState = EDerClueMissionState::Failed;
         SecurityState = EDerClueSecurityState::Alarm;
-        GuardActivity = EDerClueGuardActivity::Pursue;
-        if (Guard->GetCharacterMovement())
-        {
-            Guard->GetCharacterMovement()->MaxWalkSpeed = GuardInvestigationSpeed;
-        }
-        const FVector NewLastSeenLocation = Thief->GetActorLocation();
-        if (!bWasAlreadyPursuing ||
-            FVector::DistSquared2D(InvestigationLocation, NewLastSeenLocation) > FMath::Square(60.0f))
-        {
-            InvestigationLocation = NewLastSeenLocation;
-            if (!bWasAlreadyPursuing)
-            {
-                GuardController->StopMovement();
-                NextMoveRequestTime = 0.0f;
-            }
-            RequestMove(InvestigationLocation);
-        }
         bCameraHadContact = bCameraSeesThief;
-        return;
-    }
 
-    // Having lost direct sight, the guard checks the last place where the
-    // thief was actually seen instead of continuing to know the live position.
-    if (GuardActivity == EDerClueGuardActivity::Pursue)
-    {
-        SecurityState = bConfirmedIntrusion
-            ? EDerClueSecurityState::Alarm
-            : EDerClueSecurityState::Warning;
-        GuardActivity = EDerClueGuardActivity::Investigate;
-        NextMoveRequestTime = 0.0f;
-        RequestMove(InvestigationLocation);
+        // Being seen is no longer instant failure. The guard has to cross the
+        // room first, which is the window the thief gets to break line of
+        // sight -- and it is what makes the sighting readable instead of a
+        // sudden loss with no visible cause.
+        const float Distance = FVector::Dist2D(Guard->GetActorLocation(), Thief->GetActorLocation());
+        if (Distance > GuardShootDistance && !bKillSequenceStarted)
+        {
+            // Pursuit is the brain's state to own; the director only reports
+            // what was seen. Speed and stopping distance live in the brain's
+            // native MoveTo request.
+            if (GuardBrain)
+            {
+                GuardBrain->ReportSight(true, Thief->GetActorLocation());
+            }
+        }
+        else if (!bKillSequenceStarted)
+        {
+            BeginKillSequence();
+        }
+        return;
     }
 
     // A surveillance camera reports one snapshot when contact begins. While
     // contact remains continuous it does not keep steering the guard to the
     // thief's current coordinates. Reacquisition can create a fresh report.
-    if (bCameraSeesThief && !bCameraHadContact && GuardActivity != EDerClueGuardActivity::Pursue)
+    if (bCameraSeesThief && !bCameraHadContact)
     {
+        UE_LOG(LogTemp, Display,
+            TEXT("DerClue perception: camera %s ACQUIRED thief at %s (range=%.1f)"),
+            DetectingCamera ? *DetectingCamera->GetName() : TEXT("unknown"),
+            *Thief->GetActorLocation().ToCompactString(), CameraVisionRange);
         bConfirmedIntrusion = true;
         MissionState = EDerClueMissionState::Failed;
         SecurityState = EDerClueSecurityState::Alarm;
-        InvestigateLocation(Thief->GetActorLocation());
+        if (GuardBrain)
+        {
+            GuardBrain->ReportCameraContact(Thief->GetActorLocation());
+        }
         SecurityState = EDerClueSecurityState::Alarm;
     }
     bCameraHadContact = bCameraSeesThief;
@@ -1701,11 +1948,44 @@ void ADerClueRuntimeDirector::ConfigureViewCameras()
         EnableInput(PlayerController);
         if (InputComponent)
         {
-            InputComponent->BindKey(EKeys::C, IE_Pressed, this,
-                &ADerClueRuntimeDirector::CycleViewMode);
+            InputComponent->BindKey(EKeys::G, IE_Pressed, this,
+                &ADerClueRuntimeDirector::GuardDrawAndFire);
+            InputComponent->BindKey(EKeys::One, IE_Pressed, this,
+                &ADerClueRuntimeDirector::TriggerAction1);
+            InputComponent->BindKey(EKeys::Two, IE_Pressed, this,
+                &ADerClueRuntimeDirector::TriggerAction2);
+            InputComponent->BindKey(EKeys::Three, IE_Pressed, this,
+                &ADerClueRuntimeDirector::TriggerAction3);
         }
     }
+    if (APlayerController* PlayerController = GetWorld()->GetFirstPlayerController())
+    {
+        // The native debug camera expects ordinary game input. UMG focus and a
+        // permanently visible cursor were the reason mouse-look felt broken.
+        PlayerController->SetInputMode(FInputModeGameOnly());
+        PlayerController->bShowMouseCursor = false;
+    }
     SetViewIndex(0);
+
+#if !UE_BUILD_SHIPPING
+    // Use the engine's own free-flight inspection controller. Simulation keeps
+    // running; RMB/mouse looks, WASD flies, Q/E changes altitude and the wheel
+    // changes flight speed. No custom camera math remains in control of Play.
+    TWeakObjectPtr<APlayerController> WeakPlayerController =
+        GetWorld()->GetFirstPlayerController();
+    GetWorldTimerManager().SetTimerForNextTick([WeakPlayerController]()
+    {
+        if (APlayerController* Controller = WeakPlayerController.Get())
+        {
+            Controller->ConsoleCommand(TEXT("ToggleDebugCamera"), true);
+            if (GEngine)
+            {
+                GEngine->AddOnScreenDebugMessage(1702, 8.0f, FColor::Cyan,
+                    TEXT("FREE CAMERA: mouse look | WASD move | Q/E height | wheel speed | F8 return"));
+            }
+        }
+    });
+#endif
 }
 
 void ADerClueRuntimeDirector::CycleViewMode()
@@ -1715,7 +1995,7 @@ void ADerClueRuntimeDirector::CycleViewMode()
 
 void ADerClueRuntimeDirector::SetViewIndex(int32 NewIndex)
 {
-    const int32 BuiltInCount = 5;
+    const int32 BuiltInCount = 6;
     const int32 Total = BuiltInCount + ExtraViewCameras.Num();
     ViewIndex = ((NewIndex % Total) + Total) % Total;
     if (ViewIndex < BuiltInCount)
@@ -1734,7 +2014,8 @@ void ADerClueRuntimeDirector::SetViewIndex(int32 NewIndex)
     {
         static const TCHAR* Names[] = { TEXT("Top-down diorama"),
             TEXT("Over the thief's shoulder"), TEXT("Thief, front view"),
-            TEXT("Guard, front view"), TEXT("Pawn's own camera") };
+            TEXT("Guard, front view"), TEXT("Pawn's own camera"),
+            TEXT("Free - director hands off") };
         Label = Names[ViewIndex];
     }
     if (GEngine)
@@ -1759,12 +2040,13 @@ void ADerClueRuntimeDirector::AimInspectionCamera(const AActor* Subject, bool bF
     FVector LookAt;
     if (bFromFront)
     {
-        Location = Base + Forward * FaceCameraDistance + FVector::UpVector * FaceCameraHeight;
+        Location = Base + Forward * (FaceCameraDistance * InspectionZoom) +
+            FVector::UpVector * FaceCameraHeight;
         LookAt = Base + FVector::UpVector * FaceCameraHeight;
     }
     else
     {
-        Location = Base - Forward * ShoulderCameraDistance +
+        Location = Base - Forward * (ShoulderCameraDistance * InspectionZoom) +
             Right * ShoulderCameraSideOffset + FVector::UpVector * ShoulderCameraHeight;
         LookAt = Base + Forward * 500.0f + FVector::UpVector * (ShoulderCameraHeight * 0.8f);
     }
@@ -1780,45 +2062,593 @@ void ADerClueRuntimeDirector::UpdateViewCamera(float DeltaSeconds)
         return;
     }
 
-    AActor* Desired = nullptr;
-    if (ViewIndex >= 5)
+    // One observer camera, no preset roulette. It orbits the complete level at
+    // all times while gameplay continues underneath it.
+    AActor* Desired = DioramaCamera.Get();
+    if (!Desired)
     {
-        Desired = ExtraViewCameras.IsValidIndex(ViewIndex - 5)
-            ? ExtraViewCameras[ViewIndex - 5].Get() : nullptr;
+        Desired = PlayerController->GetPawn().Get();
     }
-    else
+    ViewIndex = 0;
+    ViewMode = EDerClueViewMode::Diorama;
+    UpdateDioramaOrbit(PlayerController);
+
+    // Only when the choice itself changes. Re-asserting it every frame is what
+    // made every external camera tool unusable.
+    if (Desired && Desired != LastAppliedViewTarget.Get())
     {
-        switch (ViewMode)
+        PlayerController->SetViewTargetWithBlend(Desired, 0.2f);
+        LastAppliedViewTarget = Desired;
+    }
+}
+
+
+void ADerClueRuntimeDirector::UpdateDioramaOrbit(APlayerController* PlayerController)
+{
+    if (!bDioramaOrbitReady || !DioramaCamera || !PlayerController)
+    {
+        return;
+    }
+
+    // Right button, not left: left remains click-to-move. Capturing the mouse
+    // in GameOnly mode while dragging makes relative mouse delta reliable even
+    // when the planning UMG panel or visible cursor previously had focus.
+    const bool bRightMouseDown = PlayerController->IsInputKeyDown(EKeys::RightMouseButton);
+    if (bRightMouseDown && !bDioramaOrbitDragging)
+    {
+        bDioramaOrbitDragging = true;
+        PlayerController->bShowMouseCursor = false;
+        PlayerController->SetInputMode(FInputModeGameOnly());
+    }
+    if (bRightMouseDown)
+    {
+        float MouseX = 0.0f;
+        float MouseY = 0.0f;
+        PlayerController->GetInputMouseDelta(MouseX, MouseY);
+        DioramaOrbitYaw += MouseX * DioramaOrbitSensitivity;
+        DioramaCameraHeight = FMath::Clamp(
+            DioramaCameraHeight - MouseY * 18.0f, 100.0f, 6000.0f);
+    }
+    else if (bDioramaOrbitDragging)
+    {
+        bDioramaOrbitDragging = false;
+        FInputModeGameAndUI InputMode;
+        InputMode.SetHideCursorDuringCapture(false);
+        InputMode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+        PlayerController->SetInputMode(InputMode);
+        PlayerController->bShowMouseCursor = true;
+    }
+
+    // Keyboard fallback is valuable in PIE because a visible cursor or a UMG
+    // panel can consume mouse capture. It also allows precise inspection while
+    // the simulation continues running.
+    const float OrbitStep = 75.0f * GetWorld()->GetDeltaSeconds();
+    if (PlayerController->IsInputKeyDown(EKeys::Left))
+    {
+        DioramaOrbitYaw -= OrbitStep;
+    }
+    if (PlayerController->IsInputKeyDown(EKeys::Right))
+    {
+        DioramaOrbitYaw += OrbitStep;
+    }
+    const float WheelDelta = PlayerController->GetInputAnalogKeyState(EKeys::MouseWheelAxis);
+    const bool bZoomIn = WheelDelta > KINDA_SMALL_NUMBER ||
+        PlayerController->WasInputKeyJustPressed(EKeys::MouseScrollUp);
+    const bool bZoomOut = WheelDelta < -KINDA_SMALL_NUMBER ||
+        PlayerController->WasInputKeyJustPressed(EKeys::MouseScrollDown);
+    if (bZoomIn || bZoomOut)
+    {
+        // Intersect the cursor ray with the gameplay floor before changing the
+        // orthographic width. Moving the orbit centre by the inverse scale
+        // delta keeps that exact floor point under the cursor: zoom-to-cursor,
+        // not zoom-to-the-middle-of-the-level.
+        FVector CursorOrigin;
+        FVector CursorDirection;
+        FVector CursorFloorPoint = DioramaCentre;
+        bool bHasCursorFloorPoint = false;
+        if (PlayerController->DeprojectMousePositionToWorld(CursorOrigin, CursorDirection) &&
+            !FMath::IsNearlyZero(CursorDirection.Z))
         {
-        case EDerClueViewMode::Diorama:
-            Desired = bUseFixedDioramaCamera ? DioramaCamera : nullptr;
-            break;
-        case EDerClueViewMode::OverShoulder:
-            AimInspectionCamera(Thief, false);
-            Desired = Thief ? InspectionCamera : nullptr;
-            break;
-        case EDerClueViewMode::ThiefFace:
-            AimInspectionCamera(Thief, true);
-            Desired = Thief ? InspectionCamera : nullptr;
-            break;
-        case EDerClueViewMode::GuardFace:
-            AimInspectionCamera(Guard, true);
-            Desired = Guard ? InspectionCamera : nullptr;
-            break;
-        case EDerClueViewMode::PawnCamera:
-            Desired = PlayerController->GetPawn();
-            break;
+            const float FloorZ = AuthoredLevelBounds.IsValid
+                ? AuthoredLevelBounds.Min.Z + 2.0f
+                : 0.0f;
+            const float T = (FloorZ - CursorOrigin.Z) / CursorDirection.Z;
+            if (T >= 0.0f)
+            {
+                CursorFloorPoint = CursorOrigin + CursorDirection * T;
+                bHasCursorFloorPoint = true;
+            }
+        }
+
+        const float OldZoom = DioramaZoom;
+        DioramaZoom = FMath::Clamp(DioramaZoom * (bZoomIn ? 0.82f : 1.18f),
+            0.025f, 4.0f);
+        if (bHasCursorFloorPoint && OldZoom > KINDA_SMALL_NUMBER &&
+            !FMath::IsNearlyEqual(OldZoom, DioramaZoom))
+        {
+            const float ScaleRatio = DioramaZoom / OldZoom;
+            FVector CursorDelta = CursorFloorPoint - DioramaCentre;
+            CursorDelta.Z = 0.0f;
+            DioramaCentre += CursorDelta * (1.0f - ScaleRatio);
         }
     }
 
-    // Falling back to the pawn keeps the screen usable if a subject is missing
-    // rather than leaving the view pinned to whatever was last shown.
-    if (!Desired)
+    // Yaw circles the level; height is an independent, literal world-space
+    // control. This is what makes Up/Down raise and lower the observer instead
+    // of merely tilting a camera that remains stuck in the sky.
+    const FVector HorizontalOffset =
+        FRotator(0.0f, DioramaOrbitYaw, 0.0f).Vector() * DioramaOrbitRadius;
+    const FVector Location = DioramaCentre + HorizontalOffset +
+        FVector::UpVector * DioramaCameraHeight;
+    DioramaCamera->SetActorLocationAndRotation(Location,
+        FRotationMatrix::MakeFromX(DioramaCentre - Location).Rotator());
+
+    if (UCameraComponent* Component = DioramaCamera->GetCameraComponent())
     {
-        Desired = PlayerController->GetPawn();
+        if (Component->ProjectionMode == ECameraProjectionMode::Orthographic &&
+            DioramaBaseOrthoWidth > 0.0f)
+        {
+            Component->SetOrthoWidth(DioramaBaseOrthoWidth * DioramaZoom);
+        }
     }
-    if (Desired && PlayerController->GetViewTarget() != Desired)
+}
+
+void ADerClueRuntimeDirector::ResetDioramaView()
+{
+    DioramaCentre = DioramaDefaultCentre;
+    DioramaOrbitYaw = DioramaDefaultYaw;
+    DioramaOrbitPitch = DioramaDefaultPitch;
+    DioramaCameraHeight = DioramaDefaultCameraHeight;
+    DioramaZoom = 1.0f;
+    SetViewIndex(0);
+}
+
+void ADerClueRuntimeDirector::RaiseDioramaCamera()
+{
+    DioramaCameraHeight = FMath::Clamp(DioramaCameraHeight + 180.0f, 100.0f, 6000.0f);
+}
+
+void ADerClueRuntimeDirector::LowerDioramaCamera()
+{
+    DioramaCameraHeight = FMath::Clamp(DioramaCameraHeight - 180.0f, 100.0f, 6000.0f);
+}
+
+void ADerClueRuntimeDirector::UpdateGuardWeaponTransform()
+{
+    if (!Guard || !GuardWeapon || !Guard->GetMesh())
     {
-        PlayerController->SetViewTargetWithBlend(Desired, 0.2f);
+        return;
+    }
+
+    // Position follows the animated right hand, while orientation follows the
+    // guard. WeaponGripRotation carries the correction from the hand bone's
+    // axes to the weapon mesh's own; it was dialled for the old first-person
+    // gun and may need re-dialling now that the mesh is SK_Revolver, whose
+    // authored barrel axis has not been verified.
+    // Both position AND orientation now come from the animated right hand.
+    // Taking the rotation from the actor instead was why the weapon only ever
+    // looked right while aiming: aiming happens to align body and hand, so the
+    // error was invisible exactly when it was easiest to check, and the gun sat
+    // crooked in every other pose.
+    const USkeletalMeshComponent* Mesh = Guard->GetMesh();
+    const FTransform HandTransform = Mesh->GetSocketTransform(TEXT("hand_r"), RTS_World);
+    GuardWeapon->SetWorldLocation(HandTransform.GetLocation());
+    GuardWeapon->SetWorldRotation(HandTransform.GetRotation() * WeaponGripRotation.Quaternion());
+    // SK_Revolver is authored at real sidearm scale, so unlike the oversized
+    // first-person gun it needs no shrinking to read as a pistol in the hand.
+    GuardWeapon->SetWorldScale3D(FVector(1.0f));
+}
+
+
+
+
+void ADerClueRuntimeDirector::UpdateSmartObjectMenu()
+{
+    APlayerController* PlayerController = GetWorld() ? GetWorld()->GetFirstPlayerController() : nullptr;
+    if (!PlayerController || !Thief)
+    {
+        return;
+    }
+    if (!SmartObjectMenu)
+    {
+        UClass* MenuClass = SmartObjectMenuClass.LoadSynchronous();
+        if (!MenuClass)
+        {
+            return;
+        }
+        SmartObjectMenu = CreateWidget<UDerClueSmartObjectMenu>(PlayerController, MenuClass);
+        if (!SmartObjectMenu)
+        {
+            return;
+        }
+        SmartObjectMenu->SetDirector(this);
+        SmartObjectMenu->AddToViewport(8);
+    }
+
+    // Nearest object that has something to offer. Reach is the object's own
+    // interaction radius, so a large safe can be usable from further away than
+    // a light switch without a special case here.
+    UDerClueSmartObjectComponent* Best = nullptr;
+    float BestDistance = TNumericLimits<float>::Max();
+    for (UDerClueSmartObjectComponent* SmartObject : SmartObjects)
+    {
+        if (!SmartObject || !SmartObject->GetOwner())
+        {
+            continue;
+        }
+        if (SmartObject->GetAvailableActions(Thief).IsEmpty())
+        {
+            continue;
+        }
+        const float Distance = FVector::Dist2D(Thief->GetActorLocation(),
+            SmartObject->GetOwner()->GetActorLocation());
+        if (Distance < BestDistance)
+        {
+            BestDistance = Distance;
+            Best = SmartObject;
+        }
+    }
+
+    const bool bHasOffer = SmartObjectMenu->ShowFor(Best, Thief);
+    SmartObjectMenu->SetVisibility(bHasOffer
+        ? ESlateVisibility::SelfHitTestInvisible
+        : ESlateVisibility::Collapsed);
+
+    // A menu you cannot click is not a menu. Clicking UMG needs a cursor and an
+    // input mode that lets Slate see the click at all; without both, the panel
+    // draws and nothing happens when you press it.
+    if (!PlayerController->IsA<ADebugCameraController>())
+    {
+        PlayerController->bShowMouseCursor = true;
+    }
+
+    CurrentActions.Reset();
+    CurrentActionObject = Best;
+    if (!bHasOffer || !Best)
+    {
+        return;
+    }
+    CurrentActions = Best->GetAvailableActions(Thief);
+
+    // The same actions on number keys, spelled out on screen. The menu is the
+    // intended way in, but the player must never be left guessing which key
+    // opens a door -- especially while the menu itself is unproven.
+    FString Hint = FString::Printf(TEXT("%s:"), *Best->GetDisplayName().ToString());
+    for (int32 Index = 0; Index < CurrentActions.Num(); ++Index)
+    {
+        Hint += FString::Printf(TEXT("   [%d] %s"), Index + 1,
+            *UDerClueSmartObjectComponent::GetActionLabel(CurrentActions[Index]).ToString());
+    }
+    if (GEngine)
+    {
+        GEngine->AddOnScreenDebugMessage(7716, 0.0f, FColor::Yellow, Hint);
+    }
+}
+
+void ADerClueRuntimeDirector::TriggerAction(int32 Index)
+{
+    UDerClueSmartObjectComponent* Object = CurrentActionObject.Get();
+    if (!Object || !Thief || !CurrentActions.IsValidIndex(Index))
+    {
+        return;
+    }
+    const EDerClueObjectAction Action = CurrentActions[Index];
+    const bool bDone = Object->PerformAction(Thief, Action);
+    if (GEngine)
+    {
+        GEngine->AddOnScreenDebugMessage(7717, 2.5f,
+            bDone ? FColor::Green : FColor::Orange,
+            FString::Printf(TEXT("%s -> %s"),
+                *UDerClueSmartObjectComponent::GetActionLabel(Action).ToString(),
+                bDone ? TEXT("done") : TEXT("not possible")));
+    }
+}
+
+void ADerClueRuntimeDirector::TriggerAction1() { TriggerAction(0); }
+void ADerClueRuntimeDirector::TriggerAction2() { TriggerAction(1); }
+void ADerClueRuntimeDirector::TriggerAction3() { TriggerAction(2); }
+
+
+bool ADerClueRuntimeDirector::PlayGuardAnim(UAnimSequence* Sequence, bool bLoop)
+{
+    if (!Guard || !Sequence)
+    {
+        return false;
+    }
+    if (USkeletalMeshComponent* Mesh = Guard->GetMesh())
+    {
+        if (Sequence->GetAdditiveAnimType() != AAT_None)
+        {
+            UE_LOG(LogTemp, Error,
+                TEXT("DerClue animation: refusing additive clip '%s' as standalone guard animation."),
+                *Sequence->GetPathName());
+            return false;
+        }
+        const USkeleton* GuardSkeleton = Mesh->GetSkeletalMeshAsset()
+            ? Mesh->GetSkeletalMeshAsset()->GetSkeleton()
+            : nullptr;
+        if (GuardSkeleton && !GuardSkeleton->IsCompatibleForEditor(Sequence->GetSkeleton()))
+        {
+            UE_LOG(LogTemp, Error,
+                TEXT("DerClue animation: clip '%s' belongs to a different skeleton than guard mesh '%s'."),
+                *Sequence->GetPathName(), *Mesh->GetSkeletalMeshAsset()->GetPathName());
+            return false;
+        }
+        // PlayAnimation switches the component to single-node playback, which
+        // is what lets one authored sequence run end to end without building a
+        // montage or a second animation blueprint for a three-shot demo.
+        Mesh->PlayAnimation(Sequence, bLoop);
+        return true;
+    }
+    return false;
+}
+
+void ADerClueRuntimeDirector::PlayGuardActivityAnimation(EDerClueGuardActivity Activity)
+{
+    // Locomotion belongs to the character's Animation Blueprint. It already
+    // blends idle/walk/run from real velocity and keeps feet synchronized.
+    // Replacing it with a single animation asset breaks that state machine and
+    // was the reason the robot kept walking during a 480 cm/s pursuit.
+    RestoreCharacterAnimationBlueprint(Guard);
+}
+
+void ADerClueRuntimeDirector::RestoreCharacterAnimationBlueprint(ACharacter* Character) const
+{
+    if (Character)
+    {
+        if (USkeletalMeshComponent* Mesh = Character->GetMesh())
+        {
+            Mesh->SetAnimationMode(EAnimationMode::AnimationBlueprint);
+        }
+    }
+}
+
+void ADerClueRuntimeDirector::GuardDrawAndFire()
+{
+    if (!Guard)
+    {
+        return;
+    }
+    USkeletalMeshComponent* Mesh = Guard->GetMesh();
+    if (!Mesh)
+    {
+        return;
+    }
+
+    // The weapon is created once and kept. Re-attaching it on every press
+    // would make the pistol pop out of the hand for a frame each time.
+    if (!GuardWeapon)
+    {
+        if (USkeletalMesh* WeaponAsset = GuardWeaponMesh.LoadSynchronous())
+        {
+            GuardWeapon = NewObject<USkeletalMeshComponent>(Guard, TEXT("GuardWeapon"));
+            GuardWeapon->SetSkeletalMesh(WeaponAsset);
+            GuardWeapon->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+            GuardWeapon->SetCanEverAffectNavigation(false);
+            GuardWeapon->SetupAttachment(Mesh);
+            GuardWeapon->RegisterComponent();
+            GuardWeapon->AttachToComponent(Mesh,
+                FAttachmentTransformRules::SnapToTargetNotIncludingScale, TEXT("hand_r"));
+            GuardWeapon->SetRelativeLocation(FVector::ZeroVector);
+            GuardWeapon->SetRelativeRotation(FRotator::ZeroRotator);
+            GuardWeapon->SetUsingAbsoluteRotation(true);
+            UpdateGuardWeaponTransform();
+        }
+    }
+    if (GuardWeapon)
+    {
+        GuardWeapon->SetVisibility(true);
+    }
+
+    // Standing still for the draw: the guard walking mid-animation looks like
+    // a bug rather than a decision.
+    if (GuardController)
+    {
+        GuardController->StopMovement();
+    }
+
+    UAnimSequence* Equip = PistolEquipAnim.LoadSynchronous();
+    PlayGuardAnim(Equip, false);
+    if (GEngine)
+    {
+        GEngine->AddOnScreenDebugMessage(7720, 2.0f, FColor::Cyan, TEXT("Guard: drawing"));
+    }
+    const float EquipLength = Equip ? Equip->GetPlayLength() : 0.8f;
+    GetWorldTimerManager().SetTimer(PistolStepTimer, this,
+        &ADerClueRuntimeDirector::GuardAimStep, FMath::Max(0.1f, EquipLength), false);
+}
+
+void ADerClueRuntimeDirector::GuardAimStep()
+{
+    PlayGuardAnim(PistolAimAnim.LoadSynchronous(), true);
+    if (GEngine)
+    {
+        GEngine->AddOnScreenDebugMessage(7720, 2.0f, FColor::Cyan, TEXT("Guard: aiming"));
+    }
+    GetWorldTimerManager().SetTimer(PistolStepTimer, this,
+        &ADerClueRuntimeDirector::GuardFireStep, 1.2f, false);
+}
+
+void ADerClueRuntimeDirector::GuardFireStep()
+{
+    UAnimSequence* Fire = PistolFireAnim.LoadSynchronous();
+    PlayGuardAnim(Fire, false);
+    if (GEngine)
+    {
+        GEngine->AddOnScreenDebugMessage(7720, 2.0f, FColor::Orange, TEXT("Guard: FIRE"));
+    }
+    const float FireLength = Fire ? Fire->GetPlayLength() : 0.6f;
+    GetWorldTimerManager().SetTimer(PistolStepTimer, this,
+        &ADerClueRuntimeDirector::GuardFinishStep, FMath::Max(0.1f, FireLength) + 0.6f, false);
+}
+
+void ADerClueRuntimeDirector::GuardFinishStep()
+{
+    // Back to the animation blueprint, otherwise the guard is frozen in the
+    // last pose of the fire sequence and never walks again.
+    PlayGuardActivityAnimation(GuardBrain
+        ? GuardBrain->GetActivity()
+        : EDerClueGuardActivity::Patrol);
+    if (GEngine)
+    {
+        GEngine->AddOnScreenDebugMessage(7720, 2.0f, FColor::Cyan, TEXT("Guard: back on patrol"));
+    }
+}
+
+
+void ADerClueRuntimeDirector::EquipGuardWeapon()
+{
+    if (GuardWeapon || !Guard)
+    {
+        return;
+    }
+    USkeletalMeshComponent* Mesh = Guard->GetMesh();
+    USkeletalMesh* WeaponAsset = GuardWeaponMesh.LoadSynchronous();
+    if (!Mesh || !WeaponAsset)
+    {
+        return;
+    }
+    // The level now carries the weapon as an authored component so it is
+    // visible while editing. Adopt that one; creating another here would put a
+    // second gun on the guard the moment the mission starts.
+    {
+        TArray<USkeletalMeshComponent*> Existing;
+        Guard->GetComponents(Existing);
+        for (USkeletalMeshComponent* Candidate : Existing)
+        {
+            if (Candidate && Candidate != Mesh && Candidate->GetName().Contains(TEXT("GuardWeapon")))
+            {
+                GuardWeapon = Candidate;
+                GuardWeapon->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+                GuardWeapon->SetCanEverAffectNavigation(false);
+                GuardWeapon->SetUsingAbsoluteRotation(true);
+                GuardWeapon->SetVisibility(true);
+                UpdateGuardWeaponTransform();
+                return;
+            }
+        }
+    }
+    // Carried from the start of the mission. A guard who produces a weapon out
+    // of nowhere the moment he sees you reads as a cheat.
+    GuardWeapon = NewObject<USkeletalMeshComponent>(Guard, TEXT("GuardWeapon"));
+    GuardWeapon->SetSkeletalMesh(WeaponAsset);
+    GuardWeapon->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+    GuardWeapon->SetCanEverAffectNavigation(false);
+    GuardWeapon->SetupAttachment(Mesh);
+    GuardWeapon->RegisterComponent();
+    GuardWeapon->AttachToComponent(Mesh,
+        FAttachmentTransformRules::SnapToTargetNotIncludingScale, TEXT("hand_r"));
+    GuardWeapon->SetRelativeLocation(FVector::ZeroVector);
+    GuardWeapon->SetRelativeRotation(FRotator::ZeroRotator);
+    GuardWeapon->SetUsingAbsoluteRotation(true);
+    UpdateGuardWeaponTransform();
+}
+
+void ADerClueRuntimeDirector::BeginKillSequence()
+{
+    if (bKillSequenceStarted || !Guard || !Thief)
+    {
+        return;
+    }
+    bKillSequenceStarted = true;
+
+    if (GuardController)
+    {
+        GuardController->StopMovement();
+    }
+    if (UCharacterMovementComponent* Movement = Guard->GetCharacterMovement())
+    {
+        Movement->bOrientRotationToMovement = false;
+        Movement->StopMovementImmediately();
+    }
+    // Face the target before shooting; firing at a wall because the pursuit
+    // ended off-angle looks broken.
+    const FVector ToThief = Thief->GetActorLocation() - Guard->GetActorLocation();
+    Guard->SetActorRotation(FRotationMatrix::MakeFromX(
+        FVector(ToThief.X, ToThief.Y, 0.0f)).Rotator());
+
+    // Straight to the shot: no draw, no aim hold. He is already carrying it.
+    // Existing level instances can retain an older serialized property value,
+    // so an invalid override falls back to the known compatible complete pose.
+    UAnimSequence* Fire = PistolFireAnim.LoadSynchronous();
+    bool bShotPlayed = PlayGuardAnim(Fire, false);
+    if (!bShotPlayed)
+    {
+        Fire = LoadObject<UAnimSequence>(nullptr,
+            TEXT("/Game/Characters/Mannequins/Anims/Pistol/MM_Pistol_DryFire.MM_Pistol_DryFire"));
+        bShotPlayed = PlayGuardAnim(Fire, false);
+    }
+    if (!bShotPlayed)
+    {
+        UE_LOG(LogTemp, Error,
+            TEXT("DerClue animation: kill sequence aborted because no compatible non-additive shot could play."));
+        bKillSequenceStarted = false;
+        RestoreCharacterAnimationBlueprint(Guard);
+        return;
+    }
+    if (GEngine)
+    {
+        GEngine->AddOnScreenDebugMessage(7721, 3.0f, FColor::Red, TEXT("GUARD FIRES"));
+    }
+    const float ImpactDelay = Fire
+        ? FMath::Clamp(Fire->GetPlayLength() * 0.55f, 0.08f, 0.22f)
+        : 0.12f;
+    GetWorldTimerManager().SetTimer(KillStepTimer, this,
+        &ADerClueRuntimeDirector::KillDeathStep, ImpactDelay, false);
+}
+
+void ADerClueRuntimeDirector::KillDeathStep()
+{
+    if (!Thief)
+    {
+        return;
+    }
+    USkeletalMeshComponent* Mesh = Thief->GetMesh();
+    if (Mesh && Mesh->GetPhysicsAsset())
+    {
+        // Chaos ragdoll is skeleton-independent and preserves the actual body
+        // proportions. Playing a mannequin death on this actor looked like a
+        // crouch because only part of the foreign pose mapped cleanly.
+        if (UCapsuleComponent* Capsule = Thief->GetCapsuleComponent())
+        {
+            Capsule->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+        }
+        Mesh->SetCollisionProfileName(TEXT("Ragdoll"));
+        Mesh->SetAllBodiesSimulatePhysics(true);
+        Mesh->SetSimulatePhysics(true);
+        Mesh->WakeAllRigidBodies();
+        FVector ImpulseDirection = Thief->GetActorLocation() - Guard->GetActorLocation();
+        ImpulseDirection.Z = 0.0f;
+        ImpulseDirection = ImpulseDirection.GetSafeNormal();
+        Mesh->AddImpulse((ImpulseDirection * 19000.0f) + FVector(0.0f, 0.0f, 6500.0f),
+            NAME_None, true);
+        bThiefRagdollActive = true;
+    }
+    else if (UAnimSequence* Death = ThiefDeathAnim.LoadSynchronous())
+    {
+        // Fallback only for a character asset that has no Physics Asset.
+        if (Mesh && Death->GetAdditiveAnimType() == AAT_None &&
+            Mesh->GetSkeletalMeshAsset() && Mesh->GetSkeletalMeshAsset()->GetSkeleton() &&
+            Mesh->GetSkeletalMeshAsset()->GetSkeleton()->IsCompatibleForEditor(Death->GetSkeleton()))
+        {
+            Mesh->PlayAnimation(Death, false);
+        }
+        else
+        {
+            UE_LOG(LogTemp, Error,
+                TEXT("DerClue animation: thief has neither a usable Physics Asset nor a compatible death clip."));
+        }
+    }
+    // Movement off, so the corpse does not slide away under its own input.
+    if (UCharacterMovementComponent* Movement = Thief->GetCharacterMovement())
+    {
+        Movement->StopMovementImmediately();
+        Movement->DisableMovement();
+    }
+    MissionState = EDerClueMissionState::Failed;
+    SecurityState = EDerClueSecurityState::Lockdown;
+    if (GEngine)
+    {
+        GEngine->AddOnScreenDebugMessage(7722, 6.0f, FColor::Red, TEXT("MISSION FAILED - shot on sight"));
     }
 }
