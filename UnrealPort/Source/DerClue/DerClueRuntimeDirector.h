@@ -350,7 +350,7 @@ public:
     // lower body in its reference pose. Overriding three bones leaves the body
     // animation untouched and costs no AnimBP work.
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Guard|Arm")
-    bool bOverrideGuardArmPose = true;
+    bool bOverrideGuardArmPose = false;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Guard|Arm")
     FRotator GuardUpperArmPose = FRotator(-52.0f, 0.0f, 0.0f);

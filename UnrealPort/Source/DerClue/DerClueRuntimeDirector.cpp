@@ -2252,7 +2252,10 @@ void ADerClueRuntimeDirector::UpdateGuardArmPose(float DeltaSeconds)
 
 void ADerClueRuntimeDirector::BindGuardArmPose()
 {
-    USkeletalMeshComponent* Mesh = Guard ? Guard->GetMesh() : nullptr;
+    // While the override is off the mesh must be left exactly as the engine
+    // configured it. Disabling double buffering for a feature that is not
+    // running would change how every pose is published for no reason.
+    USkeletalMeshComponent* Mesh = (Guard && bOverrideGuardArmPose) ? Guard->GetMesh() : nullptr;
     if (GuardArmBoundMesh.Get() == Mesh)
     {
         return;
@@ -2261,6 +2264,7 @@ void ADerClueRuntimeDirector::BindGuardArmPose()
     if (USkeletalMeshComponent* Old = GuardArmBoundMesh.Get())
     {
         Old->UnregisterOnBoneTransformsFinalizedDelegate(GuardArmPoseHandle);
+        Old->SetComponentSpaceTransformsDoubleBuffering(true);
     }
     GuardArmBoundMesh = Mesh;
     GuardArmPoseHandle.Reset();
@@ -2326,7 +2330,7 @@ void ADerClueRuntimeDirector::ApplyGuardArmPoseToBones()
             }
             if (Walk == Bone)
             {
-                Pose[Child] = (Delta * Pose[Child]) * After;
+                Pose[Child] = (Pose[Child] * Delta) * After;
             }
         }
         Pose[Bone] = After;
