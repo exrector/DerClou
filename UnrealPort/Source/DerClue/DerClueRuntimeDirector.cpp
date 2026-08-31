@@ -449,11 +449,8 @@ void ADerClueRuntimeDirector::DiscoverLevelActors()
     Guard = Found.Num() > 0 ? Cast<ACharacter>(Found[0]) : nullptr;
     if (Guard && Guard->GetMesh())
     {
-        // The arm pose writes bones directly, and a write only survives if it
-        // lands after the mesh has evaluated its animation for the frame.
-        // Without this prerequisite the director might tick first and the
-        // animation would silently overwrite the pose every frame, which looks
-        // exactly like the feature not working at all.
+        // The weapon transform reads the hand bone, so the director must run
+        // after the mesh has evaluated its animation for the frame.
         AddTickPrerequisiteComponent(Guard->GetMesh());
         GuardArmLastYaw = Guard->GetActorRotation().Yaw;
     }
@@ -2226,19 +2223,13 @@ void ADerClueRuntimeDirector::LowerDioramaCamera()
 
 void ADerClueRuntimeDirector::UpdateGuardArmPose(float DeltaSeconds)
 {
-    if (!bOverrideGuardArmPose || !Guard)
-    {
-        return;
-    }
-
-    USkeletalMeshComponent* Mesh = Guard->GetMesh();
-    if (!Mesh || !Mesh->GetSkeletalMeshAsset())
+    if (!Guard)
     {
         return;
     }
 
     // Two sine waves whose periods do not divide into each other, so the arm
-    // never returns to exactly the same place on a fixed beat.
+    // never returns to the same place on a fixed beat.
     GuardArmSwayPhase += DeltaSeconds * GuardArmSwaySpeed;
     const float SwayYaw = FMath::Sin(GuardArmSwayPhase) * GuardArmSwayYaw;
     const float SwayPitch = FMath::Sin(GuardArmSwayPhase * 1.7f) * GuardArmSwayPitch;
@@ -2247,26 +2238,108 @@ void ADerClueRuntimeDirector::UpdateGuardArmPose(float DeltaSeconds)
     // the chest and the guard reads as a turret rather than someone looking
     // around with a light in his hand.
     const float Yaw = Guard->GetActorRotation().Yaw;
-    const float YawDelta = FMath::FindDeltaAngleDegrees(GuardArmLastYaw, Yaw);
+    GuardArmTurnLag = FMath::FInterpTo(
+        GuardArmTurnLag + FMath::FindDeltaAngleDegrees(GuardArmLastYaw, Yaw),
+        0.0f, DeltaSeconds, 3.0f);
     GuardArmLastYaw = Yaw;
-    GuardArmTurnLag = FMath::FInterpTo(GuardArmTurnLag + YawDelta, 0.0f, DeltaSeconds, 3.0f);
     const float FollowYaw = FMath::Clamp(-GuardArmTurnLag * GuardArmFollowTurn, -35.0f, 35.0f);
 
-    // Component space, not world: these are the bone's own local axes, which is
-    // what the pose values above are expressed in.
-    const FRotator UpperArm(GuardUpperArmPose.Pitch + SwayPitch,
-                            GuardUpperArmPose.Yaw + SwayYaw + FollowYaw,
-                            GuardUpperArmPose.Roll);
+    GuardArmResolvedUpperArm = FRotator(GuardUpperArmPose.Pitch + SwayPitch,
+                                        GuardUpperArmPose.Yaw + SwayYaw + FollowYaw,
+                                        GuardUpperArmPose.Roll);
+    BindGuardArmPose();
+}
 
-    // Written after the mesh has evaluated its animation this frame, so the
-    // body animation still plays and only these three bones are replaced.
-    // Order matters: parent before child, or the child inherits a stale parent.
-    Mesh->SetBoneRotationByName(TEXT("upperarm_r"), UpperArm, EBoneSpaces::ComponentSpace);
-    Mesh->SetBoneRotationByName(TEXT("lowerarm_r"), GuardLowerArmPose, EBoneSpaces::ComponentSpace);
+void ADerClueRuntimeDirector::BindGuardArmPose()
+{
+    USkeletalMeshComponent* Mesh = Guard ? Guard->GetMesh() : nullptr;
+    if (GuardArmBoundMesh.Get() == Mesh)
+    {
+        return;
+    }
+
+    if (USkeletalMeshComponent* Old = GuardArmBoundMesh.Get())
+    {
+        Old->UnregisterOnBoneTransformsFinalizedDelegate(GuardArmPoseHandle);
+    }
+    GuardArmBoundMesh = Mesh;
+    GuardArmPoseHandle.Reset();
+    if (!Mesh)
+    {
+        return;
+    }
+
+    // The finalized pose lives in whichever buffer was just flipped to "read".
+    // With double buffering on, the editable array the callback can reach is
+    // the NEXT frame's, so an override written there would be discarded before
+    // it is ever drawn. Turning it off collapses both to one array, which is
+    // what makes writing from the callback take effect at all.
+    Mesh->SetComponentSpaceTransformsDoubleBuffering(false);
+    GuardArmPoseHandle = Mesh->RegisterOnBoneTransformsFinalizedDelegate(
+        FOnBoneTransformsFinalizedMultiCast::FDelegate::CreateUObject(
+            this, &ADerClueRuntimeDirector::ApplyGuardArmPoseToBones));
+}
+
+void ADerClueRuntimeDirector::ApplyGuardArmPoseToBones()
+{
+    USkeletalMeshComponent* Mesh = GuardArmBoundMesh.Get();
+    if (!bOverrideGuardArmPose || !Mesh || !Mesh->GetSkinnedAsset())
+    {
+        return;
+    }
+
+    const FReferenceSkeleton& Ref = Mesh->GetSkinnedAsset()->GetRefSkeleton();
+    TArray<FTransform>& Pose = Mesh->GetEditableComponentSpaceTransforms();
+
+    // Component-space transforms are absolute per bone, not relative to the
+    // parent. Rotating a bone therefore leaves its children behind unless the
+    // same change is carried down the chain by hand.
+    auto RotateChain = [&Ref, &Pose](FName BoneName, const FRotator& Local)
+    {
+        const int32 Bone = Ref.FindBoneIndex(BoneName);
+        if (Bone == INDEX_NONE || !Pose.IsValidIndex(Bone))
+        {
+            return;
+        }
+
+        const FTransform Before = Pose[Bone];
+        const int32 Parent = Ref.GetParentIndex(Bone);
+        const FTransform ParentTM = Pose.IsValidIndex(Parent) ? Pose[Parent] : FTransform::Identity;
+
+        FTransform After = Before;
+        After.SetRotation(ParentTM.GetRotation() * Local.Quaternion());
+        if (After.GetRotation().Equals(Before.GetRotation()))
+        {
+            return;
+        }
+
+        // Everything under this bone keeps its position relative to it.
+        const FTransform Delta = Before.Inverse();
+        for (int32 Child = Bone + 1; Child < Pose.Num(); ++Child)
+        {
+            // The reference skeleton is stored parent-before-child, so walking
+            // upwards is enough to know whether Child sits under Bone.
+            int32 Walk = Ref.GetParentIndex(Child);
+            while (Walk != INDEX_NONE && Walk > Bone)
+            {
+                Walk = Ref.GetParentIndex(Walk);
+            }
+            if (Walk == Bone)
+            {
+                Pose[Child] = (Delta * Pose[Child]) * After;
+            }
+        }
+        Pose[Bone] = After;
+    };
+
+    RotateChain(TEXT("upperarm_r"), GuardArmResolvedUpperArm);
+    RotateChain(TEXT("lowerarm_r"), GuardLowerArmPose);
     if (!GuardHandPose.IsNearlyZero())
     {
-        Mesh->SetBoneRotationByName(TEXT("hand_r"), GuardHandPose, EBoneSpaces::ComponentSpace);
+        RotateChain(TEXT("hand_r"), GuardHandPose);
     }
+
+    Mesh->MarkRenderDynamicDataDirty();
 }
 
 void ADerClueRuntimeDirector::UpdateGuardWeaponTransform()

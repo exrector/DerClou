@@ -577,14 +577,25 @@ private:
     void LowerDioramaCamera();
     void UpdateGuardWeaponTransform();
 
-    // Writes the three arm bones after the mesh has evaluated its animation.
+    // Advances the sway and turn-lag values. The bones themselves are written
+    // later, from the mesh's own finalize callback.
     void UpdateGuardArmPose(float DeltaSeconds);
+
+    // Hooks/unhooks the finalize callback on the guard's mesh.
+    void BindGuardArmPose();
+
+    // Rewrites the arm bones in the finalized component-space pose.
+    void ApplyGuardArmPoseToBones();
 
     // Running phase for the sway, and the guard's yaw last frame so the arm
     // can lag behind a turn instead of snapping with it.
     float GuardArmSwayPhase = 0.0f;
     float GuardArmLastYaw = 0.0f;
     float GuardArmTurnLag = 0.0f;
+    // Resolved once per frame in UpdateGuardArmPose, consumed by the callback.
+    FRotator GuardArmResolvedUpperArm = FRotator::ZeroRotator;
+    FDelegateHandle GuardArmPoseHandle;
+    TWeakObjectPtr<class USkeletalMeshComponent> GuardArmBoundMesh;
     void UpdateSmartObjectMenu();
     bool PlayGuardAnim(class UAnimSequence* Sequence, bool bLoop);
     void PlayGuardActivityAnimation(EDerClueGuardActivity Activity);
