@@ -127,6 +127,7 @@ void ADerClueRuntimeDirector::Tick(float DeltaSeconds)
     // Camera ownership is intentionally left to Unreal's native debug camera.
     // The previous custom orbit fought mouse focus, UMG and the player's view
     // target every frame.
+    UpdateGuardArmPose(DeltaSeconds);
     UpdateGuardWeaponTransform();
     UpdateCameras(DeltaSeconds);
     UpdateVision();
@@ -446,6 +447,16 @@ void ADerClueRuntimeDirector::DiscoverLevelActors()
     TArray<AActor*> Found;
     UGameplayStatics::GetAllActorsWithTag(this, GuardTag, Found);
     Guard = Found.Num() > 0 ? Cast<ACharacter>(Found[0]) : nullptr;
+    if (Guard && Guard->GetMesh())
+    {
+        // The arm pose writes bones directly, and a write only survives if it
+        // lands after the mesh has evaluated its animation for the frame.
+        // Without this prerequisite the director might tick first and the
+        // animation would silently overwrite the pose every frame, which looks
+        // exactly like the feature not working at all.
+        AddTickPrerequisiteComponent(Guard->GetMesh());
+        GuardArmLastYaw = Guard->GetActorRotation().Yaw;
+    }
     Found.Reset();
     UGameplayStatics::GetAllActorsWithTag(this, ThiefTag, Found);
     ACharacter* TaggedThief = Found.Num() > 0 ? Cast<ACharacter>(Found[0]) : nullptr;
@@ -2211,6 +2222,51 @@ void ADerClueRuntimeDirector::RaiseDioramaCamera()
 void ADerClueRuntimeDirector::LowerDioramaCamera()
 {
     DioramaCameraHeight = FMath::Clamp(DioramaCameraHeight - 180.0f, 100.0f, 6000.0f);
+}
+
+void ADerClueRuntimeDirector::UpdateGuardArmPose(float DeltaSeconds)
+{
+    if (!bOverrideGuardArmPose || !Guard)
+    {
+        return;
+    }
+
+    USkeletalMeshComponent* Mesh = Guard->GetMesh();
+    if (!Mesh || !Mesh->GetSkeletalMeshAsset())
+    {
+        return;
+    }
+
+    // Two sine waves whose periods do not divide into each other, so the arm
+    // never returns to exactly the same place on a fixed beat.
+    GuardArmSwayPhase += DeltaSeconds * GuardArmSwaySpeed;
+    const float SwayYaw = FMath::Sin(GuardArmSwayPhase) * GuardArmSwayYaw;
+    const float SwayPitch = FMath::Sin(GuardArmSwayPhase * 1.7f) * GuardArmSwayPitch;
+
+    // The arm lags the body through a turn. Without this the beam is welded to
+    // the chest and the guard reads as a turret rather than someone looking
+    // around with a light in his hand.
+    const float Yaw = Guard->GetActorRotation().Yaw;
+    const float YawDelta = FMath::FindDeltaAngleDegrees(GuardArmLastYaw, Yaw);
+    GuardArmLastYaw = Yaw;
+    GuardArmTurnLag = FMath::FInterpTo(GuardArmTurnLag + YawDelta, 0.0f, DeltaSeconds, 3.0f);
+    const float FollowYaw = FMath::Clamp(-GuardArmTurnLag * GuardArmFollowTurn, -35.0f, 35.0f);
+
+    // Component space, not world: these are the bone's own local axes, which is
+    // what the pose values above are expressed in.
+    const FRotator UpperArm(GuardUpperArmPose.Pitch + SwayPitch,
+                            GuardUpperArmPose.Yaw + SwayYaw + FollowYaw,
+                            GuardUpperArmPose.Roll);
+
+    // Written after the mesh has evaluated its animation this frame, so the
+    // body animation still plays and only these three bones are replaced.
+    // Order matters: parent before child, or the child inherits a stale parent.
+    Mesh->SetBoneRotationByName(TEXT("upperarm_r"), UpperArm, EBoneSpaces::ComponentSpace);
+    Mesh->SetBoneRotationByName(TEXT("lowerarm_r"), GuardLowerArmPose, EBoneSpaces::ComponentSpace);
+    if (!GuardHandPose.IsNearlyZero())
+    {
+        Mesh->SetBoneRotationByName(TEXT("hand_r"), GuardHandPose, EBoneSpaces::ComponentSpace);
+    }
 }
 
 void ADerClueRuntimeDirector::UpdateGuardWeaponTransform()

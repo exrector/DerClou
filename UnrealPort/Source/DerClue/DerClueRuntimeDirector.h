@@ -343,6 +343,40 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Guard")
     FVector WeaponGripOffset = FVector(-3.0f, 5.0f, -2.0f);
 
+    // --- Arm pose ---------------------------------------------------------
+    // The arm is posed directly on the bones instead of through an animation.
+    // Every flashlight animation in the project sits on a first-person arms
+    // skeleton that has no legs, so playing one whole would freeze the guard's
+    // lower body in its reference pose. Overriding three bones leaves the body
+    // animation untouched and costs no AnimBP work.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Guard|Arm")
+    bool bOverrideGuardArmPose = true;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Guard|Arm")
+    FRotator GuardUpperArmPose = FRotator(-52.0f, 0.0f, 0.0f);
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Guard|Arm")
+    FRotator GuardLowerArmPose = FRotator(-38.0f, 0.0f, 0.0f);
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Guard|Arm")
+    FRotator GuardHandPose = FRotator(0.0f, 0.0f, 0.0f);
+
+    // How far the arm drifts, in degrees, and how fast. Two sine waves of
+    // different periods keep it from reading as a metronome.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Guard|Arm")
+    float GuardArmSwayYaw = 6.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Guard|Arm")
+    float GuardArmSwayPitch = 3.5f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Guard|Arm")
+    float GuardArmSwaySpeed = 1.15f;
+
+    // How much of the guard's own turning the arm follows. The arm lags the
+    // body, so a turn throws the beam wide before it settles back.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Guard|Arm")
+    float GuardArmFollowTurn = 0.45f;
+
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Guard")
     // Correction from the hand bone's axes to the weapon mesh's. This value
     // was dialled by eye for the old first-person gun (barrel on local +Y).
@@ -542,6 +576,15 @@ private:
     void RaiseDioramaCamera();
     void LowerDioramaCamera();
     void UpdateGuardWeaponTransform();
+
+    // Writes the three arm bones after the mesh has evaluated its animation.
+    void UpdateGuardArmPose(float DeltaSeconds);
+
+    // Running phase for the sway, and the guard's yaw last frame so the arm
+    // can lag behind a turn instead of snapping with it.
+    float GuardArmSwayPhase = 0.0f;
+    float GuardArmLastYaw = 0.0f;
+    float GuardArmTurnLag = 0.0f;
     void UpdateSmartObjectMenu();
     bool PlayGuardAnim(class UAnimSequence* Sequence, bool bLoop);
     void PlayGuardActivityAnimation(EDerClueGuardActivity Activity);
