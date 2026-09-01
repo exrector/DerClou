@@ -28,3 +28,19 @@ The game is not intended to be a clone. It carries forward the high-level design
 The Unreal prototype is under active development. The present milestone focuses on proving the first complete visual gameplay loop before production art and content expansion.
 
 This is an independent project with original code, content direction and game design. It is not affiliated with the creators or publishers of the referenced games.
+
+## AI-assisted development
+
+This is also a practical experiment in **AI-assisted solo game development**. Codex is used throughout the project for repository-scale code exploration, architecture work, Unreal/C++ implementation, debugging, refactoring, migration work and technical documentation.
+
+The repository remains public so the project's engineering history can be inspected directly: native Apple/RealityKit experiments, the Unity implementation, the Unreal migration and the ongoing production code all remain visible instead of being reduced to a polished final snapshot.
+
+## License
+
+The **original source code authored for this project** is released under the [MIT License](LICENSE).
+
+Third-party assets are **not** relicensed by this repository. Art, audio, character models, animations, engine content, plugins, trademarks and other third-party material remain subject to their respective owners' licenses and terms unless a file explicitly states otherwise.
+
+## P.S.
+
+A candid development note: Claude Code has frustrated me enough that there are days when I genuinely want to throw the laptop out of an eleventh-floor window. Codex is the tool I actually want to keep building this game with.
