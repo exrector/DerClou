@@ -152,7 +152,7 @@ public:
     float PatrolCornerInset = 180.0f;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Actors")
-    float ThiefMoveSpeed = 260.0f;
+    float ThiefMoveSpeed = 293.0f;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Camera")
     float CameraSweepHalfAngle = 42.0f;
