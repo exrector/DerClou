@@ -26,6 +26,8 @@
 #include "Camera/CameraActor.h"
 #include "Components/InputComponent.h"
 #include "DerClueSmartObjectMenu.h"
+#include "Animation/AnimInstance.h"
+#include "Animation/AnimMontage.h"
 #include "Animation/AnimSequence.h"
 #include "Animation/Skeleton.h"
 #include "Engine/SkeletalMesh.h"
@@ -126,7 +128,18 @@ void ADerClueRuntimeDirector::Tick(float DeltaSeconds)
     // Camera ownership is intentionally left to Unreal's native debug camera.
     // The previous custom orbit fought mouse focus, UMG and the player's view
     // target every frame.
-    UpdateGuardArmPose(DeltaSeconds);
+    // The authored Animation Blueprint owns the whole body during ordinary
+    // play.  The optional arm experiment is deliberately dormant unless it is
+    // enabled on the director; otherwise even its finalize delegate must stay
+    // away from the locomotion pose.
+    if (bOverrideGuardArmPose)
+    {
+        UpdateGuardArmPose(DeltaSeconds);
+    }
+    else if (GuardArmBoundMesh.IsValid())
+    {
+        BindGuardArmPose();
+    }
     UpdateGuardWeaponTransform();
     UpdateCameras(DeltaSeconds);
     UpdateVision();
@@ -2352,19 +2365,20 @@ void ADerClueRuntimeDirector::UpdateGuardWeaponTransform()
         return;
     }
 
-    // Position follows the animated right hand, while orientation follows the
-    // guard. WeaponGripRotation carries the correction from the hand bone's
-    // axes to the weapon mesh's own; it was dialled for the old first-person
-    // gun and may need re-dialling now that the mesh is the M1911, whose
-    // authored barrel axis has not been verified.
-    // Both position AND orientation now come from the animated right hand.
-    // Taking the rotation from the actor instead was why the weapon only ever
-    // looked right while aiming: aiming happens to align body and hand, so the
-    // error was invisible exactly when it was easiest to check, and the gun sat
-    // crooked in every other pose.
+    // Position AND orientation both come from the animated right hand, not
+    // the actor. Taking rotation from the actor instead was why the weapon
+    // only ever looked right while aiming: aiming happens to align body and
+    // hand, so the error was invisible exactly when it was easiest to check,
+    // and the gun sat crooked in every other pose.
+    //
+    // WeaponGripOffset is applied in the HAND BONE's own local axes (rotated
+    // into world space by HandTransform's rotation, not the mesh's own,
+    // separately-corrected rotation) -- it nudges the grip point, it does not
+    // need to account for WeaponGripRotation's correction on top of it.
     const USkeletalMeshComponent* Mesh = Guard->GetMesh();
     const FTransform HandTransform = Mesh->GetSocketTransform(TEXT("hand_r"), RTS_World);
-    GuardWeapon->SetWorldLocation(HandTransform.GetLocation());
+    const FVector WorldOffset = HandTransform.GetRotation().RotateVector(WeaponGripOffset);
+    GuardWeapon->SetWorldLocation(HandTransform.GetLocation() + WorldOffset);
     GuardWeapon->SetWorldRotation(HandTransform.GetRotation() * WeaponGripRotation.Quaternion());
     // The M1911 is authored at real sidearm scale, so unlike the oversized
     // first-person gun it needs no shrinking to read as a pistol in the hand.
@@ -2506,11 +2520,31 @@ bool ADerClueRuntimeDirector::PlayGuardAnim(UAnimSequence* Sequence, bool bLoop)
                 *Sequence->GetPathName(), *Mesh->GetSkeletalMeshAsset()->GetPathName());
             return false;
         }
-        // PlayAnimation switches the component to single-node playback, which
-        // is what lets one authored sequence run end to end without building a
-        // montage or a second animation blueprint for a three-shot demo.
-        Mesh->PlayAnimation(Sequence, bLoop);
-        return true;
+        // Never call USkeletalMeshComponent::PlayAnimation here.  It changes
+        // AnimationMode to AnimationSingleNode and disconnects the locomotion
+        // state machine; after the shot the capsule continues moving while the
+        // legs remain in (or blend out of) the one-off pose.  The guard AnimBP
+        // has Unreal's standard DefaultSlot, so a dynamic montage can layer a
+        // one-shot action over the same continuously evaluated locomotion
+        // graph and blend cleanly back to it.
+        if (Mesh->GetAnimationMode() != EAnimationMode::AnimationBlueprint)
+        {
+            Mesh->SetAnimationMode(EAnimationMode::AnimationBlueprint, true);
+        }
+        UAnimInstance* AnimInstance = Mesh->GetAnimInstance();
+        if (!AnimInstance)
+        {
+            UE_LOG(LogTemp, Error,
+                TEXT("DerClue animation: guard has no Animation Blueprint instance for montage '%s'."),
+                *Sequence->GetPathName());
+            return false;
+        }
+        constexpr float BlendInSeconds = 0.12f;
+        constexpr float BlendOutSeconds = 0.18f;
+        const int32 LoopCount = bLoop ? 999 : 1;
+        return AnimInstance->PlaySlotAnimationAsDynamicMontage(
+            Sequence, TEXT("DefaultSlot"), BlendInSeconds, BlendOutSeconds,
+            1.0f, LoopCount) != nullptr;
     }
     return false;
 }
@@ -2530,7 +2564,11 @@ void ADerClueRuntimeDirector::RestoreCharacterAnimationBlueprint(ACharacter* Cha
     {
         if (USkeletalMeshComponent* Mesh = Character->GetMesh())
         {
-            Mesh->SetAnimationMode(EAnimationMode::AnimationBlueprint);
+            if (UAnimInstance* AnimInstance = Mesh->GetAnimInstance())
+            {
+                AnimInstance->Montage_Stop(0.15f);
+            }
+            Mesh->SetAnimationMode(EAnimationMode::AnimationBlueprint, true);
         }
     }
 }
@@ -2691,7 +2729,6 @@ void ADerClueRuntimeDirector::BeginKillSequence()
     if (UCharacterMovementComponent* Movement = Guard->GetCharacterMovement())
     {
         Movement->bOrientRotationToMovement = false;
-        Movement->StopMovementImmediately();
     }
     // Face the target before shooting; firing at a wall because the pursuit
     // ended off-angle looks broken.
@@ -2699,7 +2736,56 @@ void ADerClueRuntimeDirector::BeginKillSequence()
     Guard->SetActorRotation(FRotationMatrix::MakeFromX(
         FVector(ToThief.X, ToThief.Y, 0.0f)).Rotator());
 
-    // Straight to the shot: no draw, no aim hold. He is already carrying it.
+    // Give the locomotion Blend Space one short blend window to reach idle
+    // before the full-body fire montage starts.  Starting the shot on the same
+    // frame as an AI path abort was the visible "walking, then frozen legs"
+    // discontinuity.  The weapon is already carried, so this is a settle beat,
+    // not a draw -- the actual raise happens in GuardAimBeforeKillStep next.
+    GetWorldTimerManager().SetTimer(KillStepTimer, this,
+        &ADerClueRuntimeDirector::GuardAimBeforeKillStep, 0.18f, false);
+}
+
+void ADerClueRuntimeDirector::GuardAimBeforeKillStep()
+{
+    if (!bKillSequenceStarted || !Guard || !Thief)
+    {
+        return;
+    }
+
+    // The target may have kept moving during the settle beat; face where it
+    // actually is before raising the arm, not the point that ended pursuit.
+    const FVector ToThief = Thief->GetActorLocation() - Guard->GetActorLocation();
+    Guard->SetActorRotation(FRotationMatrix::MakeFromX(
+        FVector(ToThief.X, ToThief.Y, 0.0f)).Rotator());
+
+    UAnimSequence* Aim = PistolAimAnim.LoadSynchronous();
+    PlayGuardAnim(Aim, false);
+    if (GEngine)
+    {
+        GEngine->AddOnScreenDebugMessage(7722, 2.0f, FColor::Cyan, TEXT("Guard: raising weapon"));
+    }
+
+    // A held aim reads as a marksman standoff; a guard reacting to a sighting
+    // raises and fires in one beat. The hold is just long enough for the pose
+    // to read as a deliberate raise instead of a flash-cut to the muzzle.
+    const float AimHold = Aim ? FMath::Clamp(Aim->GetPlayLength() * 0.5f, 0.15f, 0.45f) : 0.3f;
+    GetWorldTimerManager().SetTimer(KillStepTimer, this,
+        &ADerClueRuntimeDirector::GuardShootKillStep, AimHold, false);
+}
+
+void ADerClueRuntimeDirector::GuardShootKillStep()
+{
+    if (!bKillSequenceStarted || !Guard || !Thief)
+    {
+        return;
+    }
+
+    // The target may still be moving during the settle frame. Face its current
+    // position, not the stale point that originally ended the pursuit.
+    const FVector ToThief = Thief->GetActorLocation() - Guard->GetActorLocation();
+    Guard->SetActorRotation(FRotationMatrix::MakeFromX(
+        FVector(ToThief.X, ToThief.Y, 0.0f)).Rotator());
+
     // Existing level instances can retain an older serialized property value,
     // so an invalid override falls back to the known compatible complete pose.
     UAnimSequence* Fire = PistolFireAnim.LoadSynchronous();

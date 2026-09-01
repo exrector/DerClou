@@ -134,13 +134,18 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Patrol")
     // An unhurried walking round. A patrol that hurries reads as a guard already
     // looking for someone, and it leaves the thief no room to time anything.
-    // 150 exactly, because BS_Idle_Walk_Run has its samples on 0/150/300/450/600
-    // and nothing in between. At 90 the graph blended 60% idle with 40% walk,
-    // which reads as a standing robot twitching its heels rather than walking.
-    // Anything slower than 150 degrades toward the idle pose for the same
-    // reason -- a slower stroll needs a new sample in the blend space, not a
-    // smaller number here.
-    float GuardPatrolSpeed = 150.0f;
+    // 65 exactly, because it is a SAMPLE POSITION, not a tuned number: the
+    // Walk slot in ABP_Guard's locomotion override was swapped from the
+    // Robot_scout_R_21 pack's own ThirdPersonWalk (a stiff ~1s demo clip) to
+    // MCO_Mocap_Basics' Walk_06_Look_Around_Loop_IP, a full mocap cycle
+    // measured at 139.3 cm/s from root bone displacement, rate-scaled to
+    // 0.4666 and re-sampled at 65 in that same blendspace edit. The speed and
+    // the sample position were changed together on purpose -- landing exactly
+    // on the sample means zero blend error, same reasoning as the 93.75 it
+    // replaced. Off that sample the graph blends toward Idle, same as any
+    // blendspace -- a different pace needs a new sample, not a smaller number
+    // here.
+    float GuardPatrolSpeed = 65.0f;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Patrol")
     float GuardInvestigationSpeed = 190.0f;
@@ -173,9 +178,10 @@ public:
     float CaptureDistance = 115.0f;
 
     // He runs the intercept, he does not stroll it. Patrol pace is a decision
-    // the thief can time; a sighting is not.
+    // the thief can time; a sighting is not. 375 is the pack's own Run sample
+    // in ThirdPerson_IdleRun_2D, same reasoning as GuardPatrolSpeed above.
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Security")
-    float GuardPursuitSpeed = 480.0f;
+    float GuardPursuitSpeed = 375.0f;
 
     // Stops here and shoots instead of walking into the thief. Closing all the
     // way looked like a shove rather than an execution.
@@ -338,10 +344,12 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Guard")
     TSoftObjectPtr<class UAnimSequence> GuardIdleWeaponAnim;
 
-    // Where the weapon sits in the hand. The robot ships no sockets, so it is
-    // attached to hand_r directly and nudged into the grip by these.
+    // Where the weapon sits in the hand, as a local offset from hand_r in the
+    // hand bone's own axes. Zero until measured otherwise: the M1911's own
+    // pivot (see WeaponGripRotation below) already sits close to a natural
+    // grip point, so no nudge was needed once the rotation was corrected.
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Guard")
-    FVector WeaponGripOffset = FVector(-3.0f, 5.0f, -2.0f);
+    FVector WeaponGripOffset = FVector::ZeroVector;
 
     // --- Arm pose ---------------------------------------------------------
     // The arm is posed directly on the bones instead of through an animation.
@@ -378,10 +386,23 @@ public:
     float GuardArmFollowTurn = 0.45f;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Guard")
-    // Correction from the hand bone's axes to the weapon mesh's. This value
-    // was dialled by eye for the old first-person gun (barrel on local +Y).
-    // The mesh is now SK_Revolver, so expect to re-dial it in the level.
-    FRotator WeaponGripRotation = FRotator(0.0f, -90.0f, 0.0f);
+    // Correction from the hand bone's local axes to the weapon mesh's, applied
+    // as HandRotation * WeaponGripRotation. Measured, not guessed: placing
+    // Rigged_M1911 at identity rotation and reading its world bounds gives
+    // X -15.59..7.68, Y -1.56..1.68, Z 192.07..206.50 (offset by the 200cm
+    // probe height) -- long and thin along X, meaning the barrel runs along
+    // the mesh's own local -X, with the pivot sitting near the shorter +X
+    // side (the grip end). The two earlier weapons on this rig (SK_FPGun,
+    // then SK_Revolver) both had their barrel on local +Y and needed Yaw(-90)
+    // to map +Y onto the hand bone's own local +X (its established pointing
+    // axis, confirmed by both of those working correctly once dialled).
+    // Yaw(180) is the equivalent correction for a barrel on -X instead: it
+    // maps local -X to local +X, same target axis, different starting point.
+    // Not verified with a screenshot -- computer-use was off the table when
+    // this was written. If the pistol reads wrong in Play, that is the first
+    // number to hand-correct, from the guard's own point of view (forward /
+    // back / left / right / up / down), not the camera's.
+    FRotator WeaponGripRotation = FRotator(0.0f, 180.0f, 0.0f);
 
     // The menu's rows, also reachable from the number keys.
     UFUNCTION(BlueprintCallable, Category="DerClue|Interaction")
@@ -604,6 +625,12 @@ private:
     void GuardFireStep();
     void GuardFinishStep();
     void BeginKillSequence();
+    // The raise: arm comes up and holds the aim pose before the shot fires.
+    // BeginKillSequence used to hand off straight to GuardShootKillStep, so
+    // the guard's arm snapped from carried to firing on the same frame -- the
+    // gun went off before it was ever visibly raised.
+    void GuardAimBeforeKillStep();
+    void GuardShootKillStep();
     void KillDeathStep();
     void EquipGuardWeapon();
     void EnsureCoreActors();
