@@ -50,13 +50,12 @@ ADerClueRuntimeDirector::ADerClueRuntimeDirector()
     // construction, keeps the actor working without per-level wiring, and stays
     // overridable per instance in the level.
     SmartObjectMenuClass = UDerClueSmartObjectMenu::StaticClass();
-    // A revolver, not the futuristic first-person gun. It matters beyond looks:
-    // the Interaction pack ships genuinely ONE-HANDED revolver animations, so
-    // the weapon and the poses below finally agree with each other. Every
-    // pistol animation found anywhere else in the project is two-handed, which
-    // is why the guard kept holding an invisible second grip.
+    // One pistol in the right hand, matching what the level actually carries.
+    // Note this default is mostly informational: EquipGuardWeapon adopts the
+    // GuardWeapon component authored in the level, mesh and all, so changing
+    // this value alone does not change what the guard holds.
     GuardWeaponMesh = TSoftObjectPtr<USkeletalMesh>(FSoftObjectPath(
-        TEXT("/Game/Interaction/Weapons/Revolver/Meshes/SK_Revolver.SK_Revolver")));
+        TEXT("/Game/M1911/Meshes/SkeletalMesh/Rigged_M1911.Rigged_M1911")));
     // Both were rifle poses before: two hands on the weapon, left arm raised to
     // a foregrip that a revolver does not have. A_Revolver_Stand is the real
     // one-handed ready stance, so the left arm hangs by itself with no bone
@@ -2356,7 +2355,7 @@ void ADerClueRuntimeDirector::UpdateGuardWeaponTransform()
     // Position follows the animated right hand, while orientation follows the
     // guard. WeaponGripRotation carries the correction from the hand bone's
     // axes to the weapon mesh's own; it was dialled for the old first-person
-    // gun and may need re-dialling now that the mesh is SK_Revolver, whose
+    // gun and may need re-dialling now that the mesh is the M1911, whose
     // authored barrel axis has not been verified.
     // Both position AND orientation now come from the animated right hand.
     // Taking the rotation from the actor instead was why the weapon only ever
@@ -2367,7 +2366,7 @@ void ADerClueRuntimeDirector::UpdateGuardWeaponTransform()
     const FTransform HandTransform = Mesh->GetSocketTransform(TEXT("hand_r"), RTS_World);
     GuardWeapon->SetWorldLocation(HandTransform.GetLocation());
     GuardWeapon->SetWorldRotation(HandTransform.GetRotation() * WeaponGripRotation.Quaternion());
-    // SK_Revolver is authored at real sidearm scale, so unlike the oversized
+    // The M1911 is authored at real sidearm scale, so unlike the oversized
     // first-person gun it needs no shrinking to read as a pistol in the hand.
     GuardWeapon->SetWorldScale3D(FVector(1.0f));
 }
