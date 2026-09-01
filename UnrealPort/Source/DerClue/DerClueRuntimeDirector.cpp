@@ -53,11 +53,16 @@ ADerClueRuntimeDirector::ADerClueRuntimeDirector()
     // overridable per instance in the level.
     SmartObjectMenuClass = UDerClueSmartObjectMenu::StaticClass();
     // One pistol in the right hand, matching what the level actually carries.
+    // SK_Revolver, not the M1911: PistolAimAnim below (A_Revolver_Stand) is a
+    // hand pose sculpted by the same pack specifically to hold this mesh, so
+    // it is the one pairing in the project where the grip is guaranteed to
+    // match the weapon rather than approximated by rotating a generic mesh
+    // into a hand shaped for something else.
     // Note this default is mostly informational: EquipGuardWeapon adopts the
     // GuardWeapon component authored in the level, mesh and all, so changing
     // this value alone does not change what the guard holds.
     GuardWeaponMesh = TSoftObjectPtr<USkeletalMesh>(FSoftObjectPath(
-        TEXT("/Game/M1911/Meshes/SkeletalMesh/Rigged_M1911.Rigged_M1911")));
+        TEXT("/Game/Interaction/Weapons/Revolver/Meshes/SK_Revolver.SK_Revolver")));
     // Both were rifle poses before: two hands on the weapon, left arm raised to
     // a foregrip that a revolver does not have. A_Revolver_Stand is the real
     // one-handed ready stance, so the left arm hangs by itself with no bone
@@ -2380,8 +2385,9 @@ void ADerClueRuntimeDirector::UpdateGuardWeaponTransform()
     const FVector WorldOffset = HandTransform.GetRotation().RotateVector(WeaponGripOffset);
     GuardWeapon->SetWorldLocation(HandTransform.GetLocation() + WorldOffset);
     GuardWeapon->SetWorldRotation(HandTransform.GetRotation() * WeaponGripRotation.Quaternion());
-    // The M1911 is authored at real sidearm scale, so unlike the oversized
-    // first-person gun it needs no shrinking to read as a pistol in the hand.
+    // SK_Revolver measures ~39.5cm barrel-to-grip at identity scale (see
+    // WeaponGripRotation's comment) -- a plausible large-frame revolver, not
+    // the old first-person gun's oversized silhouette, so no shrinking needed.
     GuardWeapon->SetWorldScale3D(FVector(1.0f));
 }
 

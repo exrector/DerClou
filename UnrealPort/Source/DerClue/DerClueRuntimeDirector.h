@@ -388,21 +388,21 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="DerClue|Guard")
     // Correction from the hand bone's local axes to the weapon mesh's, applied
     // as HandRotation * WeaponGripRotation. Measured, not guessed: placing
-    // Rigged_M1911 at identity rotation and reading its world bounds gives
-    // X -15.59..7.68, Y -1.56..1.68, Z 192.07..206.50 (offset by the 200cm
-    // probe height) -- long and thin along X, meaning the barrel runs along
-    // the mesh's own local -X, with the pivot sitting near the shorter +X
-    // side (the grip end). The two earlier weapons on this rig (SK_FPGun,
-    // then SK_Revolver) both had their barrel on local +Y and needed Yaw(-90)
-    // to map +Y onto the hand bone's own local +X (its established pointing
-    // axis, confirmed by both of those working correctly once dialled).
-    // Yaw(180) is the equivalent correction for a barrel on -X instead: it
-    // maps local -X to local +X, same target axis, different starting point.
+    // SK_Revolver at identity rotation and reading its world bounds gives
+    // X -2.50..2.50, Y -5.63..33.90, Z 194.59..212.89 (offset by the 200cm
+    // probe height) -- long and thin along Y, meaning the barrel runs along
+    // the mesh's own local +Y, with the pivot sitting near the short -Y side
+    // (the grip end) and low in Z (the grip's base, cylinder and barrel
+    // extending up and out from it) -- an entirely ordinary handgun rig, pivot
+    // at the hold point. Yaw(-90) maps that local +Y onto the hand bone's own
+    // local +X, its established pointing axis on this rig (first confirmed
+    // correct on SK_FPGun; carried over to SK_Revolver by assumption before,
+    // now confirmed by this measurement instead).
     // Not verified with a screenshot -- computer-use was off the table when
     // this was written. If the pistol reads wrong in Play, that is the first
     // number to hand-correct, from the guard's own point of view (forward /
     // back / left / right / up / down), not the camera's.
-    FRotator WeaponGripRotation = FRotator(0.0f, 180.0f, 0.0f);
+    FRotator WeaponGripRotation = FRotator(0.0f, -90.0f, 0.0f);
 
     // The menu's rows, also reachable from the number keys.
     UFUNCTION(BlueprintCallable, Category="DerClue|Interaction")
