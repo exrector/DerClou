@@ -73,10 +73,24 @@
   },
   {
    "Name": "BlendPosesByTag",
-   "Enabled": true
+   "Enabled": true,
+   "MarketplaceURL": "com.epicgames.launcher://ue/Fab/product/61ec1d65-f389-44c1-ad9e-398ac5f2fa4f"
   },
   {
    "Name": "CMC_PLUS",
+   "Enabled": true,
+   "MarketplaceURL": "https://venty.gitbook.io/cmc-plus"
+  },
+  {
+   "Name": "PythonScriptPlugin",
+   "Enabled": true
+  },
+  {
+   "Name": "EditorScriptingUtilities",
+   "Enabled": true
+  },
+  {
+   "Name": "FunplayMCP",
    "Enabled": true
   }
  ]
